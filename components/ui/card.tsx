@@ -64,11 +64,4 @@ function CardFooter({ className, ...props }: ComponentProps<'div'>) {
   )
 }
 
-export {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-  CardContent,
-  CardFooter,
-}
+export { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }

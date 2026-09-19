@@ -6,36 +6,6 @@ const tones = {
   effort: 'bg-amber-500',
 } as const
 
-export function ScoreMeter({
-  label,
-  value,
-  tone,
-}: {
-  label: string
-  value: number
-  tone: keyof typeof tones
-}) {
-  return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-center justify-between text-xs">
-        <span className="text-muted-foreground">{label}</span>
-        <span className="font-medium tabular-nums">{value}/5</span>
-      </div>
-      <div className="flex gap-1">
-        {[1, 2, 3, 4, 5].map((n) => (
-          <span
-            key={n}
-            className={cn(
-              'h-1.5 flex-1 rounded-full',
-              n <= value ? tones[tone] : 'bg-muted',
-            )}
-          />
-        ))}
-      </div>
-    </div>
-  )
-}
-
 /** Editable 1–5 selector used in forms. */
 export function ScorePicker({
   label,

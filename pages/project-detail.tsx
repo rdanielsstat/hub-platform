@@ -127,8 +127,14 @@ export function ProjectDetailPage() {
         </Link>
         {confirmingDelete ? (
           <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">Delete this idea?</span>
-            <Button variant="ghost" size="sm" onClick={() => setConfirmingDelete(false)}>
+            <span className="text-xs text-muted-foreground">
+              Delete this idea?
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setConfirmingDelete(false)}
+            >
               Cancel
             </Button>
             <Button variant="destructive" size="sm" onClick={handleDelete}>

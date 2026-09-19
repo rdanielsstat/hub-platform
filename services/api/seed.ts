@@ -18,7 +18,8 @@ export const seedProjects: Project[] = [
   {
     id: 'p-incubator',
     name: 'This Incubator',
-    pitch: 'The platform itself: one home to capture, triage, and graduate every idea.',
+    pitch:
+      'The platform itself: one home to capture, triage, and graduate every idea.',
     description:
       'A personal platform to capture, organize, and triage project ideas where any idea can graduate into a real, standalone build, but there is a place for all of them. Exists to stop the scatter, not to become a thing endlessly polished instead of shipping.',
     status: 'Active',

@@ -4,12 +4,7 @@ import { Select } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 
 export type SortKey =
-  | 'updated'
-  | 'opportunity'
-  | 'excitement'
-  | 'effort'
-  | 'target'
-  | 'name'
+  'updated' | 'opportunity' | 'excitement' | 'effort' | 'target' | 'name'
 
 export const SORT_LABELS: Record<SortKey, string> = {
   updated: 'Recently updated',
