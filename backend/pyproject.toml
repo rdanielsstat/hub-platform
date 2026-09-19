@@ -4,6 +4,20 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.12"
 dependencies = [
+    "argon2-cffi>=25.1.0",
+    "email-validator>=2.3.0",
     "fastapi>=0.141.1",
+    "passlib>=1.7.4",
+    "pyjwt>=2.14.0",
+    "python-multipart>=0.0.32",
     "uvicorn[standard]>=0.53.0",
 ]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

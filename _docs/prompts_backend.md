@@ -50,3 +50,55 @@ Set up:
 
 When done: run the app with uv and confirm GET /health responds and the auto-generated /docs page loads. Report the exact commands to run it, the folder structure you created, and confirm it runs clean. Don't commit, I'll review.
 ```
+
+## 4
+
+```
+Build the first real backend slice in backend/: authentication plus project endpoints, scoped per user, against an in-memory store. Build to the existing openapi.yaml contract. Do not build notes or attachments yet, those come in a later step. Do not add a database yet, the store stays in-memory.
+
+Read openapi.yaml, _docs/specs.md, and AGENTS.md first. Implement only the auth endpoints and the project endpoints from the contract:
+- POST /auth/register, POST /auth/login, GET /auth/me
+- GET/POST /projects, GET/PATCH/DELETE /projects/{projectId}
+
+Requirements:
+- Roll-your-own auth: hash passwords (bcrypt or argon2 via passlib), issue JWT bearer tokens, OAuth2 password flow, matching how the contract already describes login (form-urlencoded, username=email; snake_case token response). A protected endpoint with no/invalid token returns 401.
+- Per-user isolation is the point of this step: every project read and write is scoped to the authenticated user. A user requesting a project that isn't theirs gets 404 (not 403), so the API never reveals another user's data exists. Creating a project assigns the current user as owner.
+- Match the contract's shapes exactly: camelCase JSON everywhere (Pydantic alias config), the status enum, 1-5 score fields, labeled links, the field names the frontend expects. The response shapes must match what openapi.yaml specifies so the frontend can wire to this unchanged later.
+- Fill in the placeholder modules from the scaffold (auth/, models/, db/, routers/) rather than restructuring. Keep the in-memory store swappable for a real database later (the db/ seam).
+- Seed the in-memory store with one test user and a couple of projects owned by that user, so there's something to log in as and see. Note the seeded credentials in the README.
+
+Testing (set up the harness this step, it doesn't exist yet):
+- Add pytest + httpx (or FastAPI's TestClient) as dev deps via uv.
+- Auth tests: register a new user; log in and get a token; login with wrong password is rejected; a protected endpoint with no token returns 401.
+- Isolation tests (the important ones): create user A and user B, each with their own project; confirm A can list and get A's project; confirm A gets 404 (not 403) trying to GET B's project; confirm A cannot PATCH or DELETE B's project; confirm A's project list never includes B's projects.
+- Add the test command to the README.
+
+When done: run the app with uv and confirm the auth and project endpoints work via /docs, and run the full test suite and confirm it passes (report the count). Walk me through what you built, the module layout you filled in, and anything in the contract that was ambiguous or that you had to decide. Don't commit, I'll review.
+```
+
+## 5
+
+```
+Wire the frontend to the real backend for auth and projects. The backend (backend/, FastAPI) now implements auth and project endpoints per openapi.yaml against an in-memory store; the frontend still runs entirely on its in-memory mock with no login. This step connects them for auth and projects only. Notes and attachments have no backend yet and must keep working off the mock.
+
+Read AGENTS.md, openapi.yaml, backend/README.md (for the run command and seeded demo credentials), and the frontend's services/api/ layer first, so you wire to the real contract and understand the existing seam.
+
+Build:
+- Login and signup screens. Login: email + password. Signup: email + password + optional display name. Match the app's existing visual style (sleek, minimal, the patterns already used elsewhere). Show clear errors (wrong credentials, email already taken).
+- Auth flow against the backend: register → POST /auth/register, login → POST /auth/login (OAuth2 password form, username=email), fetch current user → GET /auth/me.
+- Token storage and the auth header: store the JWT, attach it as a bearer token on every authenticated request, and clear it on logout. Handle a 401 (expired/invalid token) by sending the user back to login rather than leaving the app in a broken state.
+- Gate the app behind auth: an unauthenticated user sees login/signup; an authenticated user sees the app. Add a sign-out control (the account/profile area is fine).
+- Swap the services/api/ layer so auth and project calls hit the real backend over HTTP, while notes and attachments keep using the mock. Keep the single-seam design: components still go through the api layer, never call fetch directly. Make the real/mock split clean and obvious in the api layer, with a clear marker that notes/attachments are pending a backend so the next step knows exactly what to swap.
+
+Config:
+- The backend runs on localhost:8000, the frontend on localhost:5173 (CORS is already set for this). Put the backend base URL in one place (an env var / config module), not hardcoded across files, so it can point at a deployed backend later.
+
+Testing and verification (I want this checked as you go, per how we're working now):
+- After building, run the backend and frontend together and verify end to end in the browser: sign up a new user, log out, log back in, and confirm you see that user's projects (empty for a brand-new user). Then log in as the seeded demo user (demo@hub.dev / demo1234) and confirm the seeded projects load from the backend.
+- Verify isolation through the real UI: the new user does not see the demo user's projects.
+- Verify creating/editing/deleting a project through the UI persists against the backend (survives a page reload while the backend stays running), and that notes still work (against the mock).
+- Verify a logged-out user cannot reach the app, and that logging out clears the token.
+- Keep lint at 0/0, tsc and build clean. If the Chrome extension is connected, verify visually; if not, tell me what you could not verify visually rather than claiming it works.
+
+Report what you built, how the real/mock split is structured, and anything in the contract or existing frontend that didn't line up. Don't commit, I'll review.
+```

@@ -31,6 +31,24 @@ Known issues deferred for later, from the read-only code review and subsequent w
 - **Dark mode persistence** — resets to light on reload and ignores system preference; `<meta name="theme-color">` is also static and won't follow the toggle.
 - **Login / auth + real backend** — the whole next phase (spec §4.1).
 
+## JWT signing secret is a hardcoded dev default
+
+The JWT signing secret defaults to a hardcoded string in backend/app/auth/security.py,
+overridable via the HUB_JWT_SECRET env var. Fine for local dev, but a security hole if
+it ever reaches a deployed/shared environment: anyone who knows the secret can forge
+valid auth tokens for any user.
+
+Required before any deployment:
+- Move the secret (and JWT expiry, and other config) into a proper settings module in
+  app/core/, read from the environment with no insecure fallback in non-local contexts.
+- Generate a strong random secret per environment (dev/prod separate), stored as a real
+  secret (env var / secrets manager), never committed.
+- Fail fast: the app should refuse to start in a non-local environment if HUB_JWT_SECRET
+  is unset, rather than silently using the dev default.
+
+Related: app/core/ is currently empty; this is the first thing that needs it. Token
+expiry (currently hardcoded 60 min) and the argon2 parameters should move there too.
+
 ## Notes
 
 - A minor deviation from the em-dash pass: the `'—'` "no date" placeholder in `lib/project-utils.ts` (and one spot in `project-detail.tsx`) was replaced with an empty string rather than punctuation. Both branches are currently unreachable. Decide later whether it should show something like "None" instead.

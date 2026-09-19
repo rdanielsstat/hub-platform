@@ -1,12 +1,47 @@
 import { useState } from 'react'
-import { Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes } from 'react-router-dom'
+import { Loader2 } from 'lucide-react'
+import { useAuth } from '@/use-auth'
+import { StoreProvider } from '@/store'
 import { AppHeader } from '@/components/layout/app-header'
 import { QuickCaptureDialog } from '@/components/quick-capture-dialog'
 import { DashboardPage } from '@/pages/dashboard'
 import { ProjectDetailPage } from '@/pages/project-detail'
 import { NotFoundPage } from '@/pages/not-found'
+import { LoginPage } from '@/pages/login'
+import { SignupPage } from '@/pages/signup'
 
 export function App() {
+  const { status } = useAuth()
+
+  if (status === 'loading') {
+    return (
+      <div className="grid min-h-dvh place-items-center">
+        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (status === 'unauthenticated') {
+    return (
+      <Routes>
+        <Route path="/signup" element={<SignupPage />} />
+        <Route path="*" element={<LoginPage />} />
+      </Routes>
+    )
+  }
+
+  // Mounting StoreProvider only once authenticated ensures its project
+  // state (and the fetch-on-mount that populates it) starts fresh for
+  // each signed-in user, and never fires while logged out.
+  return (
+    <StoreProvider>
+      <AuthenticatedApp />
+    </StoreProvider>
+  )
+}
+
+function AuthenticatedApp() {
   const [captureOpen, setCaptureOpen] = useState(false)
 
   return (
@@ -19,6 +54,8 @@ export function App() {
             element={<DashboardPage onCapture={() => setCaptureOpen(true)} />}
           />
           <Route path="/project/:id" element={<ProjectDetailPage />} />
+          <Route path="/login" element={<Navigate to="/" replace />} />
+          <Route path="/signup" element={<Navigate to="/" replace />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </main>

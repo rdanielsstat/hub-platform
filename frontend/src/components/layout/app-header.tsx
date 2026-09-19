@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Moon, Plus, Sun } from 'lucide-react'
+import { LogOut, Moon, Plus, Sun } from 'lucide-react'
+import { useAuth } from '@/use-auth'
 import { Button } from '@/components/ui/button'
 
 function useTheme() {
@@ -13,6 +14,7 @@ function useTheme() {
 
 export function AppHeader({ onCapture }: { onCapture: () => void }) {
   const { dark, toggle } = useTheme()
+  const { user, logout } = useAuth()
 
   return (
     <header className="sticky top-0 z-30 border-b border-border/80 bg-background/80 backdrop-blur-md">
@@ -40,6 +42,19 @@ export function AppHeader({ onCapture }: { onCapture: () => void }) {
             <span className="hidden sm:inline">Quick capture</span>
             <span className="sm:hidden">Capture</span>
           </Button>
+          <div className="ml-1 flex items-center gap-1.5 border-l border-border pl-2">
+            <span className="hidden max-w-28 truncate text-xs text-muted-foreground sm:inline">
+              {user?.displayName || user?.email}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={logout}
+              aria-label="Sign out"
+            >
+              <LogOut />
+            </Button>
+          </div>
         </div>
       </div>
     </header>

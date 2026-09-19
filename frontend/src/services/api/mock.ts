@@ -7,9 +7,14 @@ import type {
 } from './types'
 
 /**
- * In-memory mock backend. Holds a mutable copy of the seed data so the whole
- * app runs with no real backend. This is the ONLY place that "owns" the data;
- * swap this module for real HTTP calls behind the same `api` surface later.
+ * In-memory mock backend. Projects and auth now hit the real FastAPI
+ * backend (see real.ts / auth.ts); this module still backs notes and
+ * attachments, which have no backend yet (see index.ts).
+ *
+ * Its own `projects` array only exists to support that: bumping a
+ * project's updatedAt when a note is added/removed. It no longer feeds
+ * the dashboard, so a real (backend-owned) project id won't be found
+ * here — touchProject returns null in that case instead of throwing.
  */
 
 let projects: Project[] = seedProjects.map((p) => ({ ...p }))
@@ -34,10 +39,14 @@ function clone<T>(value: T): T {
  * from any mutation on a project's child records (notes today; attachments
  * once that feature exists) so "recently updated" reflects real activity
  * on the project, not just edits to its own fields.
+ *
+ * Returns null if this store doesn't know the project (it belongs to the
+ * real backend now) rather than throwing, so notes still work on a
+ * backend-owned project; callers just skip the local touch in that case.
  */
-function touchProject(id: string): Project {
+function touchProject(id: string): Project | null {
   const index = projects.findIndex((p) => p.id === id)
-  if (index === -1) throw new Error(`Project ${id} not found`)
+  if (index === -1) return null
   const updated: Project = {
     ...projects[index],
     updatedAt: new Date().toISOString(),
@@ -106,7 +115,7 @@ export const mockApi = {
   async addNote(
     projectId: string,
     body: string,
-  ): Promise<{ note: Note; project: Project }> {
+  ): Promise<{ note: Note; project: Project | null }> {
     const note: Note = {
       id: uid('n'),
       projectId,
@@ -115,14 +124,18 @@ export const mockApi = {
     }
     notes = [note, ...notes]
     const project = touchProject(projectId)
-    return delay({ note: clone(note), project: clone(project) })
+    return delay({
+      note: clone(note),
+      project: project ? clone(project) : null,
+    })
   },
 
-  async deleteNote(id: string): Promise<Project> {
+  async deleteNote(id: string): Promise<Project | null> {
     const note = notes.find((n) => n.id === id)
     if (!note) throw new Error(`Note ${id} not found`)
     notes = notes.filter((n) => n.id !== id)
-    return delay(clone(touchProject(note.projectId)))
+    const project = touchProject(note.projectId)
+    return delay(project ? clone(project) : null)
   },
 }
 

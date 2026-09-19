@@ -7,3 +7,7 @@ dist
 # Logs / cache
 pnpm-debug.log*
 .eslintcache
+
+# Env
+.env
+.env.local

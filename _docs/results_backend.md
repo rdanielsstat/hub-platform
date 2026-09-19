@@ -107,3 +107,81 @@ uv run uvicorn app.main:app --reload # dev server, http://localhost:8000
 - git add -n backend/ confirms .venv/ and __pycache__/ are properly ignored
 
 Nothing committed.
+
+## 4 - Backend auth + projects (in-memory)
+
+Built auth and project CRUD in backend/, scoped per user, against the in-memory store. Built to openapi.yaml. No notes/attachments, no database yet. 15/15 tests pass. Not committed.
+
+### What was built
+
+**Auth** (app/auth/, app/routers/auth.py)
+- security.py: hash_password/verify_password via passlib with argon2, create_access_token/decode_access_token via PyJWT, HS256, 60-minute expiry.
+- dependencies.py: get_current_user, an OAuth2PasswordBearer dependency that decodes the bearer token and loads the user; raises 401 on missing/invalid/expired token or unknown subject.
+- routers/auth.py: POST /auth/register (409 on duplicate email), POST /auth/login (OAuth2PasswordRequestForm, so Swagger's Authorize button works), GET /auth/me.
+
+**Projects** (app/routers/projects.py)
+- Full CRUD scoped through get_current_user. Every store lookup takes (project_id, owner_id) together, so store.get_project returns None if the id doesn't exist or belongs to someone else, and the router turns that into a single 404 either way. Create assigns owner_id=current_user.id server-side; the client never supplies it.
+
+**Store** (app/db/store.py, app/db/seed.py)
+- InMemoryStore with UserRecord/ProjectRecord dataclasses, keyed by id, with an email index. get_store() is the dependency every router uses, so swapping in SQLAlchemy later only touches this file and the one Depends(get_store) wiring point, not the routers.
+- seed.py populates one demo user with two projects (ported from the frontend's p-incubator/p-chess seed data). Credentials in the README: demo@hub.dev / demo1234.
+
+**Models** (app/models/)
+- base.py: CamelModel (alias_generator=to_camel, populate_by_name=True); every camelCase schema extends this.
+- user.py, project.py: User, RegisterInput, Project, Link, CreateProjectInput, UpdateProjectInput matching openapi.yaml field-for-field, plus TokenResponse, which deliberately stays snake_case (access_token, token_type) per OAuth2 convention.
+
+### Decisions / things the contract left open
+
+1. **Argon2 over bcrypt.** Spec said "bcrypt/argon2." Picked argon2 — current passlib releases have a known compatibility break with recent bcrypt versions, and argon2 has no 72-byte password truncation quirk. Swappable via pwd_context in security.py.
+2. **JWT secret.** Not specified. Defaults to a hardcoded dev string in security.py, overridable via HUB_JWT_SECRET. No config/settings module yet (app/core/ still empty) — first thing that'll need one.
+3. **Token expiry.** Not specified. Picked 60 minutes; easy to change in security.py.
+4. **PATCH semantics for targetDate.** Used exclude_unset=True on UpdateProjectInput, so omitting the field leaves it untouched but explicitly sending "targetDate": null clears it — matching the frontend's clear-date button.
+5. **Case-insensitive email matching** on register/login (not in the contract, but avoids Foo@x.com and foo@x.com registering as two accounts).
+
+### Verified
+
+- uv run pytest → 15 passed (7 auth, 8 project/isolation), including the four isolation cases by name: 404-not-403 on GET, blocked PATCH, blocked DELETE with the project still intact for the owner, and list never leaking another user's projects.
+- Live server: /health and /docs both 200; logged in as the seeded demo user via /docs; confirmed /auth/me and /projects return exact camelCase shapes matching openapi.yaml (including a link with "label": null); live cross-user check against the running server confirmed 404 on GET/PATCH of another user's project and 401 with no token.
+
+Nothing committed.
+
+## 5 - Frontend wired to backend (auth + projects)
+
+Connected the frontend to the real FastAPI backend for auth and projects. Notes/attachments still on the mock. Verified end-to-end in the browser. Not committed.
+
+### What was built
+
+**Config** — frontend/src/lib/config.ts exports API_BASE_URL from VITE_API_BASE_URL (defaults to http://localhost:8000), backed by .env.example and vite-env.d.ts for typing.
+
+**HTTP layer** (services/api/)
+- token.ts — localStorage-backed JWT storage (hub.token).
+- http.ts — httpRequest(): attaches Authorization: Bearer <token> unless skipAuth, JSON- or form-encodes the body, throws HttpError(status, message) from FastAPI's detail field, and calls a registered onUnauthorized handler when an authenticated request returns 401 (never fires for a plain wrong-password login, since that request carries no token).
+- auth.ts — authApi.register/login/getCurrentUser/logout, always real (auth never had a mock).
+- real.ts — realProjectsApi, real HTTP implementations of the five project endpoints, same signatures as mockApi's.
+
+**The real/mock split** — services/api/index.ts now builds api as an object literal: project methods from realProjectsApi, note methods still from mockApi, each half labeled with a comment (MOCK — PENDING BACKEND) so the next slice knows what to swap. authApi exported alongside.
+
+**Auth state** — auth-context.ts/auth.tsx/use-auth.ts mirror the existing store pattern: status 'loading'|'authenticated'|'unauthenticated', validates a stored token against /auth/me on mount, exposes login/register/logout.
+
+**Gating** — main.tsx wraps the app in AuthProvider. App.tsx branches on status: unauthenticated renders only /login+/signup; authenticated mounts StoreProvider around the real app. Mounting StoreProvider only when authenticated ensures projects state (and its fetch-on-mount) resets cleanly between users and never fires while logged out.
+
+**UI** — pages/login.tsx, pages/signup.tsx (matching existing style), sign-out control in AppHeader (email/display name + logout icon).
+
+### What didn't line up
+
+The mock's note-touches-parent-project behavior assumed the mock owned every project. Once projects moved to the backend, touchProject would throw "Project not found" for any real project id, crashing the notes panel. Fixed by making touchProject return null instead of throwing for unrecognized ids; addNote/deleteNote (mock + store.tsx) now treat a null project as "nothing to bump locally." Notes work on real projects; they just don't bump updatedAt client-side (no backend note endpoint yet — expected until the next slice).
+
+One side effect: the frontend's old mock seed notes are now orphaned — invisible, since no real backend project has those ids. Harmless.
+
+### Verified end-to-end (backend :8000 + frontend :5173)
+
+- Signed up a new user → dashboard, empty list. Logged out (token cleared, confirmed via JS) → bounced to /login. Logged back in → same empty list.
+- Logged in as demo@hub.dev → both seeded projects loaded from the backend with correct camelCase fields.
+- Isolation: new user saw 0 projects, demo user saw exactly their 2 — confirmed both directions.
+- Created a project via Quick Capture, edited a pitch and reloaded — edit survived (confirmed via curl to /projects too), deleted it — confirmed gone via curl.
+- Added a note on a real project — works against the mock, no crash.
+- Unauthenticated deep-link to /project/<id> redirects to login.
+
+Note: the Chrome extension's synthetic clicks/typing were unreliable on the project-detail page; used native DOM dispatch as a fallback for some verification. Confirmed the flakiness was the automation link, not the app.
+
+Lint, tsc -b, vite build, prettier --check all clean. Nothing committed.

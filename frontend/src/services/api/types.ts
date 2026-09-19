@@ -57,3 +57,17 @@ export interface CreateProjectInput {
 }
 
 export type UpdateProjectInput = Partial<Omit<Project, 'id' | 'createdAt'>>
+
+export interface User {
+  id: string
+  email: string
+  displayName: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface RegisterInput {
+  email: string
+  password: string
+  displayName?: string
+}
