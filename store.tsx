@@ -1,7 +1,5 @@
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useState,
@@ -13,19 +11,7 @@ import {
   type Project,
   type UpdateProjectInput,
 } from '@/services/api'
-
-interface StoreValue {
-  projects: Project[]
-  loading: boolean
-  error: string | null
-  refresh: () => Promise<void>
-  getProject: (id: string) => Project | undefined
-  createProject: (input: CreateProjectInput) => Promise<Project>
-  updateProject: (id: string, patch: UpdateProjectInput) => Promise<Project>
-  deleteProject: (id: string) => Promise<void>
-}
-
-const StoreContext = createContext<StoreValue | null>(null)
+import { StoreContext, type StoreValue } from '@/store-context'
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [projects, setProjects] = useState<Project[]>([])
@@ -46,6 +32,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional fetch-on-mount: refresh() synchronously resets loading/error before its async api.listProjects() call, which can't happen during render.
     void refresh()
   }, [refresh])
 
@@ -98,10 +85,4 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   )
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
-}
-
-export function useStore(): StoreValue {
-  const ctx = useContext(StoreContext)
-  if (!ctx) throw new Error('useStore must be used within a StoreProvider')
-  return ctx
 }

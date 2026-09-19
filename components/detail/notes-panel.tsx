@@ -13,6 +13,7 @@ export function NotesPanel({ projectId }: { projectId: string }) {
 
   useEffect(() => {
     let active = true
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: resets the loading flag before an async listNotes() fetch whenever projectId changes; can't be derived during render.
     setLoading(true)
     void api.listNotes(projectId).then((data) => {
       if (active) {

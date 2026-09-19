@@ -19,5 +19,14 @@
       "@/*": ["./*"]
     }
   },
-  "include": ["src", "components", "lib", "services", "pages", "store.tsx"]
+  "include": [
+    "src",
+    "components",
+    "lib",
+    "services",
+    "pages",
+    "store.tsx",
+    "store-context.ts",
+    "use-store.ts"
+  ]
 }

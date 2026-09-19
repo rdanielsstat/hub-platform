@@ -13,7 +13,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select } from '@/components/ui/select'
 import { ScorePicker } from '@/components/score-meter'
-import { useStore } from '@/store'
+import { useStore } from '@/use-store'
 import { STATUSES, type Status } from '@/services/api'
 import { cn } from '@/lib/utils'
 

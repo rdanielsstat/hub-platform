@@ -1,13 +1,11 @@
 import { useMemo, useState } from 'react'
 import { Inbox, Plus } from 'lucide-react'
-import { useStore } from '@/store'
+import { useStore } from '@/use-store'
 import type { Status } from '@/services/api'
 import { ProjectCard } from '@/components/project-card'
 import { StatsRow } from '@/components/dashboard/stats-row'
-import {
-  DashboardToolbar,
-  type SortKey,
-} from '@/components/dashboard/dashboard-toolbar'
+import { DashboardToolbar } from '@/components/dashboard/dashboard-toolbar'
+import type { SortKey } from '@/components/dashboard/sort-options'
 import { Button } from '@/components/ui/button'
 import { daysUntil, opportunityScore } from '@/lib/project-utils'
 

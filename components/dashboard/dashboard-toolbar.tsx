@@ -2,18 +2,7 @@ import { Search, X } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-
-export type SortKey =
-  'updated' | 'opportunity' | 'excitement' | 'effort' | 'target' | 'name'
-
-export const SORT_LABELS: Record<SortKey, string> = {
-  updated: 'Recently updated',
-  opportunity: 'Opportunity score',
-  excitement: 'Excitement',
-  effort: 'Lowest effort',
-  target: 'Target date',
-  name: 'Name (A–Z)',
-}
+import { SORT_LABELS, type SortKey } from '@/components/dashboard/sort-options'
 
 export function DashboardToolbar({
   query,

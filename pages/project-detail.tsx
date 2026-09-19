@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -9,7 +9,7 @@ import {
   X,
   Zap,
 } from 'lucide-react'
-import { useStore } from '@/store'
+import { useStore } from '@/use-store'
 import { STATUSES, type Status } from '@/services/api'
 import { StatusBadge } from '@/components/status-badge'
 import { RatingInput } from '@/components/detail/rating-input'
@@ -35,13 +35,18 @@ export function ProjectDetailPage() {
   const [linkInput, setLinkInput] = useState('')
   const [confirmingDelete, setConfirmingDelete] = useState(false)
 
-  useEffect(() => {
-    if (!project) return
+  // Re-seed the editable draft fields when the loaded project changes,
+  // adjusted during render (see https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes)
+  // instead of via an effect, since the fields must stay independently
+  // editable afterwards rather than track `project` on every render.
+  const [seededId, setSeededId] = useState<string | undefined>(undefined)
+  if (project && project.id !== seededId) {
+    setSeededId(project.id)
     setName(project.name)
     setPitch(project.pitch)
     setDescription(project.description)
     setNextAction(project.nextAction)
-  }, [project?.id])
+  }
 
   const due = useMemo(
     () => (project ? formatDate(project.targetDate) : '-'),

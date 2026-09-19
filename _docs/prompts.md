@@ -55,3 +55,20 @@ This is batch one of a cleanup pass, from the review you did earlier. Work only 
 3. Add a favicon. The public/ folder was removed earlier so the tab has no icon. Add a simple favicon (an SVG favicon is fine) and reference it in index.html. Keep it minimal and theme-neutral.
 
 When done: run pnpm build and tsc to confirm everything still passes, run the new linter to confirm it's clean, and give me a short summary of what changed. Don't commit, I'll review and commit myself.
+
+### De linting pass
+
+This is the lint-cleanup batch. Goal: get pnpm lint to pass with zero errors and zero warnings, without disabling rules wholesale or making changes that alter behavior. Work through each finding individually and stop when lint is green.
+
+The 3 react-hooks/set-state-in-effect errors (notes-panel.tsx:16, project-detail.tsx:40, store.tsx:49): evaluate each one separately, don't treat them as identical.
+
+For each, first decide whether the value can be derived during render instead of held in state + synced via effect (the rule's preferred fix). If a clean derivation is possible without changing behavior, do that.
+
+If the effect is a genuine external-data synchronization (e.g. the store's initial fetch-on-mount) where the effect is correct and necessary, keep it and add a targeted // eslint-disable-next-line with a brief comment explaining why it's intentional. Do NOT disable the rule globally.
+Tell me, per case, which approach you took and why.
+
+The exhaustive-deps warning (project-detail.tsx:44): the effect intentionally depends on project?.id rather than project. Add a targeted disable-next-line with a one-line comment documenting that this is deliberate.
+
+The 2 react-refresh/only-export-components warnings (dashboard-toolbar.tsx:14, button.tsx:58): these fire because each file exports a component plus a non-component (a constant/variant helper). Fix properly by moving the non-component export into a separate file and updating imports, so Fast Refresh works. If moving it is genuinely impractical for a given file, fall back to a targeted disable-next-line with a comment, but prefer the split.
+
+When done: run pnpm lint (must be clean), pnpm build, and tsc (both must pass), and confirm the app still runs. Give me a per-item summary of what you did. Don't commit, I'll review and commit.
