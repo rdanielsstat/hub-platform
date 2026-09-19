@@ -224,3 +224,49 @@ Verification:
 
 Report what you changed, which optimistic-update convention you standardized on and why, and how errors now surface to the user. Update the tech-debt file to remove the Robustness and write-optimism entries now that they're addressed. Don't commit, I'll review.
 ```
+
+## 10
+
+```
+Fix dark mode so the theme choice persists and behaves correctly. Right now the theme resets to light on every reload and ignores the user's system preference, and the theme-color meta tag is static so it doesn't follow the toggle. Read the current theme handling first (it lives in components/layout/app-header.tsx's useTheme hook, and check index.html for the theme-color meta and any theme setup, and main.tsx / index.css for where theme class is applied) before changing anything, so you fix the actual mechanism rather than adding a parallel one.
+
+Do:
+- Persist the theme choice across reloads (localStorage, wrapped in try/catch so it degrades gracefully if storage is unavailable).
+- On first load with no stored choice, respect the system preference (prefers-color-scheme) instead of defaulting to light. A stored explicit choice always wins over the system preference.
+- Apply the resolved theme before first paint so there's no flash of the wrong theme on load (the common approach is a tiny inline script in index.html that sets the theme class on <html> before the app mounts — do whatever avoids the flash cleanly).
+- Make the <meta name="theme-color"> follow the current theme so the mobile browser chrome matches light/dark, and update it when the theme toggles, not just on load.
+- Keep the existing toggle control and its behavior; this is about persistence, system-preference, and no-flash, not redesigning the toggle.
+
+Verification:
+- Toggle to dark, reload → stays dark. Toggle to light, reload → stays light.
+- Clear the stored preference and load with the OS set to dark → app starts in dark; with OS light → starts light.
+- Confirm there's no flash of the wrong theme on reload.
+- Confirm the theme-color meta actually changes when toggling (check the tag's value updates).
+- If the Chrome extension is available, verify visually in both modes; if not, say what you couldn't check.
+- Keep lint 0/0, tsc and build clean.
+
+Report what the theme mechanism looks like now and anything that didn't line up. Don't commit, I'll review.
+```
+
+## 11
+
+## Dark mode persistence
+
+Theme now persists across reloads, respects system preference on first load, applies before paint (no flash), and the theme-color meta follows the toggle. Not committed.
+
+### What the mechanism looks like now
+- **index.html** — a small inline `<script>` in `<head>`, before any stylesheet or app code, runs synchronously: reads localStorage['hub.theme']; if unset, falls back to matchMedia('(prefers-color-scheme: dark)'); if dark, adds the dark class to `<html>` and sets an approximate dark theme-color. Wrapped in try/catch (falls back to light if storage/matchMedia unavailable). This eliminates the flash — the class is on `<html>` before the browser paints.
+- **src/lib/theme.ts** (new) — source of truth from React's side: getStoredTheme/setStoredTheme (try/catch localStorage) and updateThemeColorMeta(), which reads the actual computed background-color off `<body>` and writes it into the meta tag, so it can't drift from the palette in index.css.
+- **app-header.tsx's useTheme** — initial React state reads off the DOM (does `<html>` have the dark class) rather than re-deriving, trusting the inline script's resolution. toggle() flips state and persists the explicit choice. An effect applies the class and calls updateThemeColorMeta() whenever dark changes, so the meta updates on toggle, not just load. Toggle button untouched.
+
+### Didn't line up
+- The classic "normalize color via canvas fillStyle" trick (to force rgb() for theme-color) no longer works in current Chrome — canvas now preserves oklch() too. Added it defensively, checked the actual output, found it did nothing, removed it. theme-color accepts any valid CSS color and oklch() is supported by the browsers that read this meta (Chrome/Android, Safari/iOS), so it's passed through as-is. Simpler.
+- No access to true OS-level prefers-color-scheme emulation (no CDP media-emulation). Machine's real preference is light; confirmed live that a cleared preference resolves to light. For the dark-OS branch, verified the resolution expression in isolation with matchMedia mocked for all four combinations (no-stored+dark, no-stored+light, stored-light+dark-system, stored-dark+light-system) — all correct, including explicit-choice-wins. Algorithm-level, not a true dark-OS end-to-end test; flagged rather than claimed.
+
+### Verified
+- Toggle dark → reload: stays dark (html class, meta, screenshot).
+- Toggle light → reload: stays light (same checks).
+- Cleared preference + real (light) system pref → starts light, live.
+- Dark-system branch verified in isolation (couldn't drive a real dark-OS reload).
+- theme-color meta changes on toggle both directions, matching light/dark --background exactly.
+- Lint 0/0, tsc, build, prettier clean.

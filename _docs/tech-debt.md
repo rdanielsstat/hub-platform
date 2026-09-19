@@ -34,7 +34,6 @@ Known issues deferred for later, from the read-only code review and subsequent w
 - **Attachments** — spec §3/§4.3 define an attachments table and project-detail UI; none exists yet. Deferred; not critical for v1. Needs an upload-mechanism decision (direct-to-S3 presigned vs proxied) before building.
 - **PWA installability** — spec calls for installable-as-PWA; no manifest or service worker yet.
 - **Dashboard "stale" and "quick-win" surfacing** — spec §4.2; sorting exists but there's no dedicated stale badge or quick-win callout distinct from the opportunity sort.
-- **Dark mode persistence** — resets to light on reload and ignores system preference; `<meta name="theme-color">` is also static and won't follow the toggle.
 - **Deploy** — Vercel (frontend) + Neon Postgres (backend). Triggers the Postgres swap above and the security items above.
 
 ## Open questions

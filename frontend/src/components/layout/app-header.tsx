@@ -3,13 +3,31 @@ import { Link } from 'react-router-dom'
 import { LogOut, Moon, Plus, Sun } from 'lucide-react'
 import { useAuth } from '@/use-auth'
 import { Button } from '@/components/ui/button'
+import { setStoredTheme, updateThemeColorMeta } from '@/lib/theme'
 
 function useTheme() {
-  const [dark, setDark] = useState(false)
+  // The inline script in index.html already resolved and applied the
+  // theme (stored choice, else system preference) before React mounted,
+  // so the DOM's `dark` class is the source of truth for initial state —
+  // read it back rather than re-deriving it here.
+  const [dark, setDark] = useState(() =>
+    document.documentElement.classList.contains('dark'),
+  )
+
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark)
+    updateThemeColorMeta()
   }, [dark])
-  return { dark, toggle: () => setDark((d) => !d) }
+
+  function toggle() {
+    setDark((prev) => {
+      const next = !prev
+      setStoredTheme(next ? 'dark' : 'light')
+      return next
+    })
+  }
+
+  return { dark, toggle }
 }
 
 export function AppHeader({ onCapture }: { onCapture: () => void }) {
