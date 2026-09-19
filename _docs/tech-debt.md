@@ -1,0 +1,7 @@
+- Three duplicated empty-state layouts → extract one shared component (not-found page, dashboard empty state, project-detail not-found branch)
+- Duplicated back-to-dashboard button → project-detail hand-rolls it instead of using buttonVariants
+- Three rating-widget implementations with diverging accessibility → standardize on one (ScorePicker vs RatingInput)
+- Card visual drift → project-detail section cards don't use the Card primitive (this is why you kept card.tsx)
+- Two data-flow conventions → notes call the api layer directly instead of going through the store like everything else
+- getProject seam unused → detail page uses the store's synchronous filter instead of the api's single-item get (revisit with the backend)
+- Error handling on write paths + surfacing the error state → do with the backend, when failures are testable

@@ -10,6 +10,7 @@ export function NotesPanel({ projectId }: { projectId: string }) {
   const [loading, setLoading] = useState(true)
   const [body, setBody] = useState('')
   const [saving, setSaving] = useState(false)
+  const [confirmingId, setConfirmingId] = useState<string | null>(null)
 
   useEffect(() => {
     let active = true
@@ -40,6 +41,7 @@ export function NotesPanel({ projectId }: { projectId: string }) {
   }
 
   async function remove(id: string) {
+    setConfirmingId(null)
     setNotes((prev) => prev.filter((n) => n.id !== id))
     await api.deleteNote(id)
   }
@@ -95,17 +97,43 @@ export function NotesPanel({ projectId }: { projectId: string }) {
                 {note.body}
               </p>
               <div className="mt-2 flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">
-                  {formatRelative(note.createdAt)}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => remove(note.id)}
-                  aria-label="Delete note"
-                  className="text-muted-foreground opacity-0 transition-opacity hover:text-rose-500 group-hover:opacity-100"
-                >
-                  <Trash2 className="size-3.5" />
-                </button>
+                {confirmingId === note.id ? (
+                  <>
+                    <span className="text-xs text-muted-foreground">
+                      Delete this note?
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setConfirmingId(null)}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => remove(note.id)}
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-xs text-muted-foreground">
+                      {formatRelative(note.createdAt)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmingId(note.id)}
+                      aria-label="Delete note"
+                      className="text-muted-foreground opacity-0 transition-opacity hover:text-rose-500 group-hover:opacity-100"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  </>
+                )}
               </div>
             </li>
           ))}

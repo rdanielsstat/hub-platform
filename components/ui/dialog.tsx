@@ -1,5 +1,5 @@
-import { useEffect, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
+import type { ReactNode } from 'react'
+import { Dialog as BaseDialog } from '@base-ui/react/dialog'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -13,54 +13,38 @@ interface DialogProps {
 }
 
 function Dialog({ open, onClose, children, className, title }: DialogProps) {
-  useEffect(() => {
-    if (!open) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', onKey)
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => {
-      document.removeEventListener('keydown', onKey)
-      document.body.style.overflow = prev
-    }
-  }, [open, onClose])
-
-  if (!open) return null
-
-  return createPortal(
-    <div
-      className="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
+  return (
+    <BaseDialog.Root
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) onClose()
+      }}
     >
-      <div
-        className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-in fade-in-0"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-      <div
-        className={cn(
-          'relative z-10 flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-2xl border border-border bg-card shadow-lg',
-          'sm:max-w-lg sm:rounded-2xl',
-          'animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-4 sm:slide-in-from-bottom-0',
-          className,
-        )}
-      >
-        <button
-          type="button"
-          onClick={onClose}
-          className="absolute right-3 top-3 z-20 grid size-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          aria-label="Close"
-        >
-          <X className="size-4" />
-        </button>
-        {children}
-      </div>
-    </div>,
-    document.body,
+      <BaseDialog.Portal>
+        <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
+          <BaseDialog.Backdrop className="fixed inset-0 bg-black/40 backdrop-blur-sm transition-opacity data-[ending-style]:opacity-0 data-[starting-style]:opacity-0" />
+          <BaseDialog.Popup
+            aria-label={title}
+            initialFocus={false}
+            className={cn(
+              'relative z-10 flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-2xl border border-border bg-card shadow-lg transition-all',
+              'sm:max-w-lg sm:rounded-2xl',
+              'data-[starting-style]:translate-y-4 data-[starting-style]:opacity-0 sm:data-[starting-style]:translate-y-0 sm:data-[starting-style]:scale-95',
+              'data-[ending-style]:translate-y-4 data-[ending-style]:opacity-0 sm:data-[ending-style]:translate-y-0 sm:data-[ending-style]:scale-95',
+              className,
+            )}
+          >
+            <BaseDialog.Close
+              aria-label="Close"
+              className="absolute right-3 top-3 z-20 grid size-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              <X className="size-4" />
+            </BaseDialog.Close>
+            {children}
+          </BaseDialog.Popup>
+        </div>
+      </BaseDialog.Portal>
+    </BaseDialog.Root>
   )
 }
 
