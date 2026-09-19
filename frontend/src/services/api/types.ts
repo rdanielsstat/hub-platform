@@ -9,6 +9,11 @@ export const STATUSES = [
 
 export type Status = (typeof STATUSES)[number]
 
+export interface Link {
+  label?: string
+  url: string
+}
+
 export interface Project {
   id: string
   name: string
@@ -25,7 +30,7 @@ export interface Project {
   nextAction: string
   /** ISO date string or null */
   targetDate: string | null
-  links: string[]
+  links: Link[]
   createdAt: string
   updatedAt: string
 }
@@ -48,7 +53,7 @@ export interface CreateProjectInput {
   potential?: number
   nextAction?: string
   targetDate?: string | null
-  links?: string[]
+  links?: Link[]
 }
 
 export type UpdateProjectInput = Partial<Omit<Project, 'id' | 'createdAt'>>

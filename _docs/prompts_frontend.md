@@ -1,4 +1,4 @@
-# Prompts
+# Frontend Prompts
 
 ## v0.app front-end specification
 
@@ -203,4 +203,26 @@ Do not regress the existing no-op behavior: only a real change bumps updatedAt. 
 Note for future awareness: attachments aren't built yet, but when they are, the same rule should apply, creating or deleting an attachment should bump the parent project too. If there's a natural place to handle this centrally so attachments are covered automatically when added, prefer that; if not, just flag that the attachment feature will need to apply this same bump when it's built.
 
 Verify: adding a note moves its project to the top of the recently-updated sort, deleting a note does too, a real project-field edit still bumps, and a no-op blur still doesn't. Keep lint at 0/0, tsc and build clean. Don't commit, I'll review.
+```
+
+### 17
+
+```
+Create an AGENTS.md at the repo root: standing instructions for AI coding agents working in this project. First inspect the repo (folder layout, frontend/package.json, existing config) so the contents are accurate rather than assumed. Keep it concise and factual, this is a reference agents read every session, not a spec.
+
+Include:
+
+Project: one or two lines on what this is (hub, a platform to capture, organize, and triage project ideas). Point to _docs/specs.md as the source of truth for the product and data model rather than duplicating it.
+
+Structure: the actual layout after inspecting. Frontend app lives in frontend/ (with its own src/, config, etc.). Backend will live in backend/ (not built yet). Shared docs in _docs/.
+
+Frontend stack & commands: Vite + React 19 + TypeScript, Tailwind v4, shadcn/ui, @base-ui/react, pnpm. The real scripts from frontend/package.json (dev, build, lint, format), noting they run from inside frontend/. Note the @/ alias points at frontend/src, and that all data access goes through frontend/src/services/api/ (never direct fetch).
+
+Backend (planned, not built): FastAPI in backend/, Python deps via uv. Starts on an in-memory store, then SQLite via SQLAlchemy kept database-agnostic for later Postgres. Auth is roll-your-own (password hashing + JWT bearer tokens, OAuth2 password flow), token-based so the same API serves web and a future iOS app. Multi-user with per-user data isolation. Mark this section clearly as intended/planned since the folder doesn't exist yet.
+
+Working conventions: commit regularly; keep changes small and scoped; run lint/typecheck/build and confirm clean before considering a task done; don't commit unless asked; match existing code style (ESLint/Prettier configured, must stay 0/0).
+
+Do-not: don't restructure working code without being asked; don't add dependencies casually; don't reproduce or edit _docs/ planning files as if they were code.
+
+After creating it, show it to me so I can adjust. Don't commit.
 ```

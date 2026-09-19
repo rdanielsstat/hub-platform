@@ -1,0 +1,694 @@
+openapi: 3.1.0
+info:
+  title: Hub API
+  description: >
+    API contract for the Hub backend (FastAPI). Derived from the frontend's
+    API client (frontend/src/services/api/) and the data model in
+    _docs/specs.md. This is the contract the backend must implement; the
+    backend does not exist yet.
+  version: 0.1.0
+servers:
+  - url: http://localhost:8000
+    description: Local development
+
+tags:
+  - name: auth
+  - name: projects
+  - name: notes
+  - name: attachments
+
+security:
+  - bearerAuth: []
+
+paths:
+  /auth/register:
+    post:
+      tags: [auth]
+      summary: Self-register a new account
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterInput'
+      responses:
+        '201':
+          description: Account created and logged in
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '409':
+          description: Email already registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Log in (OAuth2 password flow)
+      description: >
+        Standard OAuth2 password grant so FastAPI's built-in OAuth2PasswordBearer
+        / Swagger "Authorize" tooling works out of the box. The email goes in the
+        `username` field.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoginForm'
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Incorrect email or password
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /auth/me:
+    get:
+      tags: [auth]
+      summary: Get the current authenticated user
+      responses:
+        '200':
+          description: The current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /projects:
+    get:
+      tags: [projects]
+      summary: List the current user's projects
+      description: >
+        Returns all of the authenticated user's projects, unsorted and
+        unfiltered. Filtering by status/tag and sorting by score or date
+        (per the spec's dashboard) is done client-side today; the frontend's
+        listProjects() call takes no parameters.
+      responses:
+        '200':
+          description: The user's projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Project'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [projects]
+      summary: Create a project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProjectInput'
+      responses:
+        '201':
+          description: Project created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /projects/{projectId}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [projects]
+      summary: Get a single project
+      responses:
+        '200':
+          description: The project
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [projects]
+      summary: Update a project
+      description: >
+        Partial update. Any subset of fields may be sent. `updatedAt` is
+        always server-set to the current time on a successful update and
+        cannot be set by the client.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProjectInput'
+      responses:
+        '200':
+          description: The updated project
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [projects]
+      summary: Delete a project
+      description: Also deletes the project's notes and attachments (cascade).
+      responses:
+        '204':
+          description: Project deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /projects/{projectId}/notes:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [notes]
+      summary: List a project's notes
+      description: Returned newest first (descending by createdAt).
+      responses:
+        '200':
+          description: The project's notes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Note'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [notes]
+      summary: Add a note to a project
+      description: >
+        Adding a note also bumps the parent project's updatedAt, so the
+        response includes both the created note and the updated project.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateNoteInput'
+      responses:
+        '201':
+          description: Note created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AddNoteResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /notes/{noteId}:
+    parameters:
+      - $ref: '#/components/parameters/NoteId'
+    delete:
+      tags: [notes]
+      summary: Delete a note
+      description: >
+        Ownership is enforced via the parent project (notes have no owner of
+        their own). Also bumps the parent project's updatedAt, so the
+        response is the updated parent project.
+      responses:
+        '200':
+          description: The note's parent project, updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /projects/{projectId}/attachments:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [attachments]
+      summary: List a project's attachments
+      description: >
+        PROVISIONAL. The frontend does not call this yet (no attachments UI
+        exists). Shape follows the spec's `attachments` table; not confirmed
+        against any real caller. See openapi.yaml walkthrough for open
+        questions (upload mechanism).
+      responses:
+        '200':
+          description: The project's attachments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Attachment'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [attachments]
+      summary: Add an attachment to a project
+      description: >
+        PROVISIONAL and UNDECIDED. Modeled here as a JSON body referencing an
+        already-uploaded file (e.g. after a direct-to-S3 presigned PUT), but
+        a proxied multipart upload is equally plausible and not yet decided.
+        Do not implement against this until confirmed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAttachmentInput'
+      responses:
+        '201':
+          description: Attachment created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attachment'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /attachments/{attachmentId}:
+    parameters:
+      - $ref: '#/components/parameters/AttachmentId'
+    delete:
+      tags: [attachments]
+      summary: Delete an attachment
+      description: PROVISIONAL, see POST /projects/{projectId}/attachments.
+      responses:
+        '204':
+          description: Attachment deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    ProjectId:
+      name: projectId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    NoteId:
+      name: noteId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    AttachmentId:
+      name: attachmentId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid bearer token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/HTTPError'
+    NotFound:
+      description: >
+        Resource does not exist, or exists but is owned by a different user.
+        The two cases are indistinguishable by design, to avoid leaking
+        existence of other users' data.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/HTTPError'
+    ValidationError:
+      description: Request body failed validation
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/HTTPValidationError'
+
+  schemas:
+    Status:
+      type: string
+      enum: [Inbox, Exploring, Active, Parked, Graduated, Killed]
+
+    User:
+      type: object
+      required: [id, email, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        displayName:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    RegisterInput:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+        displayName:
+          type: string
+
+    LoginForm:
+      type: object
+      description: OAuth2 password grant fields (application/x-www-form-urlencoded).
+      required: [username, password]
+      properties:
+        grant_type:
+          type: string
+          enum: [password]
+        username:
+          type: string
+          format: email
+          description: The account's email address.
+        password:
+          type: string
+        scope:
+          type: string
+        client_id:
+          type: string
+        client_secret:
+          type: string
+
+    TokenResponse:
+      type: object
+      description: >
+        Field names follow the OAuth2 spec (snake_case), not the camelCase
+        convention used elsewhere in this API, for compatibility with
+        standard OAuth2 client tooling.
+      required: [access_token, token_type]
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          enum: [bearer]
+
+    Project:
+      type: object
+      required:
+        - id
+        - name
+        - pitch
+        - description
+        - status
+        - tags
+        - excitement
+        - effort
+        - potential
+        - nextAction
+        - targetDate
+        - links
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        pitch:
+          type: string
+          description: One-line, scannable pitch, separate from description.
+        description:
+          type: string
+          description: The full brain-dump.
+        status:
+          $ref: '#/components/schemas/Status'
+        tags:
+          type: array
+          items:
+            type: string
+        excitement:
+          type: integer
+          minimum: 1
+          maximum: 5
+        effort:
+          type: integer
+          minimum: 1
+          maximum: 5
+        potential:
+          type: integer
+          minimum: 1
+          maximum: 5
+        nextAction:
+          type: string
+          description: The single next concrete step (GTD core).
+        targetDate:
+          type: string
+          format: date
+          nullable: true
+        links:
+          type: array
+          items:
+            $ref: '#/components/schemas/Link'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateProjectInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        pitch:
+          type: string
+        description:
+          type: string
+        status:
+          $ref: '#/components/schemas/Status'
+        tags:
+          type: array
+          items:
+            type: string
+        excitement:
+          type: integer
+          minimum: 1
+          maximum: 5
+        effort:
+          type: integer
+          minimum: 1
+          maximum: 5
+        potential:
+          type: integer
+          minimum: 1
+          maximum: 5
+        nextAction:
+          type: string
+        targetDate:
+          type: string
+          format: date
+          nullable: true
+        links:
+          type: array
+          items:
+            $ref: '#/components/schemas/Link'
+
+    UpdateProjectInput:
+      type: object
+      description: >
+        Partial update; every field optional. Excludes id, createdAt, and
+        updatedAt, which are never client-settable.
+      properties:
+        name:
+          type: string
+        pitch:
+          type: string
+        description:
+          type: string
+        status:
+          $ref: '#/components/schemas/Status'
+        tags:
+          type: array
+          items:
+            type: string
+        excitement:
+          type: integer
+          minimum: 1
+          maximum: 5
+        effort:
+          type: integer
+          minimum: 1
+          maximum: 5
+        potential:
+          type: integer
+          minimum: 1
+          maximum: 5
+        nextAction:
+          type: string
+        targetDate:
+          type: string
+          format: date
+          nullable: true
+        links:
+          type: array
+          items:
+            $ref: '#/components/schemas/Link'
+
+    Link:
+      type: object
+      required: [url]
+      properties:
+        label:
+          type: string
+        url:
+          type: string
+          format: uri
+
+    Note:
+      type: object
+      required: [id, projectId, body, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        projectId:
+          type: string
+          format: uuid
+        body:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateNoteInput:
+      type: object
+      required: [body]
+      properties:
+        body:
+          type: string
+
+    AddNoteResponse:
+      type: object
+      required: [note, project]
+      properties:
+        note:
+          $ref: '#/components/schemas/Note'
+        project:
+          $ref: '#/components/schemas/Project'
+
+    Attachment:
+      type: object
+      description: PROVISIONAL, see paths using it.
+      required: [id, projectId, filePath, caption, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        projectId:
+          type: string
+          format: uuid
+        filePath:
+          type: string
+          description: Storage key/URL.
+        caption:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateAttachmentInput:
+      type: object
+      description: PROVISIONAL, see paths using it.
+      required: [filePath]
+      properties:
+        filePath:
+          type: string
+        caption:
+          type: string
+
+    HTTPError:
+      type: object
+      required: [detail]
+      properties:
+        detail:
+          type: string
+
+    HTTPValidationError:
+      type: object
+      properties:
+        detail:
+          type: array
+          items:
+            type: object
+            properties:
+              loc:
+                type: array
+                items:
+                  anyOf:
+                    - type: string
+                    - type: integer
+              msg:
+                type: string
+              type:
+                type: string

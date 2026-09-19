@@ -10,7 +10,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { useStore } from '@/use-store'
-import { STATUSES, type Status } from '@/services/api'
+import { STATUSES, type Link as ProjectLink, type Status } from '@/services/api'
 import { StatusBadge } from '@/components/status-badge'
 import { RatingInput } from '@/components/detail/rating-input'
 import { NotesPanel } from '@/components/detail/notes-panel'
@@ -32,6 +32,7 @@ export function ProjectDetailPage() {
   const [description, setDescription] = useState('')
   const [nextAction, setNextAction] = useState('')
   const [tagInput, setTagInput] = useState('')
+  const [linkLabelInput, setLinkLabelInput] = useState('')
   const [linkInput, setLinkInput] = useState('')
   const [confirmingDelete, setConfirmingDelete] = useState(false)
 
@@ -117,12 +118,17 @@ export function ProjectDetailPage() {
     const url = linkInput.trim()
     if (!url) return
     const normalized = /^https?:\/\//i.test(url) ? url : `https://${url}`
-    void save({ links: [...project!.links, normalized] })
+    const label = linkLabelInput.trim()
+    const link: ProjectLink = label
+      ? { label, url: normalized }
+      : { url: normalized }
+    void save({ links: [...project!.links, link] })
+    setLinkLabelInput('')
     setLinkInput('')
   }
 
   function removeLink(url: string) {
-    void save({ links: project!.links.filter((l) => l !== url) })
+    void save({ links: project!.links.filter((l) => l.url !== url) })
   }
 
   async function handleDelete() {
@@ -335,22 +341,22 @@ export function ProjectDetailPage() {
               <ul className="flex flex-col gap-1">
                 {project.links.map((link) => (
                   <li
-                    key={link}
+                    key={link.url}
                     className="group flex items-center justify-between gap-2 rounded-md px-1.5 py-1 text-sm hover:bg-muted"
                   >
                     <a
-                      href={link}
+                      href={link.url}
                       target="_blank"
                       rel="noreferrer"
                       className="flex min-w-0 items-center gap-1.5 truncate text-primary"
                     >
                       <ArrowUpRight className="size-3.5 shrink-0" />
-                      <span className="truncate">{link}</span>
+                      <span className="truncate">{link.label || link.url}</span>
                     </a>
                     <button
                       type="button"
-                      aria-label={`Remove link ${link}`}
-                      onClick={() => removeLink(link)}
+                      aria-label={`Remove link ${link.label || link.url}`}
+                      onClick={() => removeLink(link.url)}
                       className="shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-rose-500 group-hover:opacity-100"
                     >
                       <X className="size-3.5" />
@@ -362,6 +368,18 @@ export function ProjectDetailPage() {
               <p className="text-xs text-muted-foreground">No links yet.</p>
             )}
             <div className="flex gap-2">
+              <Input
+                value={linkLabelInput}
+                onChange={(e) => setLinkLabelInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    addLink()
+                  }
+                }}
+                placeholder="Label (optional)"
+                className="h-8 w-28 shrink-0"
+              />
               <Input
                 value={linkInput}
                 onChange={(e) => setLinkInput(e.target.value)}
