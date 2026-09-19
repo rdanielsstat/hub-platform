@@ -155,3 +155,19 @@ Make sure a real change still saves normally, and confirm an unchanged blur does
 ```
 Read this project's Claude Code session transcript(s), extract every prompt I (the user) sent, in order, and write them to _docs/prompts_cc.md as a numbered list, each prompt in a code block, with nothing of your own responses, just my prompts verbatim. If there are multiple sessions, separate them with headers.
 ```
+
+### 14
+
+```
+Refactor the project's folder structure to the conventional Vite layout: move all application source into src/. Currently components/, lib/, pages/, services/, store.tsx, store-context.ts, and use-store.ts live at the repo root instead of under src/, a leftover from the v0/Next.js origin. Consolidate them under src/.
+
+Requirements:
+- Move components/, lib/, pages/, services/, store.tsx, store-context.ts, and use-store.ts into src/. Use git mv so history is preserved.
+- Update the @/* path alias so it resolves to src/ instead of the repo root: in tsconfig.json (the paths mapping) and in vite.config.ts (the resolve alias). After this, @/ should point at src/.
+- Update tsconfig.json's include list, since the root-level entries (store.tsx, etc.) no longer exist at root.
+- Update any other config that references these paths: components.json (shadcn aliases / css path), .prettierignore, eslint.config.js ignores, anything else that hardcodes the old locations.
+- Because everything imports via the @/ alias, most import statements shouldn't need changing, but check for any relative imports or hardcoded paths that break, and fix them.
+- Leave public/, index.html, _docs/, and the root config files where they are, those belong at root.
+
+When done: run pnpm install (in case anything path-related needs it), pnpm lint (must stay 0/0), tsc, and pnpm build (both clean), and run the app to confirm it still works. Report exactly what moved and what config changed. Don't commit, I'll review and commit.
+```

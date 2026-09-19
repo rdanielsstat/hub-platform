@@ -16,17 +16,8 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./src/*"]
     }
   },
-  "include": [
-    "src",
-    "components",
-    "lib",
-    "services",
-    "pages",
-    "store.tsx",
-    "store-context.ts",
-    "use-store.ts"
-  ]
+  "include": ["src"]
 }

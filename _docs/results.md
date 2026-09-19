@@ -237,3 +237,35 @@ Verified live in the browser (not just by reasoning): focusing and blurring the 
 ## 13
 
 Done. `_docs/prompts_cc.md` now contains all 13 prompts from this single Claude Code session (`acf69d03-8cff-41e1-b53c-0d891895c84c`), in chronological order, each as a numbered list item with the verbatim text in a code block — nothing else. Since there was only one session transcript for this project, no session headers were needed.
+
+---
+
+## 14
+
+All checks pass — lint 0/0, tsc clean, pnpm build clean, and the running app was verified live (dashboard, project detail, and Quick Capture dialog all work with zero console errors). Nothing committed, as requested.
+
+### What moved
+
+Everything now lives under `src/`, moved with `git mv` (all tracked as renames):
+
+- `components/` → `src/components/`
+- `lib/` → `src/lib/`
+- `pages/` → `src/pages/`
+- `services/` → `src/services/`
+- `store.tsx` → `src/store.tsx`
+- `store-context.ts` → `src/store-context.ts`
+- `use-store.ts` → `src/use-store.ts`
+
+`src/App.tsx`, `src/main.tsx`, `src/index.css` were already there and didn't move. `public/`, `index.html`, `_docs/`, and the root config files stayed at root as instructed.
+
+### What config changed
+
+- `tsconfig.json`: `paths` alias `"@/*": ["./*"]` → `"@/*": ["./src/*"]`; `include` collapsed from the old 8-entry list (`src`, `components`, `lib`, `services`, `pages`, `store.tsx`, `store-context.ts`, `use-store.ts`) down to just `["src"]`, since everything now lives there.
+- `vite.config.ts`: resolve alias `'@': path.resolve(__dirname, '.')` → `path.resolve(__dirname, './src')`.
+
+### What didn't need changing (checked, left alone)
+
+- `components.json`: its `css` field was already `"src/index.css"`, and its aliases (`@/components`, `@/lib`, etc.) are expressed relative to the `@/` prefix itself, so they resolve correctly automatically now that `@/` points at `src/`.
+- `.prettierignore` and `eslint.config.js`: neither hardcodes any of the moved directories (glob-based `dist/**/*.{ts,tsx}` patterns already cover `src/**`).
+- `index.html`: `<script src="/src/main.tsx">` was already correct.
+- Relative imports: the only ones in the codebase (`services/api/*.ts` importing siblings, `src/main.tsx` → `./App`) are between files that moved together or didn't move at all, so none broke. Every cross-directory import already went through the `@/` alias, exactly as expected.
