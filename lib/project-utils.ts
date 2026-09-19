@@ -45,7 +45,7 @@ function parseDateOnly(iso: string): Date {
 }
 
 export function formatDate(iso: string | null): string {
-  if (!iso) return '—'
+  if (!iso) return '-'
   return parseDateOnly(iso).toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',

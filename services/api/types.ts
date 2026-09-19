@@ -12,7 +12,7 @@ export type Status = (typeof STATUSES)[number]
 export interface Project {
   id: string
   name: string
-  /** one-line, scannable pitch — separate from description */
+  /** one-line, scannable pitch, separate from description */
   pitch: string
   /** the full brain-dump */
   description: string

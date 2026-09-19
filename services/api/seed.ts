@@ -18,9 +18,9 @@ export const seedProjects: Project[] = [
   {
     id: 'p-incubator',
     name: 'This Incubator',
-    pitch: 'The platform itself — one home to capture, triage, and graduate every idea.',
+    pitch: 'The platform itself: one home to capture, triage, and graduate every idea.',
     description:
-      'A personal platform to capture, organize, and triage project ideas where any idea can graduate into a real, standalone build — but there is a place for all of them. Exists to stop the scatter, not to become a thing endlessly polished instead of shipping.',
+      'A personal platform to capture, organize, and triage project ideas where any idea can graduate into a real, standalone build, but there is a place for all of them. Exists to stop the scatter, not to become a thing endlessly polished instead of shipping.',
     status: 'Active',
     tags: ['meta', 'tools'],
     excitement: 5,
@@ -88,7 +88,7 @@ export const seedProjects: Project[] = [
     name: 'Hiking / Outdoor Analytics',
     pitch: 'Analytics over hikes and outdoor activity across California.',
     description:
-      'Track and analyze hiking and outdoor activity with a California focus — routes, elevation, frequency, conditions.',
+      'Track and analyze hiking and outdoor activity with a California focus: routes, elevation, frequency, conditions.',
     status: 'Parked',
     tags: ['outdoors', 'fitness', 'california'],
     excitement: 3,
@@ -122,7 +122,7 @@ export const seedProjects: Project[] = [
     name: 'German Shepherd Health/Activity Tracker',
     pitch: 'Track a dog’s health and activity over time.',
     description:
-      'A tracker for a German Shepherd’s health and activity — weight, exercise, vet visits, and trends.',
+      'A tracker for a German Shepherd’s health and activity: weight, exercise, vet visits, and trends.',
     status: 'Inbox',
     tags: ['dogs'],
     excitement: 3,
@@ -156,7 +156,7 @@ export const seedProjects: Project[] = [
     name: 'Spanish Learning Helper',
     pitch: 'A focused helper for practicing and retaining Spanish.',
     description:
-      'A learning helper for Spanish practice — spaced repetition, vocab, and conversational drills.',
+      'A learning helper for Spanish practice: spaced repetition, vocab, and conversational drills.',
     status: 'Inbox',
     tags: ['spanish', 'learning'],
     excitement: 3,
@@ -173,13 +173,13 @@ export const seedProjects: Project[] = [
     name: 'Consulting Client Site / Portal',
     pitch: 'A client-facing portal for consulting engagements.',
     description:
-      'A site/portal for consulting clients — deliverables, updates, and a healthcare-focused engagement surface.',
+      'A site/portal for consulting clients: deliverables, updates, and a healthcare-focused engagement surface.',
     status: 'Killed',
     tags: ['consulting', 'healthcare'],
     excitement: 2,
     effort: 4,
     potential: 2,
-    nextAction: 'Shelved — revisit only with a concrete client need.',
+    nextAction: 'Shelved. Revisit only with a concrete client need.',
     targetDate: null,
     links: [],
     createdAt: daysAgo(60),
@@ -197,7 +197,7 @@ export const seedNotes: Note[] = [
   {
     id: 'n-2',
     projectId: 'p-incubator',
-    body: 'Decided quick-capture is the front door — name + pitch, everything else optional.',
+    body: 'Decided quick-capture is the front door: name + pitch, everything else optional.',
     createdAt: daysAgo(5),
   },
   {
@@ -209,7 +209,7 @@ export const seedNotes: Note[] = [
   {
     id: 'n-4',
     projectId: 'p-cms-hospital',
-    body: 'The expertise moat here is real — worth exploring before the flashier ideas.',
+    body: 'The expertise moat here is real: worth exploring before the flashier ideas.',
     createdAt: daysAgo(6),
   },
 ]

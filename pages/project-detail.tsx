@@ -44,7 +44,7 @@ export function ProjectDetailPage() {
   }, [project?.id])
 
   const due = useMemo(
-    () => (project ? formatDate(project.targetDate) : '—'),
+    () => (project ? formatDate(project.targetDate) : '-'),
     [project],
   )
 
@@ -147,7 +147,7 @@ export function ProjectDetailPage() {
         )}
       </div>
 
-      {/* Next action — the single most important thing on this page */}
+      {/* Next action: the single most important thing on this page */}
       <div className="flex flex-col gap-2 rounded-xl border border-primary/20 bg-accent/60 p-4">
         <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-accent-foreground">
           <Zap className="size-3.5" />
@@ -191,7 +191,7 @@ export function ProjectDetailPage() {
           value={pitch}
           onChange={(e) => setPitch(e.target.value)}
           onBlur={() => save({ pitch })}
-          placeholder="One-line pitch — the scannable version"
+          placeholder="One-line pitch: the scannable version"
           className="border-transparent bg-transparent px-0 text-sm text-muted-foreground shadow-none focus-visible:border-ring focus-visible:bg-background focus-visible:px-3"
         />
       </div>

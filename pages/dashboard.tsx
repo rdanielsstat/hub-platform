@@ -70,7 +70,7 @@ export function DashboardPage({ onCapture }: { onCapture: () => void }) {
       <div className="mb-6 flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Ideas</h1>
         <p className="text-sm text-muted-foreground">
-          Everything captured — parked, held, or on its way to a build.
+          Everything captured. Parked, held, or on its way to a build.
         </p>
       </div>
 
