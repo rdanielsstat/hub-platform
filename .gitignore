@@ -7,10 +7,20 @@ __v0_jsx-dev-runtime.ts
 .vercel/
 
 # Environment variables
-.env*.local
+.env
+.env.*
+!.env.example
 
-# Common ignores
+# Dependencies / build
 node_modules
 dist
 *.tsbuildinfo
+
+# Logs / cache
+*.log
+pnpm-debug.log*
+.eslintcache
+
+# Editor / OS
 .DS_Store
+.vscode/
