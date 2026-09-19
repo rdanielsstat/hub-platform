@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Inbox, Plus } from 'lucide-react'
+import { AlertTriangle, Inbox, Plus } from 'lucide-react'
 import { useStore } from '@/use-store'
 import type { Status } from '@/services/api'
 import { ProjectCard } from '@/components/project-card'
@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { daysUntil, opportunityScore } from '@/lib/project-utils'
 
 export function DashboardPage({ onCapture }: { onCapture: () => void }) {
-  const { projects, loading } = useStore()
+  const { projects, loading, error, refresh } = useStore()
   const [status, setStatus] = useState<Status | 'all'>('all')
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<SortKey>('updated')
@@ -72,22 +72,24 @@ export function DashboardPage({ onCapture }: { onCapture: () => void }) {
         </p>
       </div>
 
-      <div className="mb-5 flex flex-col gap-4">
-        <StatsRow
-          projects={projects}
-          activeStatus={status}
-          onSelect={setStatus}
-        />
-        <DashboardToolbar
-          query={query}
-          onQuery={setQuery}
-          sort={sort}
-          onSort={setSort}
-          tags={allTags}
-          activeTag={tag}
-          onTag={setTag}
-        />
-      </div>
+      {error ? null : (
+        <div className="mb-5 flex flex-col gap-4">
+          <StatsRow
+            projects={projects}
+            activeStatus={status}
+            onSelect={setStatus}
+          />
+          <DashboardToolbar
+            query={query}
+            onQuery={setQuery}
+            sort={sort}
+            onSort={setSort}
+            tags={allTags}
+            activeTag={tag}
+            onTag={setTag}
+          />
+        </div>
+      )}
 
       {loading ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -98,6 +100,8 @@ export function DashboardPage({ onCapture }: { onCapture: () => void }) {
             />
           ))}
         </div>
+      ) : error ? (
+        <ErrorState message={error} onRetry={() => void refresh()} />
       ) : visible.length === 0 ? (
         <EmptyState
           hasProjects={projects.length > 0}
@@ -153,6 +157,29 @@ function EmptyState({
           Quick capture
         </Button>
       )}
+    </div>
+  )
+}
+
+function ErrorState({
+  message,
+  onRetry,
+}: {
+  message: string
+  onRetry: () => void
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-dashed border-rose-500/30 bg-rose-500/5 py-20 text-center">
+      <div className="grid size-12 place-items-center rounded-2xl bg-rose-500/10 text-rose-500">
+        <AlertTriangle className="size-6" />
+      </div>
+      <div className="space-y-1">
+        <h2 className="font-semibold">Couldn&apos;t load your ideas</h2>
+        <p className="text-sm text-muted-foreground">{message}</p>
+      </div>
+      <Button variant="outline" size="lg" onClick={onRetry}>
+        Try again
+      </Button>
     </div>
   )
 }

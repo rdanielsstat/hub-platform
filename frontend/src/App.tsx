@@ -5,6 +5,7 @@ import { useAuth } from '@/use-auth'
 import { StoreProvider } from '@/store'
 import { AppHeader } from '@/components/layout/app-header'
 import { QuickCaptureDialog } from '@/components/quick-capture-dialog'
+import { Toaster } from '@/components/ui/toaster'
 import { DashboardPage } from '@/pages/dashboard'
 import { ProjectDetailPage } from '@/pages/project-detail'
 import { NotFoundPage } from '@/pages/not-found'
@@ -14,30 +15,28 @@ import { SignupPage } from '@/pages/signup'
 export function App() {
   const { status } = useAuth()
 
-  if (status === 'loading') {
-    return (
-      <div className="grid min-h-dvh place-items-center">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
-      </div>
-    )
-  }
-
-  if (status === 'unauthenticated') {
-    return (
-      <Routes>
-        <Route path="/signup" element={<SignupPage />} />
-        <Route path="*" element={<LoginPage />} />
-      </Routes>
-    )
-  }
-
-  // Mounting StoreProvider only once authenticated ensures its project
-  // state (and the fetch-on-mount that populates it) starts fresh for
-  // each signed-in user, and never fires while logged out.
   return (
-    <StoreProvider>
-      <AuthenticatedApp />
-    </StoreProvider>
+    <>
+      {status === 'loading' ? (
+        <div className="grid min-h-dvh place-items-center">
+          <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : status === 'unauthenticated' ? (
+        <Routes>
+          <Route path="/signup" element={<SignupPage />} />
+          <Route path="*" element={<LoginPage />} />
+        </Routes>
+      ) : (
+        // Mounting StoreProvider only once authenticated ensures its
+        // project state (and the fetch-on-mount that populates it)
+        // starts fresh for each signed-in user, and never fires while
+        // logged out.
+        <StoreProvider>
+          <AuthenticatedApp />
+        </StoreProvider>
+      )}
+      <Toaster />
+    </>
   )
 }
 

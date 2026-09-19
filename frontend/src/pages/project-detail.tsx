@@ -1,6 +1,7 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
+  AlertTriangle,
   ArrowLeft,
   ArrowUpRight,
   Compass,
@@ -24,7 +25,8 @@ import { formatDate, formatRelative } from '@/lib/project-utils'
 export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { loading, getProject, updateProject, deleteProject } = useStore()
+  const { loading, error, refresh, getProject, updateProject, deleteProject } =
+    useStore()
   const project = id ? getProject(id) : undefined
 
   const [name, setName] = useState('')
@@ -75,6 +77,27 @@ export function ProjectDetailPage() {
   }
 
   if (!project || !id) {
+    // Distinguish "the load itself failed" from "this id genuinely
+    // doesn't exist" — same underlying bug the dashboard's load-error
+    // state fixes, surfaced here too since it's the same store `error`.
+    if (error) {
+      return (
+        <div className="flex flex-col items-center justify-center gap-4 py-24 text-center">
+          <div className="grid size-12 place-items-center rounded-2xl bg-rose-500/10 text-rose-500">
+            <AlertTriangle className="size-6" />
+          </div>
+          <div className="space-y-1">
+            <h1 className="text-lg font-semibold">
+              Couldn&apos;t load this idea
+            </h1>
+            <p className="text-sm text-muted-foreground">{error}</p>
+          </div>
+          <Button size="lg" onClick={() => void refresh()}>
+            Try again
+          </Button>
+        </div>
+      )
+    }
     return (
       <div className="flex flex-col items-center justify-center gap-4 py-24 text-center">
         <div className="grid size-12 place-items-center rounded-2xl bg-muted text-muted-foreground">
@@ -96,8 +119,18 @@ export function ProjectDetailPage() {
     )
   }
 
-  async function save(patch: Parameters<typeof updateProject>[1]) {
-    await updateProject(id!, patch)
+  // Returns whether the save succeeded. The store already reports the
+  // error (toast); callers only need this to know whether to revert
+  // local draft state that isn't otherwise controlled by `project`.
+  async function save(
+    patch: Parameters<typeof updateProject>[1],
+  ): Promise<boolean> {
+    try {
+      await updateProject(id!, patch)
+      return true
+    } catch {
+      return false
+    }
   }
 
   function addTag() {
@@ -132,8 +165,13 @@ export function ProjectDetailPage() {
   }
 
   async function handleDelete() {
-    await deleteProject(id!)
-    navigate('/')
+    try {
+      await deleteProject(id!)
+      navigate('/')
+    } catch {
+      // store already showed a toast; let them retry from a clean state
+      setConfirmingDelete(false)
+    }
   }
 
   return (
@@ -185,9 +223,11 @@ export function ProjectDetailPage() {
           rows={1}
           value={nextAction}
           onChange={(e) => setNextAction(e.target.value)}
-          onBlur={() =>
-            nextAction !== project.nextAction && save({ nextAction })
-          }
+          onBlur={async () => {
+            if (nextAction === project.nextAction) return
+            const ok = await save({ nextAction })
+            if (!ok) setNextAction(project.nextAction)
+          }}
           placeholder="The single next concrete step…"
           className="flex w-full min-w-0 resize-none overflow-hidden rounded-lg border border-transparent bg-transparent px-0 py-1 text-base font-medium leading-snug shadow-none outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:bg-background focus-visible:px-3 focus-visible:ring-3 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50"
         />
@@ -198,9 +238,11 @@ export function ProjectDetailPage() {
           <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            onBlur={() => {
+            onBlur={async () => {
               const trimmed = name.trim()
-              if (trimmed && trimmed !== project.name) save({ name: trimmed })
+              if (!trimmed || trimmed === project.name) return
+              const ok = await save({ name: trimmed })
+              if (!ok) setName(project.name)
             }}
             className="h-auto border-transparent bg-transparent px-0 text-2xl font-semibold tracking-tight shadow-none focus-visible:border-ring focus-visible:bg-background focus-visible:px-3"
           />
@@ -224,7 +266,11 @@ export function ProjectDetailPage() {
         <Input
           value={pitch}
           onChange={(e) => setPitch(e.target.value)}
-          onBlur={() => pitch !== project.pitch && save({ pitch })}
+          onBlur={async () => {
+            if (pitch === project.pitch) return
+            const ok = await save({ pitch })
+            if (!ok) setPitch(project.pitch)
+          }}
           placeholder="One-line pitch: the scannable version"
           className="border-transparent bg-transparent px-0 text-sm text-muted-foreground shadow-none focus-visible:border-ring focus-visible:bg-background focus-visible:px-3"
         />
@@ -239,9 +285,11 @@ export function ProjectDetailPage() {
               rows={6}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              onBlur={() =>
-                description !== project.description && save({ description })
-              }
+              onBlur={async () => {
+                if (description === project.description) return
+                const ok = await save({ description })
+                if (!ok) setDescription(project.description)
+              }}
               placeholder="The full brain-dump…"
             />
           </section>

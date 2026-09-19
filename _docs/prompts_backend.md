@@ -203,3 +203,24 @@ Verification:
 - Confirm nothing security-relevant remains hardcoded in security.py.
 
 Do not touch the frontend. Keep backend tests green. Report what moved into config, how the prod guard works, the exact env vars and their defaults, and anything that didn't line up. Don't commit, I'll review.
+
+## 9
+
+```
+Add real error handling to the frontend's write and load paths, surface load errors to the user, and unify the optimistic-update strategy. These are related concerns in the same layer, do them together. Read the store (store.tsx), the api layer (services/api/), the components that trigger writes (project-detail.tsx, notes-panel.tsx, quick-capture, dashboard), and the tech-debt file's Robustness and write-optimism entries first.
+
+Context: writes now hit a real backend over HTTP and can genuinely fail (network error, expired token, a slow cold-start on scale-to-zero hosting). Today the store's createProject/updateProject/deleteProject and the note calls have no error handling, and several are fire-and-forget (void save(...)). The store also tracks an `error` state that no component reads, so a failed load shows the user nothing. And there are two different optimistic-update conventions: note deletion updates local state before the API resolves, while project field edits wait for the call to resolve.
+
+Do:
+- Error handling on write paths: createProject/updateProject/deleteProject and the note add/delete calls should handle a failed request instead of silently doing nothing or throwing an unhandled rejection. On failure, the user should see a clear, non-technical message (a toast/inline error consistent with the app's style), and the UI should not be left showing a change that didn't actually persist.
+- Surface load errors: the store's `error` state should actually be read and shown when a load fails (e.g. the dashboard failing to fetch projects should show an error state with a way to retry, not a silent empty screen). If the existing `error` field is the right mechanism, use it; if it needs adjusting, adjust it.
+- Unify optimistic updates: pick ONE convention for all writes and apply it consistently. Decide between optimistic (update UI immediately, roll back on failure) and pessimistic (wait for the server, then update). Tell me which you chose and why. Whichever it is, a failed write must leave the UI in a correct state (either rolled back, or never optimistically changed), never showing data that didn't save. This resolves the two-strategies inconsistency in the tech-debt file.
+- Handle the already-built 401 path consistently with the above (an expired token mid-write should route to login, as it already does, not show a generic error).
+
+Verification:
+- Simulate failures, not just happy path: with the backend stopped (or a request forced to fail), confirm a failed create/edit/delete shows a clear error and doesn't leave a phantom change in the UI, and a failed initial load shows an error state with retry rather than a blank/empty dashboard. Then confirm all of it works normally against the running backend.
+- If the Chrome extension is available, verify visually; if not, say what you couldn't check.
+- Keep lint 0/0, tsc and build clean.
+
+Report what you changed, which optimistic-update convention you standardized on and why, and how errors now surface to the user. Update the tech-debt file to remove the Robustness and write-optimism entries now that they're addressed. Don't commit, I'll review.
+```

@@ -289,3 +289,47 @@ ENVIRONMENT, DATABASE_URL, HUB_JWT_SECRET, ACCESS_TOKEN_EXPIRE_MINUTES — table
 - Nothing hardcoded in security.py: confirmed by grep.
 
 Frontend untouched, no rate-limiting/account caps (out of scope). Nothing committed.
+
+## 9 Write/load error handling + unified optimism
+
+Added error handling to all write and load paths, surfaced load errors with retry, and standardized on pessimistic writes everywhere. Verified all failure paths in the browser. Not committed.
+
+### What changed
+
+New files:
+- lib/toast.ts — a toastManager usable outside React so the store itself can trigger toasts, plus notifyError().
+- lib/errors.ts — toUserMessage(err, fallback) (backend's curated HttpError.message when available, friendly fallback otherwise) and reportError(err, fallback) (calls notifyError, except for a 401 — see below).
+- components/ui/toaster.tsx — the visual toast, styled to match the app's card/border/shadow language. Mounted once in App.tsx.
+
+Store (store.tsx) — every write (create/update/deleteProject, add/deleteNote) now waits for the API, updates projects state only on success, calls reportError + re-throws on failure. The existing error state is now actually consumed.
+
+Dashboard — added an ErrorState component (same visual pattern as EmptyState) shown instead of the grid/stats/toolbar when the load fails, with a "Try again" that calls refresh().
+
+Project detail — save() returns Promise<boolean>; the four fields with local draft state (name, pitch, description, nextAction) revert to project.<field> on failure. Status/scores/target-date/tags/links needed no revert (directly controlled by project.*, so a failed save already leaves them showing the correct unchanged value). handleDelete catches and resets the confirm-delete UI on failure. Same load-error/retry treatment extended to the "not found" branch.
+
+Notes panel — remove() flipped from optimistic to pessimistic (the one inconsistent case): waits for deleteNote to resolve before removing from local state, with a deletingId guard disabling the button mid-flight.
+
+Quick capture — logic was already correct (dialog stays open, data intact on failure); documented why.
+
+### Optimistic-update convention: pessimistic, everywhere
+Every write waits for the server before the store's projects state changes. Reasons: it satisfies "never show data that didn't save" by construction (state is backend-confirmed, nothing to roll back); four of five paths were already pessimistic (only note-deletion was the outlier, the smaller/lower-risk change); individual writes are cheap and inputs already echo keystrokes immediately, so the app stays responsive without full optimistic-rollback machinery.
+
+### How errors surface
+- Writes: a toast (bottom-right, auto-dismiss 6s, dismissible) with a plain-language message — backend's curated string or a generic network fallback. The four local-draft fields also revert to last-known-good.
+- Loads: dashboard and project-detail's "not found" branch show a dedicated error state with the message and a "Try again".
+- 401 mid-write: reportError skips toasting a 401 — already routed to logout/login by the existing handler, so no confusing double message.
+
+### Tech debt
+Removed the entire Robustness section and the write-optimism line. Updated the "duplicated empty-state layouts" entry from three to four, since the new load-error state is a fourth divergent-but-similar shape (didn't want to leave it stale).
+
+### Verification
+Tested with the backend stopped and, more precisely, with window.fetch overridden to fail one specific request while everything else hit the real backend (the task's suggested alternative) — this sidestepped an unrelated environment quirk (this session's tab logs out quickly whenever the backend becomes unreachable at all; confirmed via code inspection and fetch instrumentation that nothing in the app polls or reloads on its own).
+
+Confirmed live:
+- Create failure: toast "Couldn't create that project. Try again.", dialog stays open with typed name intact, still exactly 10 projects (no phantom).
+- Edit failure: toast "Couldn't save that change. Try again.", title reverted to its saved value.
+- Note-delete failure: toast "Couldn't delete that note. Try again.", note stayed in the list.
+- Dashboard load failure: full ErrorState with message and a working "Try again" that recovered once the override was removed.
+- Happy path: login, load, a real note delete, and reload all worked throughout.
+
+Also fixed a bug in its own test scripts (React onBlur fires via native focusout, not blur) — irrelevant to app code. Lint 0/0, tsc, build, prettier all clean. Nothing committed.

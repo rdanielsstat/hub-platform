@@ -74,6 +74,8 @@ export function QuickCaptureDialog({ open, onClose }: Props) {
       onClose()
       if (goToDetail) navigate(`/project/${created.id}`)
     } catch {
+      // store already showed a toast; leave the dialog open with the
+      // form data intact so nothing typed is lost
       setSubmitting(false)
     }
   }

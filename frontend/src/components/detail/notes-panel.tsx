@@ -13,6 +13,7 @@ export function NotesPanel({ projectId }: { projectId: string }) {
   const [body, setBody] = useState('')
   const [saving, setSaving] = useState(false)
   const [confirmingId, setConfirmingId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   useEffect(() => {
     let active = true
@@ -37,6 +38,8 @@ export function NotesPanel({ projectId }: { projectId: string }) {
       const note = await addNote(projectId, text)
       setNotes((prev) => [note, ...prev])
       setBody('')
+    } catch {
+      // store already showed a toast; keep the draft so nothing is lost
     } finally {
       setSaving(false)
     }
@@ -44,8 +47,16 @@ export function NotesPanel({ projectId }: { projectId: string }) {
 
   async function remove(id: string) {
     setConfirmingId(null)
-    setNotes((prev) => prev.filter((n) => n.id !== id))
-    await deleteNote(id)
+    setDeletingId(id)
+    try {
+      await deleteNote(id)
+      setNotes((prev) => prev.filter((n) => n.id !== id))
+    } catch {
+      // store already showed a toast; the note wasn't actually deleted,
+      // so it stays in the list rather than disappearing and reappearing
+    } finally {
+      setDeletingId(null)
+    }
   }
 
   return (
@@ -116,6 +127,7 @@ export function NotesPanel({ projectId }: { projectId: string }) {
                         variant="destructive"
                         size="sm"
                         onClick={() => remove(note.id)}
+                        disabled={deletingId === note.id}
                       >
                         Delete
                       </Button>
