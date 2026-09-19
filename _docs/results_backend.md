@@ -254,3 +254,38 @@ The old in-memory delete_project never cleaned up a project's notes (orphaned bu
 - Frontend untouched (git status zero diff).
 
 Note: found a stray uvicorn --reload process (not one it started) that had crashed mid-edit and left hub.db partial; removed the file and re-verified from a clean one.
+
+## 8 - Tier 1 config/security hardening
+
+Moved all security-relevant settings into the config module and added a startup guard that makes shipping the insecure default secret impossible in production, while local dev still needs zero setup. 32 backend tests passing. Frontend untouched. Not committed.
+
+### What moved into config
+app/core/config.py is now the single source for everything security-relevant:
+
+| Setting | Env var | Default |
+|---|---|---|
+| Environment indicator | ENVIRONMENT | local |
+| Database URL | DATABASE_URL | sqlite:///./hub.db (unchanged) |
+| JWT secret | HUB_JWT_SECRET | dev-only-insecure-secret-change-me (DEV_JWT_SECRET) |
+| JWT algorithm | — (fixed constant) | HS256 |
+| Token expiry | ACCESS_TOKEN_EXPIRE_MINUTES | 60 |
+
+security.py now imports JWT_SECRET/JWT_ALGORITHM/ACCESS_TOKEN_EXPIRE_MINUTES from config instead of reading os.environ itself — no os import left in that file. No argon2 numeric parameters were hardcoded to begin with (passlib's CryptContext just names the scheme and uses its own defaults), so there was nothing to move; left as-is and flagged rather than inventing config knobs for values that were never set.
+
+### How the prod guard works
+require_safe_jwt_secret(environment, secret, dev_default) in config.py — a pure function (takes inputs as arguments defaulting to the module's resolved settings, so tests never touch real env vars). main.py calls it as the first line after imports, before FastAPI() is constructed:
+- local/development/dev (case-insensitive): if the secret is still the dev default, print a warning and continue; otherwise silent.
+- anything else (production, staging, ...): raise RuntimeError if the secret is empty/unset or still the dev default. Verified it crashes uvicorn at import time (exit 1) before binding a port; setting a real HUB_JWT_SECRET lets it start clean.
+
+One real bug caught during verification: the warning print wasn't showing under uvicorn with output redirected to a file — Python block-buffers print() on a non-TTY stdout. Added flush=True; the warning now appears immediately. Worth knowing since it's the kind of thing that silently disappears in a real deployment's log capture.
+
+### Env vars (documented in .env.example and README)
+ENVIRONMENT, DATABASE_URL, HUB_JWT_SECRET, ACCESS_TOKEN_EXPIRE_MINUTES — table with defaults and prod-required flags in the README, same four with explanatory comments in the new .env.example. Only HUB_JWT_SECRET is marked required in production. Generate one with: python -c "import secrets; print(secrets.token_urlsafe(64))"
+
+### Verified
+- 32/32 tests pass (24 existing + 8 new in tests/test_config.py: local-with-dev-secret, local-missing-secret, the development/dev aliases, case-insensitivity, production-with-dev-secret, production-missing-secret, other-non-local-env, production-with-a-real-secret).
+- Frictionless local dev: started with a fully wiped environment (env -i, zero vars) — starts clean, warning printed, seeded demo login works, all 10 projects load.
+- Production guard: ENVIRONMENT=production with no secret → crashes at import with the exact RuntimeError, before serving anything. Adding HUB_JWT_SECRET → starts and serves fine.
+- Nothing hardcoded in security.py: confirmed by grep.
+
+Frontend untouched, no rate-limiting/account caps (out of scope). Nothing committed.

@@ -1,10 +1,15 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.core.config import require_safe_jwt_secret
 from app.db.seed import seed
 from app.db.session import SessionLocal, create_tables
 from app.db.store import Store
 from app.routers import auth, health, notes, projects
+
+# First thing at startup: refuse to run outside local/dev on a missing
+# or default JWT secret, before the app does anything else.
+require_safe_jwt_secret()
 
 app = FastAPI(title="Hub API")
 

@@ -180,3 +180,26 @@ VERIFICATION (both servers running)
 - If the Chrome extension is flaky, say what you couldn't verify visually rather than claiming it.
 
 Keep frontend lint/type checks clean if you touch the frontend (you likely won't), and keep the backend tests green. Report what you built, the session and table-creation approach, every portability tradeoff you made, and anything that didn't line up. Don't commit, I'll review.
+
+## 8
+
+Harden the backend's auth/config for deployment readiness, Tier 1 only: move secrets and security-relevant settings into the existing config module and make unsafe defaults impossible to ship, while keeping local development frictionless. Do not add rate-limiting or account caps in this step (those are deferred to pre-deploy). Read app/core/config.py, app/auth/security.py, AGENTS.md, and backend/README.md first.
+
+Requirements:
+- Move all security-relevant settings into app/core/config.py as the single source: the JWT signing secret, the token expiry, and the argon2/password-hashing parameters if any are currently hardcoded. Nothing security-relevant should be hardcoded in security.py anymore; it should read from config.
+- Keep local dev frictionless: running locally with no extra setup must still work exactly as it does now. A dev fallback for the JWT secret is fine ONLY in a local context.
+- Make unsafe defaults impossible in production: introduce an environment indicator (e.g. an ENV / ENVIRONMENT setting, defaulting to "local"/"development"). When the environment is NOT local, the app must refuse to start (raise on startup) if the JWT secret is unset or is still the known dev fallback value. Locally, it falls back with at most a printed warning. The goal: it is impossible to run in production on the insecure default secret, but a developer never has to configure anything to run locally.
+- Document the env vars: update backend/README.md and backend/.env.example (create it if absent) with every config var, its default, and which ones MUST be set in production (the JWT secret especially). Make clear local dev needs none of them.
+- Keep the DATABASE_URL config that already exists consistent with this pattern (it should live in the same settings module).
+
+Testing:
+- Existing suite (24) must still pass.
+- Add tests for the new guard: the app/config refuses to start (or the check function raises) when environment is production and the secret is missing or is the dev default; and it does NOT raise in local/dev with the fallback. Don't hardcode the real secret in tests.
+- Report the test count.
+
+Verification:
+- Confirm the backend still starts and runs locally with no env vars set (frictionless dev preserved), seeded demo login still works.
+- Confirm that simulating a production environment without a secret set fails fast with a clear error, and that setting the secret makes it start.
+- Confirm nothing security-relevant remains hardcoded in security.py.
+
+Do not touch the frontend. Keep backend tests green. Report what moved into config, how the prod guard works, the exact env vars and their defaults, and anything that didn't line up. Don't commit, I'll review.
