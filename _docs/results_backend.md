@@ -185,3 +185,34 @@ One side effect: the frontend's old mock seed notes are now orphaned — invisib
 Note: the Chrome extension's synthetic clicks/typing were unreliable on the project-detail page; used native DOM dispatch as a fallback for some verification. Confirmed the flakiness was the automation link, not the app.
 
 Lint, tsc -b, vite build, prettier --check all clean. Nothing committed.
+
+## 6 - Notes backend + frontend wiring
+
+Made notes real, following the projects pattern. 23 backend tests passing (was 15). The mock layer is now gone entirely. Verified end-to-end. Not committed.
+
+### Backend
+- app/models/note.py: Note, CreateNoteInput, AddNoteResponse (camelCase via CamelModel, matching openapi.yaml).
+- app/db/store.py: NoteRecord dataclass + list_notes/get_note/create_note/delete_note on InMemoryStore. The parent-project "touch" reuses the existing update_project(project_id, owner_id) with no patch fields — it already bumps updated_at and returns the record, so no new bump logic was needed.
+- app/routers/notes.py: GET/POST /projects/{project_id}/notes, DELETE /notes/{note_id}. Ownership enforced the same way as projects — 404 whether the project doesn't exist or belongs to someone else. For delete, ownership is checked via the note's parent project (notes have no owner of their own).
+- app/main.py: registered the notes router.
+- 8 new tests in tests/test_notes.py: CRUD, newest-first ordering, updatedAt bump on both add and delete, auth-required, and three isolation cases (list/add/delete on another user's project all 404, and B's note count untouched by A's failed attempts).
+
+### Frontend
+- services/api/real.ts: added realNotesApi (listNotes/addNote/deleteNote), same shape as mockApi had.
+- services/api/index.ts: api is now built entirely from realProjectsApi + realNotesApi — no mock references left.
+- store.tsx: dropped the if (project) null-guards in addNote/deleteNote — the backend always returns a real project now.
+
+### What was removed
+services/api/mock.ts and services/api/seed.ts, deleted entirely (not just trimmed). Once notes went real, nothing was left calling mockApi — the project methods were already dead code from when projects went real, and the note methods became dead by this task. Checked no other file imported from either module before deleting. openapi.yaml still documents attachments as provisional, but there's no Attachment type or UI anywhere in the frontend yet, so there was nothing attachment-shaped to preserve — an empty placeholder file would have been speculative structure AGENTS.md argues against. Whoever builds attachments creates what it needs from scratch, same as notes/projects did.
+
+### Didn't line up
+Nothing this time — contract, projects pattern, and the frontend note code all matched cleanly. The one non-obvious piece: update_project with zero kwargs was already exactly the "touch" primitive needed, so no new bump helper was required.
+
+### Verified end-to-end (backend :8000 + frontend :5173, restarted fresh)
+- Added a note → reloaded → note persisted (real backend, not mock).
+- Dashboard sort: adding the note moved the project to the top.
+- Added a note to another project to move it up, then deleted the first note → the first project jumped back to the top, confirming delete also bumps updatedAt server-side.
+- Isolation verified against the API with two fresh users: A gets 404 listing or adding a note on B's project, B's note count unaffected.
+- Browser clicks/typing worked reliably this session — no JS-dispatch fallbacks needed.
+
+Lint, tsc -b, vite build all clean; 23 backend tests passing. Nothing committed.

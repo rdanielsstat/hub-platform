@@ -26,6 +26,14 @@ class UserRecord:
 
 
 @dataclass
+class NoteRecord:
+    id: str
+    project_id: str
+    body: str
+    created_at: datetime
+
+
+@dataclass
 class ProjectRecord:
     id: str
     owner_id: str
@@ -49,6 +57,7 @@ class InMemoryStore:
         self._users: dict[str, UserRecord] = {}
         self._users_by_email: dict[str, str] = {}
         self._projects: dict[str, ProjectRecord] = {}
+        self._notes: dict[str, NoteRecord] = {}
 
     # -- users ---------------------------------------------------------
 
@@ -118,6 +127,32 @@ class InMemoryStore:
             return False
         del self._projects[record.id]
         return True
+
+    # -- notes -----------------------------------------------------------
+    # Notes have no owner of their own; ownership is reached via the
+    # parent project, so callers check that separately before calling
+    # these (see app/routers/notes.py).
+
+    def list_notes(self, project_id: str) -> list[NoteRecord]:
+        notes = [n for n in self._notes.values() if n.project_id == project_id]
+        notes.sort(key=lambda n: n.created_at, reverse=True)
+        return notes
+
+    def get_note(self, note_id: str) -> NoteRecord | None:
+        return self._notes.get(note_id)
+
+    def create_note(self, *, project_id: str, body: str) -> NoteRecord:
+        note = NoteRecord(
+            id=str(uuid.uuid4()),
+            project_id=project_id,
+            body=body,
+            created_at=datetime.now(timezone.utc),
+        )
+        self._notes[note.id] = note
+        return note
+
+    def delete_note(self, note_id: str) -> None:
+        self._notes.pop(note_id, None)
 
 
 store = InMemoryStore()

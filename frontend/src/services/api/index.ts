@@ -1,17 +1,13 @@
-import { mockApi } from './mock'
-import { realProjectsApi } from './real'
+import { realNotesApi, realProjectsApi } from './real'
 
 /**
  * The single API layer. Every component/store imports from here and never
  * calls `fetch` directly.
  *
- * REAL: projects (and auth, via `authApi` below) hit the FastAPI backend
- * over HTTP — see real.ts / auth.ts / http.ts.
- *
- * MOCK — PENDING BACKEND: notes and attachments have no backend yet, so
- * they still run against the in-memory mock (mock.ts). That's the next
- * seam to swap; when it lands, replace the two lines below the same way
- * the project methods were replaced here.
+ * Projects, notes, and auth (via `authApi` below) all hit the real FastAPI
+ * backend over HTTP — see real.ts / auth.ts / http.ts. Attachments are the
+ * only piece still pending a backend; there's no frontend type or UI for
+ * them yet, so there's nothing to wire here until that's built.
  */
 export interface ApiClient {
   listProjects: typeof realProjectsApi.listProjects
@@ -19,22 +15,14 @@ export interface ApiClient {
   createProject: typeof realProjectsApi.createProject
   updateProject: typeof realProjectsApi.updateProject
   deleteProject: typeof realProjectsApi.deleteProject
-  listNotes: typeof mockApi.listNotes
-  addNote: typeof mockApi.addNote
-  deleteNote: typeof mockApi.deleteNote
+  listNotes: typeof realNotesApi.listNotes
+  addNote: typeof realNotesApi.addNote
+  deleteNote: typeof realNotesApi.deleteNote
 }
 
 export const api: ApiClient = {
-  listProjects: realProjectsApi.listProjects,
-  getProject: realProjectsApi.getProject,
-  createProject: realProjectsApi.createProject,
-  updateProject: realProjectsApi.updateProject,
-  deleteProject: realProjectsApi.deleteProject,
-
-  // MOCK — PENDING BACKEND
-  listNotes: mockApi.listNotes,
-  addNote: mockApi.addNote,
-  deleteNote: mockApi.deleteNote,
+  ...realProjectsApi,
+  ...realNotesApi,
 }
 
 export { authApi } from './auth'

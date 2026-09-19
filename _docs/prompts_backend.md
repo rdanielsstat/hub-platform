@@ -102,3 +102,25 @@ Testing and verification (I want this checked as you go, per how we're working n
 
 Report what you built, how the real/mock split is structured, and anything in the contract or existing frontend that didn't line up. Don't commit, I'll review.
 ```
+
+## 6
+
+```
+Build the notes backend and wire the frontend to it, following the same pattern as the projects slice. Notes currently run on the frontend mock; make them real. Read openapi.yaml, AGENTS.md, backend/README.md, and the frontend's services/api/ layer (especially how projects were wired in real.ts and how the mock currently handles notes) first.
+
+Backend (backend/, in-memory store for now, same as projects):
+- Implement the note endpoints from openapi.yaml: GET /projects/{projectId}/notes, POST /projects/{projectId}/notes, DELETE /notes/{noteId}.
+- Per-user isolation, same as projects: a user can only list/add/delete notes on projects they own. Adding or deleting a note on a project that isn't theirs (or doesn't exist) returns 404, never revealing another user's data.
+- Match the contract's shapes exactly (camelCase). POST returns { note, project } and DELETE returns the parent project, because per our earlier decision, creating or deleting a note bumps the parent project's updatedAt. Do that bump server-side, and return the updated project so the frontend can re-sort the dashboard.
+- Fill in the note pieces in the existing module layout (models/, db/store.py, a notes router) rather than restructuring. Keep the store swappable.
+
+Frontend:
+- Add real HTTP note methods (in real.ts or alongside it) and swap the api layer (services/api/index.ts) so notes now come from the backend, removing the MOCK — PENDING BACKEND note methods. Update the store's addNote/deleteNote to use the backend's returned project to bump updatedAt (the null-handling workaround added when projects went real can now go, since the backend owns the notes and always returns a real project).
+- Clean up the now-dead mock notes code and the orphaned seed notes, so the mock layer only carries what's still pending (attachments). Tell me what you removed.
+
+Testing:
+- Backend: add note tests to the suite following the existing auth/projects test pattern. Cover: owner can list/add/delete their own notes; adding and deleting a note bumps the parent project's updatedAt; isolation — a user gets 404 adding or deleting a note on another user's project, and cannot list another user's notes. Report the test count.
+- End-to-end in the browser (both servers running): add a note on a project, confirm it persists across a page reload (it's real now, not in-memory mock), confirm the project jumps to the top of the dashboard's recently-updated sort, delete a note and confirm the same. Confirm notes are isolated per user. If the Chrome extension is flaky again, tell me what you couldn't verify visually rather than claiming it.
+
+Keep lint at 0/0, tsc, build, and the backend tests all clean. Report what you built, what you removed from the mock, and anything that didn't line up. Don't commit, I'll review.
+```

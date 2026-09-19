@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.db.seed import seed
 from app.db.store import store
-from app.routers import auth, health, projects
+from app.routers import auth, health, notes, projects
 
 app = FastAPI(title="Hub API")
 
@@ -18,5 +18,6 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(projects.router)
+app.include_router(notes.router)
 
 seed(store)
