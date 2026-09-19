@@ -56,6 +56,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setProjects((prev) => prev.filter((p) => p.id !== id))
   }, [])
 
+  const addNote = useCallback(async (projectId: string, body: string) => {
+    const { note, project } = await api.addNote(projectId, body)
+    setProjects((prev) => prev.map((p) => (p.id === project.id ? project : p)))
+    return note
+  }, [])
+
+  const deleteNote = useCallback(async (id: string) => {
+    const project = await api.deleteNote(id)
+    setProjects((prev) => prev.map((p) => (p.id === project.id ? project : p)))
+  }, [])
+
   const getProject = useCallback(
     (id: string) => projects.find((p) => p.id === id),
     [projects],
@@ -71,6 +82,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       createProject,
       updateProject,
       deleteProject,
+      addNote,
+      deleteNote,
     }),
     [
       projects,
@@ -81,6 +94,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       createProject,
       updateProject,
       deleteProject,
+      addNote,
+      deleteNote,
     ],
   )
 

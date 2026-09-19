@@ -29,6 +29,23 @@ function clone<T>(value: T): T {
   return structuredClone(value)
 }
 
+/**
+ * Bumps a project's updatedAt so it surfaces as recently active. Call this
+ * from any mutation on a project's child records (notes today; attachments
+ * once that feature exists) so "recently updated" reflects real activity
+ * on the project, not just edits to its own fields.
+ */
+function touchProject(id: string): Project {
+  const index = projects.findIndex((p) => p.id === id)
+  if (index === -1) throw new Error(`Project ${id} not found`)
+  const updated: Project = {
+    ...projects[index],
+    updatedAt: new Date().toISOString(),
+  }
+  projects = projects.map((p, i) => (i === index ? updated : p))
+  return updated
+}
+
 export const mockApi = {
   async listProjects(): Promise<Project[]> {
     return delay(clone(projects))
@@ -86,7 +103,10 @@ export const mockApi = {
     return delay(clone(result))
   },
 
-  async addNote(projectId: string, body: string): Promise<Note> {
+  async addNote(
+    projectId: string,
+    body: string,
+  ): Promise<{ note: Note; project: Project }> {
     const note: Note = {
       id: uid('n'),
       projectId,
@@ -94,16 +114,15 @@ export const mockApi = {
       createdAt: new Date().toISOString(),
     }
     notes = [note, ...notes]
-    // touch the project's updatedAt so it surfaces as recently active
-    projects = projects.map((p) =>
-      p.id === projectId ? { ...p, updatedAt: note.createdAt } : p,
-    )
-    return delay(clone(note))
+    const project = touchProject(projectId)
+    return delay({ note: clone(note), project: clone(project) })
   },
 
-  async deleteNote(id: string): Promise<void> {
+  async deleteNote(id: string): Promise<Project> {
+    const note = notes.find((n) => n.id === id)
+    if (!note) throw new Error(`Note ${id} not found`)
     notes = notes.filter((n) => n.id !== id)
-    return delay(undefined)
+    return delay(clone(touchProject(note.projectId)))
   },
 }
 

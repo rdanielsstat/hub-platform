@@ -188,3 +188,19 @@ First inspect the current layout so you move the right things. Then:
 
 When done: from inside frontend/, run pnpm install, pnpm lint (must stay 0/0), tsc, and pnpm build (both clean), and run the app to confirm it still works. Report exactly what moved and what config changed. Don't commit, I'll review and commit.
 ```
+
+### 16
+
+```
+Right now the dashboard's "recently updated" sort only bumps a project's updatedAt when the project's own fields are edited. Adding or deleting a note writes to the note but doesn't bump the parent project, so actively-worked projects look stale.
+
+Make changes to a project's child records bump the parent project's updatedAt. Currently that means note creation and note deletion. Implement it wherever these mutations are handled so the bump is applied consistently rather than per-component.
+
+First look at how the store/services layer is actually structured and tell me where you're putting this. Don't assume a central seam exists if it doesn't.
+
+Do not regress the existing no-op behavior: only a real change bumps updatedAt. The no-op blur fix for project fields must stay intact.
+
+Note for future awareness: attachments aren't built yet, but when they are, the same rule should apply, creating or deleting an attachment should bump the parent project too. If there's a natural place to handle this centrally so attachments are covered automatically when added, prefer that; if not, just flag that the attachment feature will need to apply this same bump when it's built.
+
+Verify: adding a note moves its project to the top of the recently-updated sort, deleting a note does too, a real project-field edit still bumps, and a no-op blur still doesn't. Keep lint at 0/0, tsc and build clean. Don't commit, I'll review.
+```

@@ -272,11 +272,9 @@ Everything now lives under `src/`, moved with `git mv` (all tracked as renames):
 
 ## 15
 
-### Frontend → frontend/ refactor
-
 Moved the entire frontend into a `frontend/` subfolder to prepare for adding `backend/` alongside it. All moves done with `git mv` (tracked as renames, history preserved). Nothing committed.
 
-#### What moved
+### What moved
 
 Every frontend file/folder moved under `frontend/`: `src/`, `public/`, `index.html`, `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `tsconfig.json`, `vite.config.ts`, `eslint.config.js`, `.prettierrc.json`, `.prettierignore`, `components.json`.
 
@@ -284,19 +282,51 @@ Left at root as instructed: `_docs/` and the root `.gitignore`.
 
 `node_modules/` at the old root wasn't git-tracked (as expected): deleted it and ran a fresh `pnpm install` inside `frontend/`, which reinstalled cleanly. Also found and removed a stray `.vite/` cache directory that had accumulated at repo root from earlier dev-server runs (untracked debris, unrelated to the move).
 
-#### What config changed
+### What config changed
 
 - **Root `.gitignore`:** removed the frontend-toolchain-specific lines (`node_modules`, `dist`, `*.tsbuildinfo`, `pnpm-debug.log*`, `.eslintcache`), keeping genuinely repo-wide ignores (env files, `.DS_Store`, `.vscode/`, the v0 cruft entries, archive, generic `*.log`).
 - **New `frontend/.gitignore`:** holds the ignores removed from root, plus `.vite` (added after finding that cache leaking to disk).
 - **`frontend/.prettierignore`:** dropped the `_docs` entry: now unreachable from inside `frontend/` since `_docs/` lives outside this subtree, so prettier run from `frontend/` never sees it.
 
-#### What didn't need changing (checked, confirmed correct)
+### What didn't need changing (checked, confirmed correct)
 
 - **`tsconfig.json`** (paths, include) and **`vite.config.ts`** (resolve.alias): both use paths relative to their own file's location (`./src`), so moving the file and its sibling `src/` down together didn't break anything. `@/` still resolves to `frontend/src`.
 - **`index.html`:** `src="/src/main.tsx"` and `href="/favicon.svg"` are root-relative to Vite's server root, which is now `frontend/` (since `index.html` and `vite.config.ts` both live there). Still correct.
 - **`components.json`:** `css: "src/index.css"` and the `@/`-prefixed aliases are all relative/alias-based, unaffected.
 - **`eslint.config.js`:** `ignores: ['dist']` and file globs are relative to its own location, and ESLint only scans the directory it's run from (`frontend/`).
 
-#### Verification
+### Verification
 
 From inside `frontend/`: `pnpm install` (fresh, clean), `pnpm lint` → 0 errors / 0 warnings, `tsc -b` → clean, `pnpm build` → clean. Ran the dev server in a real browser: dashboard renders all 10 seeded projects, favicon serves 200, project-detail page renders fully and correctly with zero console errors.
+
+## 16
+
+Fixed the dashboard's "recently updated" sort so note changes bump the parent project, not just edits to the project's own fields. Only 4 files touched. Nothing committed.
+
+### Where this went, and why
+
+Checked the layer structure before touching anything: `services/api/mock.ts` is the sole data owner, `store.tsx` is the seam that syncs mock results into React state (which the dashboard reads for its sort), and `notes-panel.tsx` was calling `api.addNote`/`api.deleteNote` directly, bypassing the store entirely.
+
+That bypass was the actual bug. `mock.ts`'s `addNote` already bumped the project's `updatedAt` internally, but since `notes-panel.tsx` never went through `store.tsx`, the React `projects` state the dashboard renders from never found out about the bump. It would only have shown up after a full reload. `deleteNote` didn't even do the internal bump.
+
+### What changed
+
+- **`services/api/mock.ts`:** added a private `touchProject(id)` helper (the central seam), and made both `addNote` and `deleteNote` call it and return the updated project. `addNote` now returns `{ note, project }`; `deleteNote` now returns `Project` instead of `void`.
+- **`store-context.ts` / `store.tsx`:** added `addNote`/`deleteNote` to the store's public surface. Both call the api, then splice the returned bumped project into the store's `projects` state the same way `updateProject` already does. This is what makes the dashboard sort update live.
+- **`notes-panel.tsx`:** now calls `useStore().addNote`/`deleteNote` instead of `api.addNote`/`api.deleteNote` directly. `listNotes` stays a direct api call since it's a pure read with no state to sync.
+
+`pages/project-detail.tsx` was not touched, so the no-op-blur comparisons for name/pitch/description/next action stay intact.
+
+### On attachments
+
+`touchProject` is the seam for this. When attachments are built, `addAttachment`/`deleteAttachment` in `mock.ts` just need to call `touchProject(projectId)` too (one line), and the store methods would follow the identical splice-the-returned-project pattern as notes. It's not automatic (a future implementer still has to call it), so there's a comment on `touchProject` flagging it.
+
+### Verification
+
+Tested all four behaviors live, each in isolation:
+- Add a note → project jumps to the top of "recently updated."
+- Delete a note → same.
+- Real project-field edit (pitch) → still bumps and re-sorts.
+- No-op blur (focus in, blur out, no change) → `updatedAt` unchanged.
+
+Lint 0/0, tsc clean, pnpm build clean.

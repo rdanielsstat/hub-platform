@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Trash2 } from 'lucide-react'
 import { api, type Note } from '@/services/api'
+import { useStore } from '@/use-store'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { formatRelative } from '@/lib/project-utils'
 
 export function NotesPanel({ projectId }: { projectId: string }) {
+  const { addNote, deleteNote } = useStore()
   const [notes, setNotes] = useState<Note[]>([])
   const [loading, setLoading] = useState(true)
   const [body, setBody] = useState('')
@@ -32,7 +34,7 @@ export function NotesPanel({ projectId }: { projectId: string }) {
     if (!text) return
     setSaving(true)
     try {
-      const note = await api.addNote(projectId, text)
+      const note = await addNote(projectId, text)
       setNotes((prev) => [note, ...prev])
       setBody('')
     } finally {
@@ -43,7 +45,7 @@ export function NotesPanel({ projectId }: { projectId: string }) {
   async function remove(id: string) {
     setConfirmingId(null)
     setNotes((prev) => prev.filter((n) => n.id !== id))
-    await api.deleteNote(id)
+    await deleteNote(id)
   }
 
   return (
