@@ -179,7 +179,9 @@ export function ProjectDetailPage() {
           rows={1}
           value={nextAction}
           onChange={(e) => setNextAction(e.target.value)}
-          onBlur={() => save({ nextAction })}
+          onBlur={() =>
+            nextAction !== project.nextAction && save({ nextAction })
+          }
           placeholder="The single next concrete step…"
           className="flex w-full min-w-0 resize-none overflow-hidden rounded-lg border border-transparent bg-transparent px-0 py-1 text-base font-medium leading-snug shadow-none outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:bg-background focus-visible:px-3 focus-visible:ring-3 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50"
         />
@@ -190,7 +192,10 @@ export function ProjectDetailPage() {
           <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            onBlur={() => name.trim() && save({ name: name.trim() })}
+            onBlur={() => {
+              const trimmed = name.trim()
+              if (trimmed && trimmed !== project.name) save({ name: trimmed })
+            }}
             className="h-auto border-transparent bg-transparent px-0 text-2xl font-semibold tracking-tight shadow-none focus-visible:border-ring focus-visible:bg-background focus-visible:px-3"
           />
           <Select
@@ -213,7 +218,7 @@ export function ProjectDetailPage() {
         <Input
           value={pitch}
           onChange={(e) => setPitch(e.target.value)}
-          onBlur={() => save({ pitch })}
+          onBlur={() => pitch !== project.pitch && save({ pitch })}
           placeholder="One-line pitch: the scannable version"
           className="border-transparent bg-transparent px-0 text-sm text-muted-foreground shadow-none focus-visible:border-ring focus-visible:bg-background focus-visible:px-3"
         />
@@ -228,7 +233,9 @@ export function ProjectDetailPage() {
               rows={6}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              onBlur={() => save({ description })}
+              onBlur={() =>
+                description !== project.description && save({ description })
+              }
               placeholder="The full brain-dump…"
             />
           </section>
