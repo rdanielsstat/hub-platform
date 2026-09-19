@@ -2,6 +2,8 @@
 
 A personal platform to capture, organize, and triage project ideas, where ANY idea can graduate into a real, standalone build but there's a place for ALL of them. Central place for everything; the good ideas spin off. The platform exists to stop the scatter — not to become a thing that is endlessly polished instead of shipping actual projects. **Keep v1 manageable.**
 
+Multi-user: anyone can self-register and track their own project ideas. Each account is isolated (users don't interact or share); every query is scoped to the authenticated user.
+
 ---
 
 ## 1. Guiding principles
@@ -17,10 +19,10 @@ A personal platform to capture, organize, and triage project ideas, where ANY id
 
 ## 2. Architecture (layers)
 
-- **Data layer:** Postgres. Tables: `projects`, `notes`, `attachments` (+ owner).
+- **Data layer:** Postgres. Tables: `users`, `auth_identities`, `projects`, `notes`, `attachments`.
 - **API layer:** FastAPI. The clean seam. Serves web now, native iOS later, agents eventually. Gives OpenAPI docs for free at `/docs` (useful later for generating the iOS client).
 - **App layer:** React (Vite) SPA, responsive, installable as a PWA.
-- **Auth:** managed provider (OIDC under the hood) — do not roll your own. See stack note.
+- **Auth:** roll your own in FastAPI — hashed passwords (bcrypt/argon2) + token-based auth (JWT bearer). Token-based, not cookie/session, so the same API serves the web app and the future iOS app identically. Identity is split into its own table so additional sign-in methods (Sign in with Apple/Google) can attach later. See stack note.
 - **Agent layer:** ABSENT in v1. Leave the API seam clean so it slots in later as its own service. (This is the pay-per-token API-cost path — add only when the value justifies it.)
 - **Observability:** cross-cutting. v1 = error tracking (Sentry free tier) + platform dashboards. Grows into the future "agentic dashboard" when agents exist.
 
@@ -28,11 +30,32 @@ A personal platform to capture, organize, and triage project ideas, where ANY id
 
 ## 3. Data model
 
+### \`users\`
+| field | type | notes |
+|---|---|---|
+| id | uuid / pk | |
+| email | text, unique | login identity |
+| display_name | text, nullable | shown in UI |
+| created_at | timestamptz | |
+| updated_at | timestamptz | |
+
+### \`auth_identities\`
+| field | type | notes |
+|---|---|---|
+| id | uuid / pk | |
+| user_id | fk → users | |
+| provider | enum | `password` now; `apple`, `google` later |
+| provider_subject | text | email for password; provider's stable subject id later |
+| password_hash | text, nullable | set only when provider = password (bcrypt/argon2) |
+| created_at | timestamptz | |
+
+> Auth is split from the profile so one user can have multiple sign-in methods over time (password now, Sign in with Apple for the iOS app later) without reshaping the users table.
+
 ### \`projects\`
 | field | type | notes |
 |---|---|---|
 | id | uuid / pk | |
-| user_id | fk → auth user | owner |
+| user_id | fk → users | owner; every query filters on this |
 | name | text | |
 | pitch | text | one-line, scannable — separate from description |
 | description | text | the full brain-dump |
@@ -54,7 +77,7 @@ A personal platform to capture, organize, and triage project ideas, where ANY id
 | field | type | notes |
 |---|---|---|
 | id | uuid / pk | |
-| project_id | fk → projects | |
+| project_id | fk → projects | ownership reached via the project |
 | body | text | |
 | created_at | timestamptz | timestamped log entry, not one blob |
 
@@ -62,30 +85,33 @@ A personal platform to capture, organize, and triage project ideas, where ANY id
 | field | type | notes |
 |---|---|---|
 | id | uuid / pk | |
-| project_id | fk → projects | |
+| project_id | fk → projects | ownership reached via the project |
 | file_path | text | storage key/URL |
 | caption | text | |
 | created_at | timestamptz | |
 
-**Three tables + owner. Resist a fourth in v1.**
+**Domain stays at three tables (projects, notes, attachments); `users` + `auth_identities` are the auth backbone. Resist further domain tables in v1.**
+
+> **Isolation:** every read and write is scoped to the authenticated user. The backend fetches by ID *and* owner, never by ID alone — authentication proves who you are, scoping enforces what you can access.
 
 ---
 
 ## 4. Screens
 
-1. **Login.** Email/password via managed auth.
-2. **Dashboard / operations view.** All projects; filter by status + tag; sort by scores and dates; surface what's active, what's gone stale (longest untouched), high-excitement/low-effort picks, upcoming dates. Prominent quick-capture. Responsive — genuinely usable on a phone. This is the GTD weekly-review surface.
-3. **Project detail.** All fields editable; status changes; scores; notes log; attachments; links; **next action shown at top.**
-4. **Quick capture.** Minimal add (name + pitch, optional description). The GTD inbox front door. Fast on mobile.
+1. **Login.** Email/password.
+2. **Sign up.** Open self-registration: email + password + optional display name. Email uniqueness enforced.
+3. **Dashboard / operations view.** The logged-in user's projects; filter by status + tag; sort by scores and dates; surface what's active, what's gone stale (longest untouched), high-excitement/low-effort picks, upcoming dates. Prominent quick-capture. Responsive — genuinely usable on a phone. This is the GTD weekly-review surface.
+4. **Project detail.** All fields editable; status changes; scores; notes log; attachments; links; **next action shown at top.**
+5. **Quick capture.** Minimal add (name + pitch, optional description). The GTD inbox front door. Fast on mobile.
 
 ---
 
 ## 5. Stack
 
-- **Frontend:** React (Vite), responsive, PWA-installable. Scaffolded in v0 or Lovable first for design, then exported to a GitHub repo to build out. Host on **Vercel free tier** (keeps AWS learning surface small; every git branch gets a preview URL = free dev/prod).
-- **Backend:** FastAPI on **AWS Lambda** (via Mangum adapter) behind a Lambda Function URL or API Gateway. Serverless = near-zero at this scale.
+- **Frontend:** React (Vite), responsive, PWA-installable. Lives in `frontend/`. Scaffolded in v0 or Lovable first for design, then exported to a GitHub repo to build out. Host on **Vercel free tier** (keeps AWS learning surface small; every git branch gets a preview URL = free dev/prod).
+- **Backend:** FastAPI in `backend/`, on **AWS Lambda** (via Mangum adapter) behind a Lambda Function URL or API Gateway. Serverless = near-zero at this scale.
 - **Database:** **Neon** (or Supabase) serverless Postgres — real free tier, scales to zero. Avoids the always-on RDS cost trap while learning AWS.
-- **Auth:** Supabase Auth or Clerk (OIDC under the hood; Cognito is the AWS-native option but fiddly — fine to use a managed provider for sanity). Enables "Sign in with Apple/Google" later, which the iOS app will want.
+- **Auth:** roll your own in FastAPI — passlib (bcrypt/argon2) for hashing, JWT bearer tokens, OAuth2 password flow. Token-based so the same API serves web and the future iOS app. `auth_identities` keeps the door open for "Sign in with Apple/Google" later. (Managed providers like Clerk/Supabase Auth remain a fallback if roll-your-own becomes a burden.)
 - **File storage:** S3 (screenshots/attachments), or the storage bundled with Supabase if used.
 - **IaC:** Terraform or AWS SAM/CDK — define it once so future spinoffs are reproducible/stampable.
 - **Observability:** Sentry (React + FastAPI) from day one; platform dashboards otherwise.
@@ -114,8 +140,8 @@ A personal platform to capture, organize, and triage project ideas, where ANY id
 
 Each step ships a usable thing. Build one per session; commit after each.
 
-1. **Foundation.** Postgres (Neon), managed auth, FastAPI wired up, three tables with user ownership, login working end to end.
-2. **Dashboard read/create.** Responsive React app: list projects + quick-capture. **Dump every idea from the brainstorm in here.** First real win.
+1. **Foundation.** Postgres (Neon), roll-your-own auth, FastAPI wired up, tables with user ownership, signup + login working end to end.
+2. **Dashboard read/create.** Responsive React app: list projects + quick-capture, scoped to the logged-in user. **Dump every idea from the brainstorm in here.** First real win.
 3. **Project detail + edit.** Full editing: status, scores, next action, links.
 4. **Notes log.** Add/view timestamped notes per project.
 5. **Attachments.** Upload + view screenshots/files (S3 or Supabase storage).
@@ -130,7 +156,8 @@ Steps 1–2 = working, hosted, logged-in tool reachable from any browser. Everyt
 - Embedded / autonomous agents (pay-per-token API cost path).
 - Agentic dashboard (really the observability surface for agent runs — Langfuse etc.).
 - Multi-agent projects.
-- Native iOS app (talks to the same FastAPI — that's why the API seam matters now).
+- Native iOS app (talks to the same FastAPI — that's why the API seam, token auth, and multi-user matter now).
+- Sign in with Apple/Google (schema is ready via `auth_identities`; not wired in v1).
 - Deeper "app + Claude Code share a filesystem" project-folder idea.
 - Apple Notes import (no clean public API; bulk export/paste when it comes).
 - Migrate to AWS Cloud Run / heavier AWS services as a *graduated project* in its own right.

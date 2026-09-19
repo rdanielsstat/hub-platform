@@ -24,3 +24,5 @@ pnpm-debug.log*
 # Editor / OS
 .DS_Store
 .vscode/
+
+archive
