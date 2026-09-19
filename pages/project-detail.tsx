@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -52,6 +52,16 @@ export function ProjectDetailPage() {
     () => (project ? formatDate(project.targetDate) : '-'),
     [project],
   )
+
+  // Grow the next-action textarea to fit its wrapped content instead of
+  // clipping it, by syncing the DOM height to scrollHeight after each change.
+  const nextActionRef = useRef<HTMLTextAreaElement>(null)
+  useLayoutEffect(() => {
+    const el = nextActionRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [nextAction])
 
   if (loading) {
     return (
@@ -164,12 +174,14 @@ export function ProjectDetailPage() {
           <Zap className="size-3.5" />
           Next action
         </div>
-        <Input
+        <textarea
+          ref={nextActionRef}
+          rows={1}
           value={nextAction}
           onChange={(e) => setNextAction(e.target.value)}
           onBlur={() => save({ nextAction })}
           placeholder="The single next concrete step…"
-          className="border-transparent bg-transparent px-0 text-base font-medium shadow-none focus-visible:border-ring focus-visible:bg-background focus-visible:px-3"
+          className="flex w-full min-w-0 resize-none overflow-hidden rounded-lg border border-transparent bg-transparent px-0 py-1 text-base font-medium leading-snug shadow-none outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:bg-background focus-visible:px-3 focus-visible:ring-3 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50"
         />
       </div>
 
