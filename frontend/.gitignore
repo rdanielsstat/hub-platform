@@ -1,0 +1,9 @@
+# Dependencies / build
+node_modules
+dist
+*.tsbuildinfo
+.vite
+
+# Logs / cache
+pnpm-debug.log*
+.eslintcache

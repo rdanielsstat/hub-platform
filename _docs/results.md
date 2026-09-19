@@ -269,3 +269,34 @@ Everything now lives under `src/`, moved with `git mv` (all tracked as renames):
 - `.prettierignore` and `eslint.config.js`: neither hardcodes any of the moved directories (glob-based `dist/**/*.{ts,tsx}` patterns already cover `src/**`).
 - `index.html`: `<script src="/src/main.tsx">` was already correct.
 - Relative imports: the only ones in the codebase (`services/api/*.ts` importing siblings, `src/main.tsx` → `./App`) are between files that moved together or didn't move at all, so none broke. Every cross-directory import already went through the `@/` alias, exactly as expected.
+
+## 15
+
+### Frontend → frontend/ refactor
+
+Moved the entire frontend into a `frontend/` subfolder to prepare for adding `backend/` alongside it. All moves done with `git mv` (tracked as renames, history preserved). Nothing committed.
+
+#### What moved
+
+Every frontend file/folder moved under `frontend/`: `src/`, `public/`, `index.html`, `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `tsconfig.json`, `vite.config.ts`, `eslint.config.js`, `.prettierrc.json`, `.prettierignore`, `components.json`.
+
+Left at root as instructed: `_docs/` and the root `.gitignore`.
+
+`node_modules/` at the old root wasn't git-tracked (as expected): deleted it and ran a fresh `pnpm install` inside `frontend/`, which reinstalled cleanly. Also found and removed a stray `.vite/` cache directory that had accumulated at repo root from earlier dev-server runs (untracked debris, unrelated to the move).
+
+#### What config changed
+
+- **Root `.gitignore`:** removed the frontend-toolchain-specific lines (`node_modules`, `dist`, `*.tsbuildinfo`, `pnpm-debug.log*`, `.eslintcache`), keeping genuinely repo-wide ignores (env files, `.DS_Store`, `.vscode/`, the v0 cruft entries, archive, generic `*.log`).
+- **New `frontend/.gitignore`:** holds the ignores removed from root, plus `.vite` (added after finding that cache leaking to disk).
+- **`frontend/.prettierignore`:** dropped the `_docs` entry: now unreachable from inside `frontend/` since `_docs/` lives outside this subtree, so prettier run from `frontend/` never sees it.
+
+#### What didn't need changing (checked, confirmed correct)
+
+- **`tsconfig.json`** (paths, include) and **`vite.config.ts`** (resolve.alias): both use paths relative to their own file's location (`./src`), so moving the file and its sibling `src/` down together didn't break anything. `@/` still resolves to `frontend/src`.
+- **`index.html`:** `src="/src/main.tsx"` and `href="/favicon.svg"` are root-relative to Vite's server root, which is now `frontend/` (since `index.html` and `vite.config.ts` both live there). Still correct.
+- **`components.json`:** `css: "src/index.css"` and the `@/`-prefixed aliases are all relative/alias-based, unaffected.
+- **`eslint.config.js`:** `ignores: ['dist']` and file globs are relative to its own location, and ESLint only scans the directory it's run from (`frontend/`).
+
+#### Verification
+
+From inside `frontend/`: `pnpm install` (fresh, clean), `pnpm lint` → 0 errors / 0 warnings, `tsc -b` → clean, `pnpm build` → clean. Ran the dev server in a real browser: dashboard renders all 10 seeded projects, favicon serves 200, project-detail page renders fully and correctly with zero console errors.

@@ -11,15 +11,8 @@ __v0_jsx-dev-runtime.ts
 .env.*
 !.env.example
 
-# Dependencies / build
-node_modules
-dist
-*.tsbuildinfo
-
-# Logs / cache
+# Logs
 *.log
-pnpm-debug.log*
-.eslintcache
 
 # Editor / OS
 .DS_Store

@@ -171,3 +171,20 @@ Requirements:
 
 When done: run pnpm install (in case anything path-related needs it), pnpm lint (must stay 0/0), tsc, and pnpm build (both clean), and run the app to confirm it still works. Report exactly what moved and what config changed. Don't commit, I'll review and commit.
 ```
+
+### 15
+
+```
+Refactor the repo so the entire frontend application lives in a frontend/ subfolder at the repo root, in preparation for adding a backend/ alongside it. Right now the frontend sits directly at the repo root.
+
+First inspect the current layout so you move the right things. Then:
+
+- Move all frontend files and folders into frontend/ using git mv to preserve history: src/, public/, index.html, package.json, pnpm-lock.yaml, pnpm-workspace.yaml, tsconfig.json (and any other tsconfig.*.json), vite.config.ts, eslint.config.js, .prettierrc.json, .prettierignore, components.json, and any other frontend-specific config.
+- Leave at the repo root: _docs/ and the root .gitignore.
+- Do NOT move node_modules with git (it's gitignored); instead, after moving, reinstall inside frontend/ with pnpm install so it rebuilds in the new location.
+- Handle .gitignore correctly for the new structure: the frontend's ignores (node_modules, dist, *.tsbuildinfo) should apply inside frontend/. Either add a frontend/.gitignore for those, or update the root .gitignore paths to be frontend/-scoped, whichever is cleaner. Keep repo-wide ignores at root.
+- Check every config for paths that break when the app moves down a level: tsconfig paths/include, vite config, index.html's script src, components.json, and fix any that assumed the old root location. The @/ alias should still resolve to frontend/src.
+- Confirm .prettierignore and eslint.config.js still target the right paths from inside frontend/.
+
+When done: from inside frontend/, run pnpm install, pnpm lint (must stay 0/0), tsc, and pnpm build (both clean), and run the app to confirm it still works. Report exactly what moved and what config changed. Don't commit, I'll review and commit.
+```
