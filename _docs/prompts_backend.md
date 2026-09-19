@@ -124,3 +124,59 @@ Testing:
 
 Keep lint at 0/0, tsc, build, and the backend tests all clean. Report what you built, what you removed from the mock, and anything that didn't line up. Don't commit, I'll review.
 ```
+
+## 7
+
+Swap the backend's in-memory store for a real database: SQLite via SQLAlchemy, kept strictly database-agnostic so Postgres (Neon) can replace SQLite at deploy time without a rewrite, per the spec and AGENTS.md. Same API contract, same behavior, now durable across restarts. This step also replaces the demo seed data with a curated set and changes when seeding runs. Read AGENTS.md, backend/README.md, app/db/store.py, app/db/seed.py, and the existing models and routers first so the swap preserves current behavior exactly.
+
+STORAGE SWAP
+- Add SQLAlchemy and the SQLite driver as backend deps via uv. Use the SQLAlchemy ORM with a standard FastAPI session dependency injected into routers.
+- Keep the db/ seam the routers depend on. The routers currently depend on get_store; the swap should touch the store/session layer and its wiring, not rewrite router logic. Preserve the exact ownership-scoping behavior: every project and note query scoped to the authenticated user; 404 (not 403) for another user's data.
+- Define ORM models for users, auth_identities, projects, and notes, matching the current dataclasses and the spec's data model. Keep the JSON/API shapes identical (camelCase responses unchanged). This is a storage swap, not a contract change.
+- Preserve the "touch parent project on note add/delete" behavior (updatedAt bump) that the dashboard's recently-updated sort depends on. The current code reuses update_project with no fields as the touch primitive; keep that behavior working however it's expressed against the DB.
+
+DATABASE-AGNOSTIC (important — this is what keeps Postgres a drop-in later)
+- Do NOT use any SQLite-only column types or behaviors. Choose SQLAlchemy types that map cleanly to both SQLite and Postgres for every field, especially: UUID ids, timezone-aware timestamps, the tags array, the links JSON, and the status enum. Where SQLite and Postgres differ, pick the portable option and note it.
+- The database URL/path must come from config/env (a single settings source), not hardcoded in multiple places. Default to a local SQLite file for dev; the same code should accept a Postgres URL via env with no code change.
+- Tell me explicitly anywhere you had to make a portability tradeoff, so I know what to watch when Postgres comes in.
+
+SEED DATA (replace the current two-project seed entirely)
+Seed the demo account (demo@hub.dev / demo1234) with these ten projects. Fill every field as specified; where a field is marked blank, leave it genuinely empty to show a raw/early-stage capture. Vary created/updated timestamps as described so the dashboard's "recently updated" and "stale / longest untouched" both have something to show (recent ones updated within days, stale ones untouched for months). Notes carry their own realistic timestamps.
+
+1. "Dial in a sourdough starter" — status Parked; tags cooking, hobby; excitement 2, effort 2, potential 2; pitch "Keep a starter alive long enough to bake one good loaf."; description "Every attempt so far has died within two weeks. Want to actually understand hydration and feeding schedules instead of following recipes blindly."; next action "Buy a kitchen scale and try the no-discard method."; no target date; no links; old/stale dates. Notes: "Third attempt died. Maybe the kitchen's too cold. Revisit in winter."
+
+2. "Etsy shop for my prints" — status Exploring; tags creative, side-hustle, art; excitement 4, effort 3, potential 3; pitch "Turn the illustrations I already make into a tiny income stream."; description "I've got a backlog of prints sitting in a folder. Test whether anyone would actually pay for them before investing in inventory."; next action "List the first three prints and see if anything sells in a month."; no target date; links: {label "Seller guide", url https://www.etsy.com/seller-handbook}, {no label, url https://www.pinterest.com}. Notes (spread over weeks): "Ordered sample prints to check quality" / "Shipping costs are brutal for large sizes, maybe stick to A4/A5" / "Name idea: 'Second Sun Studio'?"
+
+3. "Automate my budgeting spreadsheet" — status Active; tags finance, productivity; excitement 3, effort 4, potential 4; pitch "Stop manually typing every transaction into a sheet I abandon by March."; description "The tracking always dies because entry is tedious. If categorization were automatic I might actually stick with it."; next action "Figure out how to import the bank CSV and auto-categorize."; target date ~3 weeks out; links: {label "Template", url https://docs.google.com/spreadsheets}; recent dates. Notes: "Categorize transactions automatically, look into bank CSV export" / "Manual entry is the thing I always give up on, fix that first"
+
+4. "Train for a half-marathon" — status Active; tags health, running, fitness; excitement 5, effort 4, potential 3; pitch "Go from couch-ish to 21k without wrecking my knees."; description "Signed up already so there's no backing out. Need a structured plan rather than just running randomly until something hurts."; next action "Do the week 4 long run this weekend."; target date ~10 weeks out; links: {label "Race day", url https://www.runsignup.com}, {label "12-week plan", url https://www.halhigdon.com}; recent dates. Notes: "Week 3 done, knee held up fine" / "Need better shoes before mileage ramps"
+
+5. "Pivot into UX design" — status Exploring; tags career, learning, design; excitement 5, effort 5, potential 4; pitch "Move from my current role into UX within a year."; description "I keep gravitating toward the design side of every project. Want to test whether it's a real career move or just a grass-is-greener thing, before committing money to it."; next action "Finish the first module of the UX cert and redesign one app as a case study."; target date ~6 months out; links: {label "Course", url https://www.coursera.org}, {no label, url https://www.behance.net}. Notes (the most-noted, a heavily-worked idea): "Talked to Priya who made the switch, coffee notes: portfolio > credentials" / "Started the Google UX cert" / "Redesign a real app as a case study, pick something I use daily" / "Imposter feelings are loud but the work is genuinely fun"
+
+6. "Build my portfolio site" — status Inbox; tags web, career; excitement 3, effort 3, potential 3; pitch blank; description "Need a personal site. Nothing more than that yet."; next action blank; no target date; no links; created very recently, untouched since. No notes.
+
+7. "Read 24 books this year" — status Active; tags reading, habit; excitement 4, effort 2, potential 3; pitch "Two books a month, actually finished, not just started."; description "I buy books faster than I read them. A visible count might keep me honest."; next action "Pick the next book tonight instead of doom-scrolling."; target date end of this year; links: {label "Reading list", url https://www.thestorygraph.com}. Notes: "9 down, ahead of pace. Next: that sci-fi everyone won't shut up about."
+
+8. "Learn enough Spanish for the trip" — status Parked; tags language, learning, travel; excitement 4, effort 3, potential 2; pitch "Order food and ask directions without switching to English."; description "Not aiming for fluency, just enough to be polite and get around. Keeps stalling because app streaks aren't the same as talking."; next action "Book a few italki conversation sessions."; target date ~4 months out; links: {no label, url https://www.duolingo.com}, {label "Podcast", url https://www.duolingo.com/podcast}; somewhat stale. Notes: "Duolingo streak died at 12 days lol" / "Actually need conversation practice, not more app streaks"
+
+9. "Start a podcast with the group chat" — status Killed; tags creative, audio; excitement 2, effort 4, potential 2; pitch "A casual weekly podcast with the friends."; description "Fun in theory. In practice nobody can commit to a schedule and I'd end up doing all the editing."; next action blank; no target date; no links. Notes: "Everyone's excited for exactly one weekend then vanishes" / "Killing this. Fun idea, zero follow-through from anyone including me."
+
+10. "Declutter and sell old furniture" — status Graduated; tags home, minimalism; excitement 3, effort 3, potential 3; pitch "Clear out the stuff I don't use and make a little cash doing it."; description "Moving soon-ish and half this furniture isn't coming with me. Sell what's worth selling, donate the rest."; next action blank; no target date; links: {label "Listings", url https://www.facebook.com/marketplace}. Notes: "Sold the desk and the bookshelf, $180 total" / "Done. Apartment feels twice as big. Worth it."
+
+SEEDING BEHAVIOR
+- Seed only when the database is empty (no users). A fresh DB gets the demo account and these ten projects; an existing DB is never re-seeded, duplicated, or overwritten on restart. Keep the seeded credentials in the README.
+
+MIGRATIONS
+- For v1, create tables on startup if they don't exist (no Alembic needed yet). Tell me explicitly that's what you did, so the story for future schema changes is clear.
+
+TESTING
+- The existing suite (23 passing) must still pass against the new storage. Rework the fixtures so each test runs against its own fresh, isolated database (in-memory SQLite or a temp file per test), never a shared dev DB and never the developer's real data. Confirm the isolation tests still genuinely test cross-user isolation.
+- Report the test count and confirm all green.
+
+VERIFICATION (both servers running)
+- Persistence across restart is the whole point: log in, create a project and a note, restart the backend, log back in, confirm they're still there.
+- Confirm the demo seed appears on a fresh (empty) database and is NOT duplicated when the backend restarts on an existing database.
+- Confirm the dashboard's recently-updated sort still bumps on note add/delete (the touch behavior survived the swap), and that the ten seeded projects display across all six statuses with their varied scores, dates, links, and notes.
+- If the Chrome extension is flaky, say what you couldn't verify visually rather than claiming it.
+
+Keep frontend lint/type checks clean if you touch the frontend (you likely won't), and keep the backend tests green. Report what you built, the session and table-creation approach, every portability tradeoff you made, and anything that didn't line up. Don't commit, I'll review.

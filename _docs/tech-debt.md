@@ -49,6 +49,16 @@ Required before any deployment:
 Related: app/core/ is currently empty; this is the first thing that needs it. Token
 expiry (currently hardcoded 60 min) and the argon2 parameters should move there too.
 
+## Portability tradeoffs (for the eventual Postgres/Neon swap)
+1. No SQLite driver package needed (stdlib). Postgres will need `uv add psycopg[binary]`.
+2. UUIDs as String(36), not Postgres native UUID.
+3. Tags and links as generic JSON, not Postgres JSONB (costs some Postgres-side JSON query/index efficiency later).
+4. Free text as unbounded Text, not VARCHAR(n), to avoid a dev-vs-prod silent-truncation trap.
+5. Status enum via SQLAlchemy Enum(values_callable=...) — native ENUM on Postgres, VARCHAR+check on SQLite.
+6. Timezone-aware timestamps: DateTime(timezone=True) correct on both, but SQLite strips tzinfo on read. A _utc() helper in store.py reattaches UTC when missing. Masks the SQLite gap at the store layer rather than fixing it at the DB — reading timestamps straight off the SQLite file bypassing the store would give naive datetimes.
+7. FK enforcement turned on for SQLite (PRAGMA foreign_keys=ON per connection) so dev matches Postgres.
+
+
 ## Notes
 
 - A minor deviation from the em-dash pass: the `'—'` "no date" placeholder in `lib/project-utils.ts` (and one spot in `project-detail.tsx`) was replaced with an empty string rather than punctuation. Both branches are currently unreachable. Decide later whether it should show something like "None" instead.

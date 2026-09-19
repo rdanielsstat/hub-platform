@@ -2,14 +2,14 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 
 from app.auth.security import decode_access_token
-from app.db.store import InMemoryStore, UserRecord, get_store
+from app.db.store import Store, UserRecord, get_store
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
 
 def get_current_user(
     token: str = Depends(oauth2_scheme),
-    store: InMemoryStore = Depends(get_store),
+    store: Store = Depends(get_store),
 ) -> UserRecord:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,

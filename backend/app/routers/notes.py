@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.auth.dependencies import get_current_user
 from app.db.store import (
-    InMemoryStore,
+    Store,
     NoteRecord,
     ProjectRecord,
     UserRecord,
@@ -23,7 +23,7 @@ def _to_project(record: ProjectRecord) -> Project:
 
 
 def _get_owned_project_or_404(
-    project_id: str, owner_id: str, store: InMemoryStore
+    project_id: str, owner_id: str, store: Store
 ) -> ProjectRecord:
     record = store.get_project(project_id, owner_id)
     if record is None:
@@ -37,7 +37,7 @@ def _get_owned_project_or_404(
 def list_notes(
     project_id: str,
     current_user: UserRecord = Depends(get_current_user),
-    store: InMemoryStore = Depends(get_store),
+    store: Store = Depends(get_store),
 ) -> list[Note]:
     _get_owned_project_or_404(project_id, current_user.id, store)
     return [_to_note(n) for n in store.list_notes(project_id)]
@@ -52,7 +52,7 @@ def add_note(
     project_id: str,
     payload: CreateNoteInput,
     current_user: UserRecord = Depends(get_current_user),
-    store: InMemoryStore = Depends(get_store),
+    store: Store = Depends(get_store),
 ) -> AddNoteResponse:
     _get_owned_project_or_404(project_id, current_user.id, store)
     note = store.create_note(project_id=project_id, body=payload.body)
@@ -65,7 +65,7 @@ def add_note(
 def delete_note(
     note_id: str,
     current_user: UserRecord = Depends(get_current_user),
-    store: InMemoryStore = Depends(get_store),
+    store: Store = Depends(get_store),
 ) -> Project:
     note = store.get_note(note_id)
     if note is None:

@@ -1,9 +1,9 @@
-"""In-memory data store.
+"""SQL-backed data store (SQLAlchemy).
 
-This is the seam that gets swapped for a real database (SQLite via
-SQLAlchemy, per AGENTS.md) later. Routers depend on `get_store`, never on
-`InMemoryStore` directly, so that swap only touches this module and the
-dependency wiring in app/main.py.
+Routers depend on `get_store` and the `UserRecord`/`ProjectRecord`/
+`NoteRecord` DTOs below, never on the ORM tables or a `Session` directly —
+this module (plus orm.py and session.py) is the entire swappable seam
+between routers and however data actually gets persisted.
 """
 
 from __future__ import annotations
@@ -12,7 +12,21 @@ import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
+from fastapi import Depends
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from app.db.orm import AuthIdentityTable, NoteTable, ProjectTable, UserTable
+from app.db.session import get_db_session
 from app.models.project import Status
+
+
+def _utc(value: datetime) -> datetime:
+    """Postgres returns timezone-aware datetimes for `DateTime(timezone=True)`
+    columns; SQLite silently strips tzinfo on read. Everything is written
+    as UTC, so reattach UTC only when it's missing rather than assuming
+    either dialect's behavior."""
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
 
 @dataclass
@@ -52,37 +66,109 @@ class ProjectRecord:
     updated_at: datetime
 
 
-class InMemoryStore:
-    def __init__(self) -> None:
-        self._users: dict[str, UserRecord] = {}
-        self._users_by_email: dict[str, str] = {}
-        self._projects: dict[str, ProjectRecord] = {}
-        self._notes: dict[str, NoteRecord] = {}
+def _user_record(user: UserTable, identity: AuthIdentityTable) -> UserRecord:
+    return UserRecord(
+        id=user.id,
+        email=user.email,
+        password_hash=identity.password_hash or "",
+        display_name=user.display_name,
+        created_at=_utc(user.created_at),
+        updated_at=_utc(user.updated_at),
+    )
+
+
+def _project_record(row: ProjectTable) -> ProjectRecord:
+    return ProjectRecord(
+        id=row.id,
+        owner_id=row.owner_id,
+        name=row.name,
+        pitch=row.pitch,
+        description=row.description,
+        status=row.status,
+        tags=list(row.tags),
+        excitement=row.excitement,
+        effort=row.effort,
+        potential=row.potential,
+        next_action=row.next_action,
+        target_date=row.target_date,
+        links=list(row.links),
+        created_at=_utc(row.created_at),
+        updated_at=_utc(row.updated_at),
+    )
+
+
+def _note_record(row: NoteTable) -> NoteRecord:
+    return NoteRecord(
+        id=row.id,
+        project_id=row.project_id,
+        body=row.body,
+        created_at=_utc(row.created_at),
+    )
+
+
+class Store:
+    def __init__(self, db: Session) -> None:
+        self._db = db
 
     # -- users ---------------------------------------------------------
+
+    def has_users(self) -> bool:
+        """Used only at startup to decide whether to seed (see
+        app/db/seed.py and app/main.py): true once any account exists."""
+        return self._db.scalar(select(UserTable.id).limit(1)) is not None
 
     def create_user(
         self, *, email: str, password_hash: str, display_name: str | None = None
     ) -> UserRecord:
         now = datetime.now(timezone.utc)
-        user = UserRecord(
+        user = UserTable(
             id=str(uuid.uuid4()),
             email=email,
-            password_hash=password_hash,
             display_name=display_name,
             created_at=now,
             updated_at=now,
         )
-        self._users[user.id] = user
-        self._users_by_email[email.lower()] = user.id
-        return user
+        self._db.add(user)
+        self._db.flush()  # ensure the users row exists before the FK-dependent insert
+        identity = AuthIdentityTable(
+            id=str(uuid.uuid4()),
+            user_id=user.id,
+            provider="password",
+            provider_subject=email,
+            password_hash=password_hash,
+            created_at=now,
+        )
+        self._db.add(identity)
+        self._db.commit()
+        return _user_record(user, identity)
 
     def get_user(self, user_id: str) -> UserRecord | None:
-        return self._users.get(user_id)
+        user = self._db.get(UserTable, user_id)
+        if user is None:
+            return None
+        identity = self._get_password_identity(user_id)
+        if identity is None:
+            return None
+        return _user_record(user, identity)
 
     def get_user_by_email(self, email: str) -> UserRecord | None:
-        user_id = self._users_by_email.get(email.lower())
-        return self._users.get(user_id) if user_id else None
+        user = self._db.scalar(
+            select(UserTable).where(func.lower(UserTable.email) == email.lower())
+        )
+        if user is None:
+            return None
+        identity = self._get_password_identity(user.id)
+        if identity is None:
+            return None
+        return _user_record(user, identity)
+
+    def _get_password_identity(self, user_id: str) -> AuthIdentityTable | None:
+        return self._db.scalar(
+            select(AuthIdentityTable).where(
+                AuthIdentityTable.user_id == user_id,
+                AuthIdentityTable.provider == "password",
+            )
+        )
 
     # -- projects --------------------------------------------------------
     # Every lookup takes owner_id alongside the id: a project that exists
@@ -90,42 +176,58 @@ class InMemoryStore:
     # doesn't exist, by design (see openapi.yaml's NotFound response).
 
     def list_projects(self, owner_id: str) -> list[ProjectRecord]:
-        return [p for p in self._projects.values() if p.owner_id == owner_id]
+        rows = self._db.scalars(
+            select(ProjectTable).where(ProjectTable.owner_id == owner_id)
+        )
+        return [_project_record(r) for r in rows]
 
     def get_project(self, project_id: str, owner_id: str) -> ProjectRecord | None:
-        record = self._projects.get(project_id)
-        if record is None or record.owner_id != owner_id:
+        row = self._db.get(ProjectTable, project_id)
+        if row is None or row.owner_id != owner_id:
             return None
-        return record
+        return _project_record(row)
 
-    def create_project(self, *, owner_id: str, **fields: object) -> ProjectRecord:
+    def create_project(
+        self,
+        *,
+        owner_id: str,
+        created_at: datetime | None = None,
+        updated_at: datetime | None = None,
+        **fields: object,
+    ) -> ProjectRecord:
+        # created_at/updated_at overrides exist only for seeding varied,
+        # realistic timestamps (see app/db/seed.py); routers never pass
+        # them, so request-driven creates still just stamp "now".
         now = datetime.now(timezone.utc)
-        record = ProjectRecord(
+        row = ProjectTable(
             id=str(uuid.uuid4()),
             owner_id=owner_id,
-            created_at=now,
-            updated_at=now,
+            created_at=created_at or now,
+            updated_at=updated_at or now,
             **fields,
         )
-        self._projects[record.id] = record
-        return record
+        self._db.add(row)
+        self._db.commit()
+        return _project_record(row)
 
     def update_project(
         self, project_id: str, owner_id: str, **patch: object
     ) -> ProjectRecord | None:
-        record = self.get_project(project_id, owner_id)
-        if record is None:
+        row = self._db.get(ProjectTable, project_id)
+        if row is None or row.owner_id != owner_id:
             return None
         for key, value in patch.items():
-            setattr(record, key, value)
-        record.updated_at = datetime.now(timezone.utc)
-        return record
+            setattr(row, key, value)
+        row.updated_at = datetime.now(timezone.utc)
+        self._db.commit()
+        return _project_record(row)
 
     def delete_project(self, project_id: str, owner_id: str) -> bool:
-        record = self.get_project(project_id, owner_id)
-        if record is None:
+        row = self._db.get(ProjectTable, project_id)
+        if row is None or row.owner_id != owner_id:
             return False
-        del self._projects[record.id]
+        self._db.delete(row)
+        self._db.commit()
         return True
 
     # -- notes -----------------------------------------------------------
@@ -134,29 +236,37 @@ class InMemoryStore:
     # these (see app/routers/notes.py).
 
     def list_notes(self, project_id: str) -> list[NoteRecord]:
-        notes = [n for n in self._notes.values() if n.project_id == project_id]
-        notes.sort(key=lambda n: n.created_at, reverse=True)
-        return notes
+        rows = self._db.scalars(
+            select(NoteTable)
+            .where(NoteTable.project_id == project_id)
+            .order_by(NoteTable.created_at.desc())
+        )
+        return [_note_record(r) for r in rows]
 
     def get_note(self, note_id: str) -> NoteRecord | None:
-        return self._notes.get(note_id)
+        row = self._db.get(NoteTable, note_id)
+        return _note_record(row) if row is not None else None
 
-    def create_note(self, *, project_id: str, body: str) -> NoteRecord:
-        note = NoteRecord(
+    def create_note(
+        self, *, project_id: str, body: str, created_at: datetime | None = None
+    ) -> NoteRecord:
+        # created_at override exists only for seeding (see create_project).
+        row = NoteTable(
             id=str(uuid.uuid4()),
             project_id=project_id,
             body=body,
-            created_at=datetime.now(timezone.utc),
+            created_at=created_at or datetime.now(timezone.utc),
         )
-        self._notes[note.id] = note
-        return note
+        self._db.add(row)
+        self._db.commit()
+        return _note_record(row)
 
     def delete_note(self, note_id: str) -> None:
-        self._notes.pop(note_id, None)
+        row = self._db.get(NoteTable, note_id)
+        if row is not None:
+            self._db.delete(row)
+            self._db.commit()
 
 
-store = InMemoryStore()
-
-
-def get_store() -> InMemoryStore:
-    return store
+def get_store(db: Session = Depends(get_db_session)) -> Store:
+    return Store(db)

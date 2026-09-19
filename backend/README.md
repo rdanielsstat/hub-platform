@@ -1,8 +1,10 @@
 # Hub API
 
-FastAPI backend for Hub. Implements auth and project endpoints against an
-in-memory store; notes and attachments aren't built yet. See
-`../_docs/specs.md` and `../openapi.yaml` for the full intended contract.
+FastAPI backend for Hub. Implements auth, project, and note endpoints
+against a real database (SQLite via SQLAlchemy, database-agnostic so
+Postgres can replace it at deploy time). Attachments aren't built yet.
+See `../_docs/specs.md` and `../openapi.yaml` for the full intended
+contract.
 
 ## Setup
 
@@ -24,16 +26,29 @@ Then visit:
 
 CORS is currently open to the Vite dev server at `http://localhost:5173`.
 
+## Database
+
+SQLite by default, via a local file (`hub.db`, gitignored) — set with
+`DATABASE_URL` (see `app/core/config.py`), which defaults to
+`sqlite:///./hub.db`. Accepts a Postgres URL (e.g.
+`postgresql+psycopg://user:pass@host/db`) with no code change; you'd
+need to `uv add psycopg[binary]` (or another Postgres driver) at that
+point, since SQLite's driver ships with Python and Postgres's doesn't.
+
+Data persists across restarts now. Tables are created on startup if they
+don't exist (`app/db/session.py`'s `create_tables()`) — there's no
+Alembic yet, which is fine while the schema is still moving pre-launch.
+Once it stabilizes, that should become real Alembic migrations so future
+schema changes are tracked and reversible instead of implicit.
+
 ## Seeded demo account
 
-The in-memory store seeds one user with two projects on startup, so there's
-something to log in as and see:
+The database seeds one user with ten varied projects (and notes) the
+first time it's ever empty — a fresh database gets this; an existing one
+is never re-seeded, duplicated, or overwritten on restart:
 
 - email: `demo@hub.dev`
 - password: `demo1234`
-
-The store is in-memory: it resets to just this seed data every time the
-server restarts.
 
 ## Run the tests
 
@@ -41,8 +56,9 @@ server restarts.
 uv run pytest
 ```
 
-Tests run against a fresh, unseeded in-memory store per test (see
-`tests/conftest.py`), independent of the app's seeded singleton.
+Each test runs against its own fresh, isolated in-memory SQLite database
+(see `tests/conftest.py`) — never the dev `hub.db` file, never shared
+across tests, never a real database.
 
 ## Auth
 

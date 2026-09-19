@@ -27,6 +27,24 @@ def test_owner_can_add_list_and_delete_notes(client, register_and_login):
     assert res.json() == []
 
 
+def test_deleting_a_project_cascades_to_its_notes(client, register_and_login, store):
+    headers = register_and_login("notes-cascade@example.com")
+    project_id = client.post(
+        "/projects", json={"name": "Idea"}, headers=headers
+    ).json()["id"]
+    client.post(
+        f"/projects/{project_id}/notes", json={"body": "Note"}, headers=headers
+    )
+
+    res = client.delete(f"/projects/{project_id}", headers=headers)
+    assert res.status_code == 204
+
+    # The FK from notes to projects is enforced (unlike SQLite's default),
+    # so this also proves the delete didn't just fail loudly instead: the
+    # note row is actually gone, not orphaned.
+    assert store.list_notes(project_id) == []
+
+
 def test_notes_are_returned_newest_first(client, register_and_login):
     headers = register_and_login("notes-order@example.com")
     project_id = client.post(

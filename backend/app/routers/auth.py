@@ -3,7 +3,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 
 from app.auth.dependencies import get_current_user
 from app.auth.security import create_access_token, hash_password, verify_password
-from app.db.store import InMemoryStore, UserRecord, get_store
+from app.db.store import Store, UserRecord, get_store
 from app.models.user import RegisterInput, TokenResponse, User
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -13,7 +13,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
     "/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED
 )
 def register(
-    body: RegisterInput, store: InMemoryStore = Depends(get_store)
+    body: RegisterInput, store: Store = Depends(get_store)
 ) -> TokenResponse:
     if store.get_user_by_email(body.email) is not None:
         raise HTTPException(
@@ -30,7 +30,7 @@ def register(
 @router.post("/login", response_model=TokenResponse)
 def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
-    store: InMemoryStore = Depends(get_store),
+    store: Store = Depends(get_store),
 ) -> TokenResponse:
     user = store.get_user_by_email(form_data.username)
     if user is None or not verify_password(form_data.password, user.password_hash):

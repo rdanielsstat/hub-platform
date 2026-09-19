@@ -216,3 +216,41 @@ Nothing this time — contract, projects pattern, and the frontend note code all
 - Browser clicks/typing worked reliably this session — no JS-dispatch fallbacks needed.
 
 Lint, tsc -b, vite build all clean; 23 backend tests passing. Nothing committed.
+
+## 7 - SQLite storage swap + curated demo seed
+
+Swapped the in-memory store for SQLite via SQLAlchemy, kept database-agnostic for Postgres later. Replaced the demo seed with the ten curated projects. Data now survives restarts. 24 backend tests passing. Frontend untouched. Not committed.
+
+### What was built
+- **app/core/config.py** — single settings source: DATABASE_URL, defaults to sqlite:///./hub.db.
+- **app/db/orm.py** — SQLAlchemy tables: UserTable, AuthIdentityTable, ProjectTable, NoteTable.
+- **app/db/session.py** — engine, session factory, create_tables(), get_db_session() dependency, enable_sqlite_foreign_keys().
+- **app/db/store.py** — rewritten: InMemoryStore → Store, backed by a SQLAlchemy Session instead of dicts. Same method surface and same UserRecord/ProjectRecord/NoteRecord DTOs the routers already depended on.
+- **Wiring** — InMemoryStore → Store renamed across the routers and auth/dependencies.py. Purely mechanical: only the type import changed per file, router logic byte-identical.
+- **Seeding** — seed.py replaced with the ten projects, notes, and varied timestamps. main.py calls create_tables() then seeds only if not store.has_users(), using its own short-lived session.
+- **Tests** — conftest.py rebuilt: each test gets its own in-memory SQLite engine (StaticPool, FK enforcement attached), fresh and disposed per test. Forces DATABASE_URL=sqlite:///:memory: before any app import so the startup seed-check never touches a real DATABASE_URL a developer might have set. 24 tests (23 existing + 1 new cascade-delete test).
+
+### Migration story
+No Alembic yet. create_tables() runs Base.metadata.create_all() on startup — creates missing tables, does nothing if they exist. Fine while the schema's still moving pre-launch; becomes real Alembic migrations once it stabilizes, since create_all can't alter existing tables (only create new ones).
+
+### Portability tradeoffs (for the eventual Postgres/Neon swap)
+1. No SQLite driver package needed (stdlib). Postgres will need `uv add psycopg[binary]`.
+2. UUIDs as String(36), not Postgres native UUID.
+3. Tags and links as generic JSON, not Postgres JSONB (costs some Postgres-side JSON query/index efficiency later).
+4. Free text as unbounded Text, not VARCHAR(n), to avoid a dev-vs-prod silent-truncation trap.
+5. Status enum via SQLAlchemy Enum(values_callable=...) — native ENUM on Postgres, VARCHAR+check on SQLite.
+6. Timezone-aware timestamps: DateTime(timezone=True) correct on both, but SQLite strips tzinfo on read. A _utc() helper in store.py reattaches UTC when missing. Masks the SQLite gap at the store layer rather than fixing it at the DB — reading timestamps straight off the SQLite file bypassing the store would give naive datetimes.
+7. FK enforcement turned on for SQLite (PRAGMA foreign_keys=ON per connection) so dev matches Postgres.
+
+### One behavior change (not just a swap)
+The old in-memory delete_project never cleaned up a project's notes (orphaned but unreachable). Real FK enforcement would turn that into an IntegrityError, so added ondelete="CASCADE" on the notes FKs — which openapi.yaml's DELETE /projects/{projectId} already documented but the in-memory store never implemented. Bug fix the swap surfaced, covered by a new regression test. Also: create_user now flushes the user row before the auth-identity insert (SQLAlchemy doesn't auto-sequence the two unrelated inserts).
+
+### Verified
+- 24/24 backend tests pass; confirmed no dev hub.db touched by the test run.
+- Fresh DB → seed appears: 10 projects, all six statuses (1/2/3/2/1/1), correct scores/tags/links (incl. null-label)/blank fields/target dates, notes in right counts and newest-first.
+- Restart → no re-seed: created a project + note via API, restarted against the same hub.db, confirmed 11 projects (not 20), new data intact with original timestamps.
+- Touch behavior survives: verified over HTTP and visually — added a note to "Pivot into UX design", watched it jump to the top of the dashboard sort.
+- Cascade delete: new test confirms deleting a project with notes succeeds (204) and the notes are actually gone.
+- Frontend untouched (git status zero diff).
+
+Note: found a stray uvicorn --reload process (not one it started) that had crashed mid-edit and left hub.db partial; removed the file and re-verified from a clean one.
