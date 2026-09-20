@@ -15,7 +15,7 @@ class User(CamelModel):
 
 class RegisterInput(CamelModel):
     email: EmailStr
-    password: str = Field(min_length=8)
+    password: str = Field(min_length=8, max_length=256)
     display_name: str | None = None
 
 

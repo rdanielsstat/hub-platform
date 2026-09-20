@@ -13,6 +13,35 @@ def test_register_returns_token(client):
     assert body["access_token"]
 
 
+def test_register_password_over_max_length_is_rejected(client):
+    res = client.post(
+        "/auth/register",
+        json={"email": "longpw@example.com", "password": "a" * 257},
+    )
+    assert res.status_code == 422
+
+
+def test_register_with_casing_variant_of_existing_email_is_rejected(client):
+    client.post(
+        "/auth/register", json={"email": "Case@Example.com", "password": "password123"}
+    )
+    res = client.post(
+        "/auth/register", json={"email": "case@example.com", "password": "password123"}
+    )
+    assert res.status_code == 409
+
+
+def test_login_works_regardless_of_registered_or_submitted_casing(client):
+    client.post(
+        "/auth/register", json={"email": "MixedCase@Example.com", "password": "password123"}
+    )
+    res = client.post(
+        "/auth/login",
+        data={"username": "mixedcase@example.com", "password": "password123"},
+    )
+    assert res.status_code == 200
+
+
 def test_register_duplicate_email_is_rejected(client):
     client.post(
         "/auth/register", json={"email": "dup@example.com", "password": "password123"}
@@ -59,6 +88,31 @@ def test_login_with_wrong_password_is_rejected(client):
         data={"username": "wrongpw@example.com", "password": "not-the-password"},
     )
     assert res.status_code == 401
+
+
+def test_login_response_does_not_distinguish_unknown_email_from_wrong_password(
+    client,
+):
+    """An unknown email and a wrong password for a real account must be
+    indistinguishable to the client, status and body alike, so neither
+    the response shape nor (per DUMMY_PASSWORD_HASH) its timing leaks
+    which emails are registered."""
+    client.post(
+        "/auth/register",
+        json={"email": "real@example.com", "password": "password123"},
+    )
+
+    unknown_res = client.post(
+        "/auth/login",
+        data={"username": "nobody@example.com", "password": "whatever123"},
+    )
+    wrong_res = client.post(
+        "/auth/login",
+        data={"username": "real@example.com", "password": "not-the-password"},
+    )
+
+    assert unknown_res.status_code == wrong_res.status_code == 401
+    assert unknown_res.json() == wrong_res.json()
 
 
 def test_protected_endpoint_without_token_is_rejected(client):

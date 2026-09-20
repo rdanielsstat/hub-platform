@@ -32,6 +32,19 @@ def test_create_get_patch_delete_own_project(client, register_and_login):
     assert res.status_code == 404
 
 
+def test_link_with_non_http_scheme_is_rejected(client, register_and_login):
+    headers = register_and_login("link-scheme@example.com")
+    res = client.post(
+        "/projects",
+        json={
+            "name": "Idea",
+            "links": [{"url": "javascript:alert(1)"}],
+        },
+        headers=headers,
+    )
+    assert res.status_code == 422
+
+
 def test_created_project_is_owned_by_the_creator(client, register_and_login):
     headers = register_and_login("owner@example.com")
     res = client.post("/projects", json={"name": "Idea"}, headers=headers)

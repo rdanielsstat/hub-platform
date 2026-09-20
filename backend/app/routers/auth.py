@@ -2,7 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 
 from app.auth.dependencies import get_current_user
-from app.auth.security import create_access_token, hash_password, verify_password
+from app.auth.security import (
+    DUMMY_PASSWORD_HASH,
+    create_access_token,
+    hash_password,
+    verify_password,
+)
 from app.db.store import DuplicateEmailError, Store, UserRecord, get_store
 from app.models.user import RegisterInput, TokenResponse, User
 
@@ -38,7 +43,12 @@ def login(
     store: Store = Depends(get_store),
 ) -> TokenResponse:
     user = store.get_user_by_email(form_data.username)
-    if user is None or not verify_password(form_data.password, user.password_hash):
+    # Verify against a dummy hash when the email doesn't exist, so this
+    # branch costs the same as a real wrong-password check (see
+    # DUMMY_PASSWORD_HASH) instead of returning faster and leaking which
+    # emails are registered via response timing.
+    password_hash = user.password_hash if user is not None else DUMMY_PASSWORD_HASH
+    if user is None or not verify_password(form_data.password, password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",

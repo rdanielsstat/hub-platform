@@ -68,11 +68,13 @@ def delete_note(
     store: Store = Depends(get_store),
 ) -> Project:
     note = store.get_note(note_id)
-    if note is None:
+    # A nonexistent note and one that exists but belongs to someone else
+    # both raise the same 404 with the same message, so the two are
+    # indistinguishable, matching how project lookups already behave.
+    if note is None or store.get_project(note.project_id, current_user.id) is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Note not found"
         )
-    _get_owned_project_or_404(note.project_id, current_user.id, store)
     store.delete_note(note_id)
     project = store.update_project(note.project_id, current_user.id)
     assert project is not None

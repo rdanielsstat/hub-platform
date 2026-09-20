@@ -166,3 +166,27 @@ def test_user_gets_404_deleting_a_note_on_another_users_project(
 
     res = client.get(f"/projects/{project_b_id}/notes", headers=headers_b)
     assert [n["id"] for n in res.json()] == [note_id]
+
+
+def test_deleting_a_nonexistent_note_and_someone_elses_note_are_indistinguishable(
+    client, register_and_login
+):
+    """Both a genuinely nonexistent note_id and a real note belonging to
+    another user must 404 with the same detail, so a caller can't use the
+    message to tell a real (but not theirs) note_id from a made-up one."""
+    headers_a = register_and_login("notes-iso-delete2-a@example.com")
+    headers_b = register_and_login("notes-iso-delete2-b@example.com")
+    project_b_id = client.post(
+        "/projects", json={"name": "B's project"}, headers=headers_b
+    ).json()["id"]
+    others_note_id = client.post(
+        f"/projects/{project_b_id}/notes",
+        json={"body": "B's note"},
+        headers=headers_b,
+    ).json()["note"]["id"]
+
+    missing_res = client.delete("/notes/not-a-real-id", headers=headers_a)
+    others_res = client.delete(f"/notes/{others_note_id}", headers=headers_a)
+
+    assert missing_res.status_code == others_res.status_code == 404
+    assert missing_res.json() == others_res.json()

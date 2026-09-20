@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.config import require_safe_jwt_secret
+from app.core.config import is_local_environment, require_safe_jwt_secret
 from app.db.seed import seed
 from app.db.session import SessionLocal, create_tables
 from app.db.store import Store
@@ -11,7 +11,17 @@ from app.routers import auth, health, notes, projects
 # or default JWT secret, before the app does anything else.
 require_safe_jwt_secret()
 
-app = FastAPI(title="Hub API")
+# /docs, /redoc, and the raw schema are only served locally: outside
+# local/dev they'd hand an anonymous visitor a full map of the API
+# surface for no benefit, since nothing consumes them once deployed.
+_docs_enabled = is_local_environment()
+
+app = FastAPI(
+    title="Hub API",
+    docs_url="/docs" if _docs_enabled else None,
+    redoc_url="/redoc" if _docs_enabled else None,
+    openapi_url="/openapi.json" if _docs_enabled else None,
+)
 
 app.add_middleware(
     CORSMiddleware,

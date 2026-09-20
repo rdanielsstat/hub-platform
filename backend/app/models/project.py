@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from enum import Enum
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from app.models.base import CamelModel
 
@@ -18,6 +18,17 @@ class Status(str, Enum):
 class Link(CamelModel):
     label: str | None = None
     url: str
+
+    @field_validator("url")
+    @classmethod
+    def _require_http_scheme(cls, value: str) -> str:
+        # The frontend always normalizes a link to http(s) before saving,
+        # but that's client-side only. Without this, a direct API call
+        # could store e.g. a javascript: URL, which would then render as
+        # a clickable href on the project-detail page.
+        if not value.lower().startswith(("http://", "https://")):
+            raise ValueError("url must start with http:// or https://")
+        return value
 
 
 class Project(CamelModel):

@@ -13,6 +13,15 @@ from app.core.config import ACCESS_TOKEN_EXPIRE_MINUTES, JWT_ALGORITHM, JWT_SECR
 
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 
+# Hash of a placeholder, never-issued password, computed once at import.
+# login() verifies against this when the email lookup misses, so a
+# nonexistent-email attempt pays the same argon2 cost as a real
+# wrong-password attempt — otherwise the two are distinguishable by
+# response time, which lets an attacker enumerate registered emails.
+DUMMY_PASSWORD_HASH = pwd_context.hash(
+    "not-a-real-password-this-is-only-used-for-timing"
+)
+
 
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)

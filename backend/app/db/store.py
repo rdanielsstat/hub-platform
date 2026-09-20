@@ -130,6 +130,11 @@ class Store:
     def create_user(
         self, *, email: str, password_hash: str, display_name: str | None = None
     ) -> UserRecord:
+        # Normalized to lowercase before storage, matching the
+        # case-insensitive lookup in get_user_by_email — otherwise the
+        # unique constraint (case-sensitive) can't stop Foo@x.com and
+        # foo@x.com from both being created as separate accounts.
+        email = email.lower()
         now = datetime.now(timezone.utc)
         user = UserTable(
             id=str(uuid.uuid4()),
