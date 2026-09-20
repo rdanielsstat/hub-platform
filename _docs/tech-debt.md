@@ -29,6 +29,15 @@ Known issues deferred for later, from the read-only code review and subsequent w
 - **PWA installability** — spec calls for installable-as-PWA; no manifest or service worker yet.
 - **Deploy** — Vercel (frontend) + Neon Postgres (backend). Triggers the Postgres swap above and the security items above.
 
+## Accessibility
+
+- **Active filter chip has no accessible selected-state** → the status/tag filter chips in `components/dashboard/stats-row.tsx` (and the toolbar's tag chips) indicate the active filter only via a class/color change, with no `aria-pressed` or `aria-current`. A screen-reader user can't tell which filter is active. Surfaced during the component-test pass (the state couldn't be asserted accessibly because nothing accessible marks it). Add `aria-pressed`/`aria-current` to the active chip.
+
+## Testing notes (for whoever writes more frontend tests)
+
+- **Explicit RTL cleanup is required** → this repo runs Vitest without global test APIs (tests import `describe`/`it`/etc. from `vitest` explicitly), so RTL's automatic between-test cleanup does not fire on its own. It's wired manually via `afterEach(() => cleanup())` in `src/test-setup.ts`. New test files rely on this; don't remove it.
+- **base-ui Dialog stays mounted while closed** → the quick-capture Dialog keeps its content in the DOM (hidden) when closed rather than unmounting. A broad query (e.g. `getByRole('button', { name: /capture/i })`) on any page that has the dialog mounted will match both the visible trigger and the hidden dialog's own button. Scope such queries to a landmark (e.g. the header/`banner`) to disambiguate.
+
 ## Open questions
 
 - **Logout-on-any-failure may be too aggressive** → the app currently routes to login whenever the backend becomes unreachable, not only on a real 401. A brief network blip or a scale-to-zero cold-start could fully log the user out mid-session rather than just showing a transient error. Revisit whether the onUnauthorized/redirect path should fire only on an actual 401, with other failures handled as retryable errors that keep the session. Surfaced during the error-handling work; not yet root-caused (also entangled with an environment quirk seen in the automated browser tab).
