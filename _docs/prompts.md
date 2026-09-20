@@ -1,6 +1,233 @@
-# Backend Prompts
+# Prompts
 
-## 1
+## v0.app front-end specification
+
+This prompt was given to v0 to scaffold the initial site. It is not part of the Claude Code session.
+
+```
+Build a frontend for "hub platform" — a personal platform to capture, organize, and triage project ideas, from small to big, where ideas can be parked, held, or graduated into standalone builds. Full spec below.
+
+[link text](./specs.md)
+
+Requirements:
+
+- Use React with Vite, Tailwind, and shadcn/ui. Do NOT use Next.js — this is a standalone SPA that will be exported and built out separately.
+- Centralize every backend call in a single services/api layer, with a mock implementation (in-memory, using the seed projects from the spec) so the whole app runs with no real backend. All components import from this layer, never call fetch directly.
+- Make it interactive: I should be able to use the main features from the spec (dashboard with filter/sort, quick capture, project detail with editing, notes, status changes).
+- Design: beautiful, sleek, minimalist, simple by default. Responsive for phone and desktop.
+- Seed the mock data with the project list from the spec so the dashboard isn't empty on first load.
+```
+
+---
+
+## Claude Code prompts
+
+### 1
+
+```
+There is a hub-platform-frontend.zip file in the base project folder. First, extract it so its contents are in the project root (it unzips to loose files: package.json, src/, components/, services/, etc.). This is a Vite + React + TypeScript frontend that was started in v0 and left incomplete.
+
+Read the spec at _docs/specs.md first for the full context. Then:
+
+1. Get it running: pnpm install then pnpm dev. Fix any install or build errors (dependencies are React 19 / Tailwind v4 / @base-ui, watch for version issues).
+2. There's a missing file: App.tsx imports pages/project-detail.tsx which doesn't exist. Build that project-detail page to match the spec (all fields editable, status, scores, notes log, links, next action shown at top), using the existing components and the services/api layer.
+3. Clean up leftover v0/Next.js cruft: fix components.json (rsc should be false, css path is wrong), remove unused public/ placeholder files.
+4. Confirm the whole app runs against the mock API with the seeded projects showing on the dashboard, and every data call goes through services/api, never direct fetch.
+
+Don't restructure what's already working. The services/api mock layer and the existing components are good, build on them.
+```
+
+### 2
+
+```
+find and remove every em dash across the whole project, replacing each with a colon, period, or comma as reads best in context, and check index.html, all components, and pages
+```
+
+### 3
+
+```
+great, i changed a couple back but mostly left these, it's great. now
+
+In the app header (likely components/layout/app-header.tsx), remove the "h" avatar tile and put a single small filled dot to the left of the "hub" wordmark as an accent mark. Use the existing purple/primary theme token for the dot so it stays theme-aware in light and dark mode. Keep the lowercase "hub" wordmark and the "capture · triage · graduate" tagline. Don't change anything else.
+```
+
+### 4
+
+```
+In the app header (components/layout/app-header.tsx), remove the accent dot to the left of the wordmark entirely, so there's no mark or tile, just the wordmark and tagline. Change the wordmark from lowercase "hub" to capitalized "Hub". Keep the "capture · triage · graduate" tagline beneath it, and adjust spacing so the text sits cleanly without the dot. Don't change anything else in the header.
+```
+
+### 5
+
+```
+In the app header (components/layout/app-header.tsx), capitalize the tagline to "Capture · Triage · Graduate" (all three words). Don't change anything else.
+```
+
+### 6
+
+```
+In the app header (components/layout/app-header.tsx), change the wordmark "Hub" to lowercase "hub" and the tagline to lowercase "capture · triage · graduate". Don't change anything else.
+```
+
+### 7
+
+```
+Do a read-only review of this codebase and report your findings without changing any files yet. Cover:
+
+Correctness: run pnpm build and tsc and report any type errors or build warnings. Check for any runtime errors in the components.
+Consistency: look for inconsistencies in naming, formatting, casing of user-visible text, component patterns, and how data flows through the store and services/api layer. Flag anything that deviates from the patterns used elsewhere.
+Dead code and cruft: unused imports, unused components, leftover v0/Next.js artifacts, unreferenced files, commented-out blocks.
+Spec alignment: compare the app against _docs/specs.md and note anything missing, incomplete, or diverging from the spec.
+Anything risky or fragile you'd want to fix before building further.
+
+Give me a categorized list, ordered by severity, with the file and line for each item. Don't fix anything yet, I want to review the list and decide what to act on.
+```
+
+### 8
+
+```
+This is batch one of a cleanup pass, from the review you did earlier. Work only on the items below, then stop. Don't touch anything not listed here.
+
+1. Set up ESLint + Prettier for this Vite + React 19 + TypeScript project, using current standard configs for this stack. Add the config files, add the needed devDependencies, and add lint and format scripts to package.json. Configure them to agree with the existing code style (2-space indent, single quotes, no semicolons, as the codebase already uses) so this doesn't reformat everything into a huge diff. Run the linter and report what it finds, but only auto-fix formatting/style, do not make behavioral changes.
+
+2. Remove dead code (from the review):
+
+components/ui/badge.tsx (Badge, never used)
+components/score-meter.tsx (ScoreMeter export, never rendered, but ScorePicker in the same file IS used, keep ScorePicker)
+lib/project-utils.ts isActionable (never called)
+the "hooks": "@/hooks" alias in components.json (points at a non-existent dir)
+Do NOT remove components/ui/card.tsx, I'm keeping it for a later consistency fix.
+Before removing each item, grep to confirm it's truly unreferenced. If anything is actually used, leave it and tell me.
+
+3. Add a favicon. The public/ folder was removed earlier so the tab has no icon. Add a simple favicon (an SVG favicon is fine) and reference it in index.html. Keep it minimal and theme-neutral.
+
+When done: run pnpm build and tsc to confirm everything still passes, run the new linter to confirm it's clean, and give me a short summary of what changed. Don't commit, I'll review and commit myself.
+```
+
+### 9
+
+```
+This is the lint-cleanup batch. Goal: get pnpm lint to pass with zero errors and zero warnings, without disabling rules wholesale or making changes that alter behavior. Work through each finding individually and stop when lint is green.
+
+The 3 react-hooks/set-state-in-effect errors (notes-panel.tsx:16, project-detail.tsx:40, store.tsx:49): evaluate each one separately, don't treat them as identical.
+
+For each, first decide whether the value can be derived during render instead of held in state + synced via effect (the rule's preferred fix). If a clean derivation is possible without changing behavior, do that.
+If the effect is a genuine external-data synchronization (e.g. the store's initial fetch-on-mount) where the effect is correct and necessary, keep it and add a targeted // eslint-disable-next-line with a brief comment explaining why it's intentional. Do NOT disable the rule globally.
+Tell me, per case, which approach you took and why.
+
+The exhaustive-deps warning (project-detail.tsx:44): the effect intentionally depends on project?.id rather than project. Add a targeted disable-next-line with a one-line comment documenting that this is deliberate.
+
+The 2 react-refresh/only-export-components warnings (dashboard-toolbar.tsx:14, button.tsx:58): these fire because each file exports a component plus a non-component (a constant/variant helper). Fix properly by moving the non-component export into a separate file and updating imports, so Fast Refresh works. If moving it is genuinely impractical for a given file, fall back to a targeted disable-next-line with a comment, but prefer the split.
+
+When done: run pnpm lint (must be clean), pnpm build, and tsc (both must pass), and confirm the app still runs. Give me a per-item summary of what you did. Don't commit, I'll review and commit.
+```
+
+### 10
+
+```
+On the project-detail page, the next-action field (the pinned callout at the top) doesn't wrap long text, on narrow/mobile widths it overflows instead of wrapping to multiple lines. Fix it so the text wraps properly at all widths. Check whether it's a missing wrap/break style, a flex child that needs min-width:0, or a whitespace/nowrap issue, and fix the actual cause. Verify at 320px, 375px, and 390px widths that long next-action text wraps cleanly with no horizontal overflow. Don't change anything else.
+```
+
+### 11
+
+```
+This is batch 3, two small fixes from the earlier review. Do only these, then stop.
+
+1. Note deletion needs a confirmation step. Currently deleting a note (components/detail/notes-panel.tsx) is instant with no confirmation, while deleting a project uses a two-step confirm (the confirmingDelete pattern in pages/project-detail.tsx). Make note deletion consistent with that: require an explicit confirm before it deletes, following the same interaction pattern already used for project deletion so it feels consistent. Don't invent a new pattern, match the existing one.
+
+2. The Quick Capture dialog has no focus trap. The hand-rolled dialog (components/ui/dialog.tsx) doesn't trap focus, Tab currently moves focus out of the open dialog into the page behind it, and the backdrop isn't marked inert/aria-hidden. @base-ui/react is already a dependency and its dialog primitive handles this correctly. Either adopt the @base-ui dialog primitive for focus management, or add proper focus trapping + inert backdrop to the existing dialog, whichever is cleaner and less disruptive to the current dialog's look and API. Keep the dialog's current appearance and behavior otherwise.
+
+When done: run pnpm lint (must stay 0/0), tsc, and pnpm build (both clean), verify the app runs, and confirm both fixes work (note delete now asks for confirmation; Tab stays within the open dialog). Don't commit, I'll review.
+```
+
+### 12
+
+```
+Bug: on the project-detail page, clicking into an editable field and then leaving it (blur) without changing anything still triggers a save, which updates the project's updatedAt and incorrectly bumps it to the top of the dashboard's "recently updated" sort. A no-op (unchanged) blur should not save.
+
+Fix it so each editable field only calls save on blur when its value has actually changed from the project's currently-stored value for that field. Apply this to all the blur-saved fields on this page (name, pitch, description, next action, and any others using the same on-blur save pattern), so touching a field without editing it does nothing.
+
+Make sure a real change still saves normally, and confirm an unchanged blur does NOT change updatedAt. Keep lint at 0/0, tsc and build clean. Only touch what's needed for this. Don't commit.
+```
+
+### 13
+
+```
+Read this project's Claude Code session transcript(s), extract every prompt I (the user) sent, in order, and write them to _docs/prompts_cc.md as a numbered list, each prompt in a code block, with nothing of your own responses, just my prompts verbatim. If there are multiple sessions, separate them with headers.
+```
+
+### 14
+
+```
+Refactor the project's folder structure to the conventional Vite layout: move all application source into src/. Currently components/, lib/, pages/, services/, store.tsx, store-context.ts, and use-store.ts live at the repo root instead of under src/, a leftover from the v0/Next.js origin. Consolidate them under src/.
+
+Requirements:
+- Move components/, lib/, pages/, services/, store.tsx, store-context.ts, and use-store.ts into src/. Use git mv so history is preserved.
+- Update the @/* path alias so it resolves to src/ instead of the repo root: in tsconfig.json (the paths mapping) and in vite.config.ts (the resolve alias). After this, @/ should point at src/.
+- Update tsconfig.json's include list, since the root-level entries (store.tsx, etc.) no longer exist at root.
+- Update any other config that references these paths: components.json (shadcn aliases / css path), .prettierignore, eslint.config.js ignores, anything else that hardcodes the old locations.
+- Because everything imports via the @/ alias, most import statements shouldn't need changing, but check for any relative imports or hardcoded paths that break, and fix them.
+- Leave public/, index.html, _docs/, and the root config files where they are, those belong at root.
+
+When done: run pnpm install (in case anything path-related needs it), pnpm lint (must stay 0/0), tsc, and pnpm build (both clean), and run the app to confirm it still works. Report exactly what moved and what config changed. Don't commit, I'll review and commit.
+```
+
+### 15
+
+```
+Refactor the repo so the entire frontend application lives in a frontend/ subfolder at the repo root, in preparation for adding a backend/ alongside it. Right now the frontend sits directly at the repo root.
+
+First inspect the current layout so you move the right things. Then:
+
+- Move all frontend files and folders into frontend/ using git mv to preserve history: src/, public/, index.html, package.json, pnpm-lock.yaml, pnpm-workspace.yaml, tsconfig.json (and any other tsconfig.*.json), vite.config.ts, eslint.config.js, .prettierrc.json, .prettierignore, components.json, and any other frontend-specific config.
+- Leave at the repo root: _docs/ and the root .gitignore.
+- Do NOT move node_modules with git (it's gitignored); instead, after moving, reinstall inside frontend/ with pnpm install so it rebuilds in the new location.
+- Handle .gitignore correctly for the new structure: the frontend's ignores (node_modules, dist, *.tsbuildinfo) should apply inside frontend/. Either add a frontend/.gitignore for those, or update the root .gitignore paths to be frontend/-scoped, whichever is cleaner. Keep repo-wide ignores at root.
+- Check every config for paths that break when the app moves down a level: tsconfig paths/include, vite config, index.html's script src, components.json, and fix any that assumed the old root location. The @/ alias should still resolve to frontend/src.
+- Confirm .prettierignore and eslint.config.js still target the right paths from inside frontend/.
+
+When done: from inside frontend/, run pnpm install, pnpm lint (must stay 0/0), tsc, and pnpm build (both clean), and run the app to confirm it still works. Report exactly what moved and what config changed. Don't commit, I'll review and commit.
+```
+
+### 16
+
+```
+Right now the dashboard's "recently updated" sort only bumps a project's updatedAt when the project's own fields are edited. Adding or deleting a note writes to the note but doesn't bump the parent project, so actively-worked projects look stale.
+
+Make changes to a project's child records bump the parent project's updatedAt. Currently that means note creation and note deletion. Implement it wherever these mutations are handled so the bump is applied consistently rather than per-component.
+
+First look at how the store/services layer is actually structured and tell me where you're putting this. Don't assume a central seam exists if it doesn't.
+
+Do not regress the existing no-op behavior: only a real change bumps updatedAt. The no-op blur fix for project fields must stay intact.
+
+Note for future awareness: attachments aren't built yet, but when they are, the same rule should apply, creating or deleting an attachment should bump the parent project too. If there's a natural place to handle this centrally so attachments are covered automatically when added, prefer that; if not, just flag that the attachment feature will need to apply this same bump when it's built.
+
+Verify: adding a note moves its project to the top of the recently-updated sort, deleting a note does too, a real project-field edit still bumps, and a no-op blur still doesn't. Keep lint at 0/0, tsc and build clean. Don't commit, I'll review.
+```
+
+### 17
+
+```
+Create an AGENTS.md at the repo root: standing instructions for AI coding agents working in this project. First inspect the repo (folder layout, frontend/package.json, existing config) so the contents are accurate rather than assumed. Keep it concise and factual, this is a reference agents read every session, not a spec.
+
+Include:
+
+Project: one or two lines on what this is (hub, a platform to capture, organize, and triage project ideas). Point to _docs/specs.md as the source of truth for the product and data model rather than duplicating it.
+
+Structure: the actual layout after inspecting. Frontend app lives in frontend/ (with its own src/, config, etc.). Backend will live in backend/ (not built yet). Shared docs in _docs/.
+
+Frontend stack & commands: Vite + React 19 + TypeScript, Tailwind v4, shadcn/ui, @base-ui/react, pnpm. The real scripts from frontend/package.json (dev, build, lint, format), noting they run from inside frontend/. Note the @/ alias points at frontend/src, and that all data access goes through frontend/src/services/api/ (never direct fetch).
+
+Backend (planned, not built): FastAPI in backend/, Python deps via uv. Starts on an in-memory store, then SQLite via SQLAlchemy kept database-agnostic for later Postgres. Auth is roll-your-own (password hashing + JWT bearer tokens, OAuth2 password flow), token-based so the same API serves web and a future iOS app. Multi-user with per-user data isolation. Mark this section clearly as intended/planned since the folder doesn't exist yet.
+
+Working conventions: commit regularly; keep changes small and scoped; run lint/typecheck/build and confirm clean before considering a task done; don't commit unless asked; match existing code style (ESLint/Prettier configured, must stay 0/0).
+
+Do-not: don't restructure working code without being asked; don't add dependencies casually; don't reproduce or edit _docs/ planning files as if they were code.
+
+After creating it, show it to me so I can adjust. Don't commit.
+```
+
+### 18
 
 ```
 Read _docs/specs.md fully, then read the frontend's API client in frontend/src/services/api/ (types.ts, mock.ts, seed.ts, index.ts) to understand exactly what the frontend expects: the entities, fields, endpoints, and the shape of every request and response it makes.
@@ -13,7 +240,7 @@ Don't build the backend yet, just the contract. When done, walk me through the e
 you can read agents.md for more context too
 ```
 
-## 2
+### 19
 
 ```
 Change a project's links from a flat list of URL strings to a list of labeled link objects, where each link has an optional label and a url. This touches both the API contract and the frontend, since the frontend currently stores and displays links as plain strings. Do it as one scoped change.
@@ -33,7 +260,7 @@ First look at how links are currently typed, stored, displayed, and added, and t
 Keep everything else about links unchanged. Don't regress the no-op-blur behavior or the updatedAt bump rules. Keep lint at 0/0, tsc and build clean. Verify: a seeded labeled link shows its label, a seeded unlabeled link shows its url, you can add a link with a label and without one, and both render correctly. Don't commit, I'll review.
 ```
 
-## 3
+### 20
 
 ```
 Scaffold a FastAPI backend in a new backend/ folder at the repo root. This is a skeleton only: no auth, no data models, no business logic yet. The goal is a running FastAPI app I can build on next.
@@ -51,7 +278,7 @@ Set up:
 When done: run the app with uv and confirm GET /health responds and the auto-generated /docs page loads. Report the exact commands to run it, the folder structure you created, and confirm it runs clean. Don't commit, I'll review.
 ```
 
-## 4
+### 21
 
 ```
 Build the first real backend slice in backend/: authentication plus project endpoints, scoped per user, against an in-memory store. Build to the existing openapi.yaml contract. Do not build notes or attachments yet, those come in a later step. Do not add a database yet, the store stays in-memory.
@@ -76,7 +303,7 @@ Testing (set up the harness this step, it doesn't exist yet):
 When done: run the app with uv and confirm the auth and project endpoints work via /docs, and run the full test suite and confirm it passes (report the count). Walk me through what you built, the module layout you filled in, and anything in the contract that was ambiguous or that you had to decide. Don't commit, I'll review.
 ```
 
-## 5
+### 22
 
 ```
 Wire the frontend to the real backend for auth and projects. The backend (backend/, FastAPI) now implements auth and project endpoints per openapi.yaml against an in-memory store; the frontend still runs entirely on its in-memory mock with no login. This step connects them for auth and projects only. Notes and attachments have no backend yet and must keep working off the mock.
@@ -103,7 +330,7 @@ Testing and verification (I want this checked as you go, per how we're working n
 Report what you built, how the real/mock split is structured, and anything in the contract or existing frontend that didn't line up. Don't commit, I'll review.
 ```
 
-## 6
+### 23
 
 ```
 Build the notes backend and wire the frontend to it, following the same pattern as the projects slice. Notes currently run on the frontend mock; make them real. Read openapi.yaml, AGENTS.md, backend/README.md, and the frontend's services/api/ layer (especially how projects were wired in real.ts and how the mock currently handles notes) first.
@@ -125,7 +352,7 @@ Testing:
 Keep lint at 0/0, tsc, build, and the backend tests all clean. Report what you built, what you removed from the mock, and anything that didn't line up. Don't commit, I'll review.
 ```
 
-## 7
+### 24
 
 ```
 Swap the backend's in-memory store for a real database: SQLite via SQLAlchemy, kept strictly database-agnostic so Postgres (Neon) can replace SQLite at deploy time without a rewrite, per the spec and AGENTS.md. Same API contract, same behavior, now durable across restarts. This step also replaces the demo seed data with a curated set and changes when seeding runs. Read AGENTS.md, backend/README.md, app/db/store.py, app/db/seed.py, and the existing models and routers first so the swap preserves current behavior exactly.
@@ -183,7 +410,7 @@ VERIFICATION (both servers running)
 Keep frontend lint/type checks clean if you touch the frontend (you likely won't), and keep the backend tests green. Report what you built, the session and table-creation approach, every portability tradeoff you made, and anything that didn't line up. Don't commit, I'll review.
 ```
 
-## 8
+### 25
 
 ```
 Harden the backend's auth/config for deployment readiness, Tier 1 only: move secrets and security-relevant settings into the existing config module and make unsafe defaults impossible to ship, while keeping local development frictionless. Do not add rate-limiting or account caps in this step (those are deferred to pre-deploy). Read app/core/config.py, app/auth/security.py, AGENTS.md, and backend/README.md first.
@@ -208,7 +435,7 @@ Verification:
 Do not touch the frontend. Keep backend tests green. Report what moved into config, how the prod guard works, the exact env vars and their defaults, and anything that didn't line up. Don't commit, I'll review.
 ```
 
-## 9
+### 26
 
 ```
 Add real error handling to the frontend's write and load paths, surface load errors to the user, and unify the optimistic-update strategy. These are related concerns in the same layer, do them together. Read the store (store.tsx), the api layer (services/api/), the components that trigger writes (project-detail.tsx, notes-panel.tsx, quick-capture, dashboard), and the tech-debt file's Robustness and write-optimism entries first.
@@ -229,7 +456,7 @@ Verification:
 Report what you changed, which optimistic-update convention you standardized on and why, and how errors now surface to the user. Update the tech-debt file to remove the Robustness and write-optimism entries now that they're addressed. Don't commit, I'll review.
 ```
 
-## 10
+### 27
 
 ```
 Fix dark mode so the theme choice persists and behaves correctly. Right now the theme resets to light on every reload and ignores the user's system preference, and the theme-color meta tag is static so it doesn't follow the toggle. Read the current theme handling first (it lives in components/layout/app-header.tsx's useTheme hook, and check index.html for the theme-color meta and any theme setup, and main.tsx / index.css for where theme class is applied) before changing anything, so you fix the actual mechanism rather than adding a parallel one.
@@ -252,7 +479,7 @@ Verification:
 Report what the theme mechanism looks like now and anything that didn't line up. Don't commit, I'll review.
 ```
 
-## 11
+### 28
 
 ```
 This is a consistency cleanup batch from the tech-debt file. Work through the items below one at a time, in order. After each item, run lint (must stay 0/0), tsc, and build (both clean) before moving to the next, so a regression is caught at the item that caused it, not at the end. These are pattern-alignment changes to existing working code: do not change behavior, only align to patterns already used elsewhere in the codebase. Read each relevant file before changing it, and grep to confirm usages before removing or replacing anything.
@@ -277,7 +504,7 @@ After all five: run the full check suite once more, do a click-through of the af
 Report per-item what you changed, which rating widget you kept and why, and anything that didn't line up. Don't commit, I'll review.
 ```
 
-## 12
+### 29
 
 ```
 Add "stale" and "quick win" badges to project cards on the dashboard, per spec §4.2 (surface what's gone stale and high-excitement/low-effort picks). This is a new, small feature built on the now-clean card and component patterns. Read the dashboard (dashboard.tsx), the project card (components/project-card.tsx), the status badge (components/status-badge.tsx) for the existing badge pattern, and lib/project-utils.ts (which already has daysUntil / opportunityScore helpers) before building.
@@ -303,7 +530,7 @@ Verification:
 Report the helper logic, how the badges look, which seed projects ended up badged, and anything that didn't line up. Don't commit, I'll review.
 ```
 
-## 13
+### 30
 
 ```
 Seed-data only (backend/app/db/seed.py). Don't touch any badge logic or frontend code. Check frontend/src/lib/project-utils.ts for the exact isStale/isQuickWin rules first.
@@ -317,7 +544,7 @@ Right now no seed project shows a stale badge and only one shows quick-win. Fix 
 The seed only runs on an empty database, so give me the command to recreate the local DB (delete the sqlite file + restart) and I'll run it myself. Tell me the resulting badge map. Don't commit.
 ```
 
-## 14
+### 31
 
 ```
 Read-only review pass to confirm the project is in solid shape before deployment. Do NOT change any files in this task — this is a review that produces a report, and I'll decide what to act on. Read AGENTS.md and _docs/specs.md first for intent, then review the actual current state of both frontend/ and backend/.
@@ -338,7 +565,7 @@ Then do a read-only review covering:
 Give me a categorized list ordered by severity, with file/line for each item, and for each: whether it's a real problem, a nice-to-have, or already tracked in tech-debt. Explicitly call out anything that should be fixed before deploy vs. anything that can wait. If the whole thing is genuinely in good shape, say so plainly rather than inventing issues to look thorough. Don't fix anything, don't commit.
 ```
 
-## 15
+### 32
 
 ```
 Small cleanup batch from the pre-deploy review. Low-risk, verifiable. Read AGENTS.md, openapi.yaml, _docs/tech-debt.md, and the files named below before changing them.
@@ -363,7 +590,7 @@ Do NOT touch: the register race condition, the void-consistency nits, the stats-
 Verify: frontend lint 0/0, tsc, build, and the existing tests still pass. Manually confirm the error boundary actually catches a thrown render error and shows the fallback (you can temporarily throw in a component to test, then remove it). Report what you changed, and for the dead-export item which approach you took. Don't commit, I'll review.
 ```
 
-## 16
+### 33
 
 ```
 Add frontend unit/logic tests for the critical non-UI logic, using the existing Vitest setup. This pass is about the store, the auth flow, and any remaining pure logic — NOT component rendering or DOM interaction (that's a separate later pass, don't pull in React Testing Library or test components here). Read the files under test first: store.tsx, auth.tsx, services/api/ (index.ts, real.ts, auth.ts, http.ts, token.ts), lib/project-utils.ts, and the existing test (project-utils.test.ts) to match its conventions.
@@ -395,7 +622,7 @@ Approach and quality bar:
 When done: run pnpm test and report the count and that all pass; keep lint 0/0, tsc and build clean. Tell me what's covered, what you deliberately left for the component pass, and anything that was hard to test (which often points at a design worth revisiting). Don't commit, I'll review.
 ```
 
-## 17
+### 34
 
 ```
 Add thorough component and user-flow tests for the frontend, using React Testing Library on top of the existing Vitest + jsdom setup. This is the deep UI-behavior pass. First read the earlier logic tests (store.test.tsx, auth.test.tsx, http.test.ts, project-utils.test.ts) and the render-hook helper to match conventions, then read every component/page you'll be testing before writing its tests.
