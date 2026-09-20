@@ -8,6 +8,7 @@ Known issues deferred for later, from the read-only code review and subsequent w
 - **Account / project caps per user** → a simple cap while costs are unguarded, to avoid a single actor running up usage. Decide alongside rate-limiting.
 - **CORS origins are hardcoded to localhost** → `backend/app/main.py`'s `allow_origins` only lists `localhost:5173`/`127.0.0.1:5173`. Safe as a restrictive default, but the deployed frontend's origins (prod + staging) must be added there at deploy time or every request fails CORS.
 - **Observability (Sentry) not wired up** → spec §2 calls for error tracking (Sentry, React + FastAPI) as part of v1. A frontend error boundary now catches render crashes with a graceful fallback (see `components/error-boundary.tsx`), but nothing reports errors anywhere yet, frontend or backend. Deliberately deferred to the deploy phase, not an oversight.
+- **Register endpoint has a check-then-insert race** → `backend/app/routers/auth.py`'s `register` checks for an existing email, then inserts, with no `try`/`except` around the insert itself. Two simultaneous registrations for the same email could both pass the check and surface as a 500 instead of the intended 409. Low odds; close by wrapping the insert in a `try`/`except` for the unique-constraint violation.
 
 ## Portability tradeoffs (for the eventual Postgres/Neon swap)
 

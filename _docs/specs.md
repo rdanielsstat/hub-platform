@@ -1,189 +1,137 @@
-# Project Incubator — v1 Build Spec
+# Hub — System Spec
 
-A personal platform to capture, organize, and triage project ideas, where ANY idea can graduate into a real, standalone build but there's a place for ALL of them. Central place for everything; the good ideas spin off. The platform exists to stop the scatter — not to become a thing that is endlessly polished instead of shipping actual projects. **Keep v1 manageable.**
+A personal platform to capture, organize, and triage project ideas, where ANY idea can graduate into a real, standalone build but there's a place for ALL of them. Central place for everything; the good ideas spin off. The platform exists to stop the scatter, not to become a thing that is endlessly polished instead of shipping actual projects.
 
 Multi-user: anyone can self-register and track their own project ideas. Each account is isolated (users don't interact or share); every query is scoped to the authenticated user.
+
+This document describes the system as built. Roadmap, deferred work, and known issues live in `_docs/tech-debt.md`, not here.
 
 ---
 
 ## 1. Guiding principles
 
-- **Ship small, ship working.** Every milestone is a usable app, never a broken half-state.
+- **Ship small, ship working.** No broken half-states.
 - **Beautiful, sleek, minimalist.** Simple by default.
-- **Layer discipline, not layer sprawl.** Clean seam between data, API, and UI so agents/mobile can plug in later without a rewrite. Do not build those layers now.
-- **GTD, loosely.** Inbox capture → clarify into a project with a single next action → statuses including a "someday/parked" resting place. No rigid GTD machinery.
-- **Mobile and desktop from day one.** Responsive web, installable as a PWA. Native iOS deferred but the API must be ready for it.
-- **Cost-guarded AWS.** Serverless / scale-to-zero only; no always-on resources; budget alarm before anything deploys.
+- **Layer discipline, not layer sprawl.** A clean seam between data, API, and UI, so agents or a native client can plug in later without a rewrite.
+- **GTD, loosely.** Inbox capture, clarify into a project with a single next action, statuses including a "someday/parked" resting place. No rigid GTD machinery.
+- **Responsive.** Works on desktop and mobile browsers alike.
 
 ---
 
-## 2. Architecture (layers)
+## 2. Architecture
 
-- **Data layer:** Postgres. Tables: `users`, `auth_identities`, `projects`, `notes`, `attachments`.
-- **API layer:** FastAPI. The clean seam. Serves web now, native iOS later, agents eventually. Gives OpenAPI docs for free at `/docs` (useful later for generating the iOS client).
-- **App layer:** React (Vite) SPA, responsive, installable as a PWA.
-- **Auth:** roll your own in FastAPI — hashed passwords (bcrypt/argon2) + token-based auth (JWT bearer). Token-based, not cookie/session, so the same API serves the web app and the future iOS app identically. Identity is split into its own table so additional sign-in methods (Sign in with Apple/Google) can attach later. See stack note.
-- **Agent layer:** ABSENT in v1. Leave the API seam clean so it slots in later as its own service. (This is the pay-per-token API-cost path — add only when the value justifies it.)
-- **Observability:** cross-cutting. v1 = error tracking (Sentry free tier) + platform dashboards. Grows into the future "agentic dashboard" when agents exist.
+- **Backend:** FastAPI, in `backend/`. Serves the web app now; the same API is meant to serve a future native client and, eventually, agents. Gives OpenAPI docs for free at `/docs`.
+- **Frontend:** React (Vite) SPA, in `frontend/`, responsive.
+- **API layer (frontend):** all data access goes through `frontend/src/services/api/`; components never call `fetch` directly. This is the seam a future consumer (native iOS, agents) would plug into.
+- **Storage:** SQLite via SQLAlchemy (`backend/app/db/`), built database-agnostic (UUIDs as strings, generic JSON for tags/links, a portable status enum, timezone-aware timestamps) so it can move to Postgres later with a config change, not a rewrite. See `backend/README.md` for the specific portability notes.
+- **Auth:** roll-your-own in FastAPI, not a managed provider. Hashed passwords + JWT bearer tokens, token-based rather than cookie/session so the same API can serve a web client and a future native client identically. Identity is split into its own table (`auth_identities`) so other sign-in methods can attach later.
+- **Multi-user, per-user isolation:** every project and note is scoped to its owner. The backend fetches by ID *and* owner, never by ID alone; authentication proves who you are, scoping enforces what you can access.
+- **Agents:** absent. No agent layer exists yet.
+- **Observability:** a frontend error boundary (`components/error-boundary.tsx`) catches render crashes and shows a fallback instead of a white screen. Nothing reports errors anywhere (frontend or backend); there is no Sentry or equivalent wired up.
 
 ---
 
 ## 3. Data model
 
-### \`users\`
+### `users`
 | field | type | notes |
 |---|---|---|
-| id | uuid / pk | |
+| id | string (uuid) / pk | |
 | email | text, unique | login identity |
 | display_name | text, nullable | shown in UI |
 | created_at | timestamptz | |
 | updated_at | timestamptz | |
 
-### \`auth_identities\`
+### `auth_identities`
 | field | type | notes |
 |---|---|---|
-| id | uuid / pk | |
+| id | string (uuid) / pk | |
 | user_id | fk → users | |
-| provider | enum | `password` now; `apple`, `google` later |
-| provider_subject | text | email for password; provider's stable subject id later |
-| password_hash | text, nullable | set only when provider = password (bcrypt/argon2) |
+| provider | text | `"password"` is the only provider wired today |
+| provider_subject | text | email, for the password provider |
+| password_hash | text, nullable | set when provider = password; argon2 |
 | created_at | timestamptz | |
 
-> Auth is split from the profile so one user can have multiple sign-in methods over time (password now, Sign in with Apple for the iOS app later) without reshaping the users table.
+> Auth is split from the profile so one user can have multiple sign-in methods over time without reshaping the `users` table.
 
-### \`projects\`
+### `projects`
 | field | type | notes |
 |---|---|---|
-| id | uuid / pk | |
-| user_id | fk → users | owner; every query filters on this |
+| id | string (uuid) / pk | |
+| owner_id | fk → users | every query filters on this |
 | name | text | |
-| pitch | text | one-line, scannable — separate from description |
+| pitch | text | one-line, scannable, separate from description |
 | description | text | the full brain-dump |
-| status | enum | Inbox, Exploring, Active, Parked, Graduated, Killed |
-| tags | text[] | interests: stats, healthcare, chess, dogs, spanish, etc. |
+| status | enum | `Inbox`, `Exploring`, `Active`, `Parked`, `Graduated`, `Killed` |
+| tags | JSON list of text | freeform |
 | excitement | int 1–5 | |
 | effort | int 1–5 | |
 | potential | int 1–5 | |
 | next_action | text | the single next concrete step (GTD core) |
-| target_date | date, nullable | milestone/target |
-| links | jsonb / text[] | repo, live demo, references |
+| target_date | date, nullable | |
+| links | JSON list of `{ label, url }` | label is optional |
 | created_at | timestamptz | |
 | updated_at | timestamptz | |
 
-> Status set encodes the GTD backbone. "Killed" is a feature — dead ideas you can
-> see and stop reconsidering. "Parked" = someday/maybe.
+> Status set encodes the GTD backbone. "Killed" is a feature: dead ideas you can see and stop reconsidering. "Parked" is someday/maybe.
 
-### \`notes\`
+### `notes`
 | field | type | notes |
 |---|---|---|
-| id | uuid / pk | |
+| id | string (uuid) / pk | |
 | project_id | fk → projects | ownership reached via the project |
 | body | text | |
 | created_at | timestamptz | timestamped log entry, not one blob |
 
-### \`attachments\`
-| field | type | notes |
-|---|---|---|
-| id | uuid / pk | |
-| project_id | fk → projects | ownership reached via the project |
-| file_path | text | storage key/URL |
-| caption | text | |
-| created_at | timestamptz | |
+### Attachments: not built
 
-**Domain stays at three tables (projects, notes, attachments); `users` + `auth_identities` are the auth backbone. Resist further domain tables in v1.**
+No `attachments` table exists, and there is no attachment UI on project detail. `openapi.yaml` still documents attachment endpoints, but the backend has no attachments router and the frontend has no corresponding type or screen. See `_docs/tech-debt.md`.
 
-> **Isolation:** every read and write is scoped to the authenticated user. The backend fetches by ID *and* owner, never by ID alone — authentication proves who you are, scoping enforces what you can access.
+> **Isolation:** every read and write is scoped to the authenticated user, enforced at the store layer (fetch by ID and owner together).
 
 ---
 
 ## 4. Screens
 
-1. **Login.** Email/password.
-2. **Sign up.** Open self-registration: email + password + optional display name. Email uniqueness enforced.
-3. **Dashboard / operations view.** The logged-in user's projects; filter by status + tag; sort by scores and dates; surface what's active, what's gone stale (longest untouched), high-excitement/low-effort picks, upcoming dates. Prominent quick-capture. Responsive — genuinely usable on a phone. This is the GTD weekly-review surface.
-4. **Project detail.** All fields editable; status changes; scores; notes log; attachments; links; **next action shown at top.**
-5. **Quick capture.** Minimal add (name + pitch, optional description). The GTD inbox front door. Fast on mobile.
+1. **Login.** Email/password, against `POST /auth/login` (OAuth2 password flow).
+2. **Sign up.** Open self-registration: email + password + optional display name. Email uniqueness enforced (`409` on a duplicate).
+3. **Dashboard.** The logged-in user's projects. Filter by status and tag, free-text search across name/pitch/description/tags, sort by update time, opportunity (excitement + potential − effort, computed client-side), excitement, effort, name, or target date. Cards show **stale** (Active/Exploring, untouched 30+ days) and **quick-win** (Inbox/Exploring/Active, excitement ≥ 4, effort ≤ 2) badges. Loading, error, and empty states (including a distinct "no matches" state when filters exclude everything). Prominent quick-capture entry point. Responsive.
+4. **Project detail.** All fields editable: status, scores, next action, tags, links; notes log (add/delete); next action shown prominently.
+5. **Quick capture.** Minimal add form: name (required), one-line pitch, optional description. Fast entry point, available from the header on every authenticated screen.
+
+**Auth gating:** the app shows a loading state while checking for a stored token, the login/signup routes when unauthenticated, and the full app (with its own routes) once authenticated. A `401` from any authenticated request logs the user out.
 
 ---
 
-## 5. Stack
+## 5. Auth (as built)
 
-- **Frontend:** React (Vite), responsive, PWA-installable. Lives in `frontend/`. Scaffolded in v0 or Lovable first for design, then exported to a GitHub repo to build out. Host on **Vercel free tier** (keeps AWS learning surface small; every git branch gets a preview URL = free dev/prod).
-- **Backend:** FastAPI in `backend/`, on **AWS Lambda** (via Mangum adapter) behind a Lambda Function URL or API Gateway. Serverless = near-zero at this scale.
-- **Database:** **Neon** (or Supabase) serverless Postgres — real free tier, scales to zero. Avoids the always-on RDS cost trap while learning AWS.
-- **Auth:** roll your own in FastAPI — passlib (bcrypt/argon2) for hashing, JWT bearer tokens, OAuth2 password flow. Token-based so the same API serves web and the future iOS app. `auth_identities` keeps the door open for "Sign in with Apple/Google" later. (Managed providers like Clerk/Supabase Auth remain a fallback if roll-your-own becomes a burden.)
-- **File storage:** S3 (screenshots/attachments), or the storage bundled with Supabase if used.
-- **IaC:** Terraform or AWS SAM/CDK — define it once so future spinoffs are reproducible/stampable.
-- **Observability:** Sentry (React + FastAPI) from day one; platform dashboards otherwise.
-
----
-
-## 6. Environments (dev / prod)
-
-- Two environments, each with its **own separate database** (never mix dev and prod data).
-- Vercel gives per-branch preview URLs automatically; \`main\` → production, attached to a custom domain (\`app.yourname.com\` for prod, \`dev.yourname.com\` for staging).
-- Domain bought from Cloudflare (\`dnls.dev\`).
-- **Per-spinoff pattern (later):** each graduated project can start as a subdomain under the parent (\`stocks.yourname.com\`, \`dev-stocks.yourname.com\`) and get promoted to its own independent deploy if it becomes serious. Infra mirrors the incubate-then-spin-off concept.
+- Passwords hashed with argon2 (via passlib).
+- JWT bearer tokens (via PyJWT), issued on register/login, verified on every authenticated request.
+- OAuth2 password flow: `POST /auth/login` takes `application/x-www-form-urlencoded` (`username` = email, `password`), matching FastAPI's built-in OAuth2 tooling and `openapi.yaml`.
+- `backend/app/core/config.py` is the single settings source (database URL, JWT secret, algorithm, token expiry), read from environment variables with dev-safe defaults so local dev needs no setup.
+- Startup guard: `require_safe_jwt_secret()` runs before the app is constructed (`backend/app/main.py`). Outside a local `ENVIRONMENT`, it refuses to start if `HUB_JWT_SECRET` is unset or still the built-in dev default.
+- Seed-when-empty: the database seeds one demo account (`demo@hub.dev` / `demo1234`) with a curated set of sample projects and notes the first time it's ever empty. An existing database is never re-seeded, duplicated, or overwritten on restart.
 
 ---
 
-## 7. Cost guardrails (do these first)
+## 6. Testing
 
-- **Set an AWS Budgets alert at ~\$5 and ~\$15 the moment the account is created, before deploying anything.**
-- Serverless / scale-to-zero only. **No always-on RDS, load balancers, or NAT gateways.**
-- Keep Postgres on a free-tier serverless provider (Neon/Supabase), not RDS, while learning.
-- Use IaC so you can tear everything down cleanly and nothing lingers billingwise.
-
----
-
-## 8. Milestone sequence
-
-Each step ships a usable thing. Build one per session; commit after each.
-
-1. **Foundation.** Postgres (Neon), roll-your-own auth, FastAPI wired up, tables with user ownership, signup + login working end to end.
-2. **Dashboard read/create.** Responsive React app: list projects + quick-capture, scoped to the logged-in user. **Dump every idea from the brainstorm in here.** First real win.
-3. **Project detail + edit.** Full editing: status, scores, next action, links.
-4. **Notes log.** Add/view timestamped notes per project.
-5. **Attachments.** Upload + view screenshots/files (S3 or Supabase storage).
-6. **PWA polish.** Installable on phone; responsive pass; offline-friendly capture if easy.
-
-Steps 1–2 = working, hosted, logged-in tool reachable from any browser. Everything after is additive.
+- **Backend:** pytest (`uv run pytest`, from `backend/`). Each test runs against its own fresh, isolated in-memory SQLite database, never the dev `hub.db` file.
+- **Frontend:** Vitest + React Testing Library, jsdom environment (`pnpm test`, from `frontend/`).
+- Both suites must stay green as part of calling a task done, alongside lint and build. See `AGENTS.md` for commands and the two test-authoring gotchas (manual RTL cleanup, base-ui's Dialog staying mounted while closed).
 
 ---
 
-## 9. Deferred (captured, not built)
+## Intended direction (not built)
 
-- Embedded / autonomous agents (pay-per-token API cost path).
-- Agentic dashboard (really the observability surface for agent runs — Langfuse etc.).
-- Multi-agent projects.
-- Native iOS app (talks to the same FastAPI — that's why the API seam, token auth, and multi-user matter now).
-- Sign in with Apple/Google (schema is ready via `auth_identities`; not wired in v1).
-- Deeper "app + Claude Code share a filesystem" project-folder idea.
-- Apple Notes import (no clean public API; bulk export/paste when it comes).
-- Migrate to AWS Cloud Run / heavier AWS services as a *graduated project* in its own right.
+Hub is shaped, deliberately, for a few things it doesn't do yet:
 
----
+- **Native iOS app.** Talking to the same FastAPI backend is why token auth (not cookie/session) and the frontend's API-layer seam exist now, not added later.
+- **Agents layer.** No agent code exists. The API seam is kept clean so an agent service could plug in later without reshaping what's already built.
+- **Attachments.** Screenshots/files per project; needs an upload-mechanism decision (direct-to-storage presigned vs. proxied) before building.
+- **PWA installability.** Responsive today; no manifest or service worker yet.
+- **Sign in with Apple/Google.** The `auth_identities` table already supports multiple providers per user; only the password provider is wired.
+- **Deploy target:** Vercel (frontend) + Neon Postgres (backend), which is also what drives the database-agnostic storage layer.
+- **Incubate-then-spin-off:** a graduated project eventually getting its own subdomain and, if it gets serious, its own independent deploy.
 
-## 10. Build / usage notes
-
-- Whatever tool builds it (v0, Lovable, Claude Code, by hand): v1 is standard CRUD + auth wiring. If a tool lets you choose a model, a mid-tier one is plenty here — no need for a top-tier reasoning model for this scope.
-- Hand the building tool this doc up front each session so it isn't rediscovering context.
-- One milestone per session; commit after each.
-- If building via Claude Code on a Pro plan: don't set \`ANTHROPIC_API_KEY\` in your environment — that would bill you per-token API charges instead of using your Pro plan, and prefer Sonnet over Opus (Opus burns quota faster).
-
----
-
-## 11. Seed projects (populate the dashboard on first run)
-
-From the brainstorm — drop these in as \`Inbox\`/\`Parked\` with tags so the dashboard isn't empty:
-
-- **This incubator** (status: Active) — the platform itself.
-- **Stock analytics/TA platform** — tags: stats, stocks. High effort.
-- **CMS hospital quality benchmarking** — tags: healthcare, stats. Strong expertise moat.
-- **Personal health-data analytics hub** — tags: healthcare, stats, fitness.
-- **Hiking/outdoor analytics** — tags: outdoors, fitness, california.
-- **Chess improvement analytics** — tags: chess, stats.
-- **German Shepherd health/activity tracker** — tags: dogs.
-- **Job-search + application tracker** — tags: career.
-- **Spanish learning helper** — tags: spanish, learning.
-- **Consulting client site/portal** — tags: consulting, healthcare.
+This is high-level intent, not a build plan. Tracked detail, sequencing, and known gaps live in `_docs/tech-debt.md`.
