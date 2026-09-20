@@ -333,3 +333,53 @@ Confirmed live:
 - Happy path: login, load, a real note delete, and reload all worked throughout.
 
 Also fixed a bug in its own test scripts (React onBlur fires via native focusout, not blur) — irrelevant to app code. Lint 0/0, tsc, build, prettier all clean. Nothing committed.
+
+## 10 - Dark mode persistence
+
+Theme now persists across reloads, respects system preference on first load, applies before paint (no flash), and the theme-color meta follows the toggle. Not committed.
+
+### What the mechanism looks like now
+- **index.html** — a small inline `<script>` in `<head>`, before any stylesheet or app code, runs synchronously: reads localStorage['hub.theme']; if unset, falls back to matchMedia('(prefers-color-scheme: dark)'); if dark, adds the dark class to `<html>` and sets an approximate dark theme-color. Wrapped in try/catch (falls back to light if storage/matchMedia unavailable). This eliminates the flash — the class is on `<html>` before the browser paints.
+- **src/lib/theme.ts** (new) — source of truth from React's side: getStoredTheme/setStoredTheme (try/catch localStorage) and updateThemeColorMeta(), which reads the actual computed background-color off `<body>` and writes it into the meta tag, so it can't drift from the palette in index.css.
+- **app-header.tsx's useTheme** — initial React state reads off the DOM (does `<html>` have the dark class) rather than re-deriving, trusting the inline script's resolution. toggle() flips state and persists the explicit choice. An effect applies the class and calls updateThemeColorMeta() whenever dark changes, so the meta updates on toggle, not just load. Toggle button untouched.
+
+### Didn't line up
+- The classic "normalize color via canvas fillStyle" trick (to force rgb() for theme-color) no longer works in current Chrome — canvas now preserves oklch() too. Added it defensively, checked the actual output, found it did nothing, removed it. theme-color accepts any valid CSS color and oklch() is supported by the browsers that read this meta (Chrome/Android, Safari/iOS), so it's passed through as-is. Simpler.
+- No access to true OS-level prefers-color-scheme emulation (no CDP media-emulation). Machine's real preference is light; confirmed live that a cleared preference resolves to light. For the dark-OS branch, verified the resolution expression in isolation with matchMedia mocked for all four combinations (no-stored+dark, no-stored+light, stored-light+dark-system, stored-dark+light-system) — all correct, including explicit-choice-wins. Algorithm-level, not a true dark-OS end-to-end test; flagged rather than claimed.
+
+### Verified
+- Toggle dark → reload: stays dark (html class, meta, screenshot).
+- Toggle light → reload: stays light (same checks).
+- Cleared preference + real (light) system pref → starts light, live.
+- Dark-system branch verified in isolation (couldn't drive a real dark-OS reload).
+- theme-color meta changes on toggle both directions, matching light/dark --background exactly.
+- Lint 0/0, tsc, build, prettier clean.
+
+## 11 - Consistency cleanup batch (5 items)
+
+Worked through all five consistency items one at a time, lint/tsc/build clean after each. Behavior-preserving throughout. Verified in-browser. Tech-debt updated. Not committed.
+
+### Item 1 — Shared empty/error-state component
+Added components/ui/empty-state.tsx exporting EmptyState with a variant ('page' | 'panel', deriving heading tag/size and the dashed-border box), a tone ('neutral' | 'danger'), and optional icon/message/action. Replaced all four call sites: not-found.tsx, dashboard's empty/no-matches state, dashboard's load-error state, project-detail's not-found/load-error branches. All four verified live, including the danger-tone error state (forced via a temporary fetch override) and its retry button.
+
+### Item 2 — Back-to-dashboard button
+project-detail's "All ideas" link now uses buttonVariants({ variant: 'ghost', size: 'sm' }) instead of raw classes. Confirmed the hover background-pill state now appears (it didn't before).
+
+### Item 3 — Rating widget
+Kept ScorePicker, removed RatingInput. Reason: ScorePicker sets aria-pressed per button, conveying selection state to assistive tech; RatingInput only had aria-label with no pressed-state signal — a real accessibility gap, not cosmetic. Merged RatingInput's one advantage (the numeric "X/5" readout) into ScorePicker's header row before deleting (grep-confirmed zero remaining references first). Migrated project-detail's three rating controls; edit-and-save confirmed live (Potential 3→5, "Updated just now", reverted).
+
+### Item 4 — Card primitive
+project-detail's ratings, target-date, tags, and links sections now use the Card primitive instead of hand-rolled border/bg divs, regaining shadow-sm. The "Next action" accent box was deliberately left alone (different intentional treatment). Layout classes preserved.
+
+### Item 5 — Dead fallback branches
+formatDate no longer accepts null; its null-check return removed. In project-detail.tsx, removed the due useMemo entirely and inlined formatDate(project.targetDate) inside the existing project.targetDate ? guard (its only call site), which also dropped useMemo from imports. Verified with-date and no-date cases render correctly. daysUntil's null branch correctly left alone (dashboard's target-date sort uses it).
+
+### Didn't line up / notes
+- The tech-debt "no date" placeholder note was left untouched as instructed. Flag: Item 5 removed the branches it referenced, so its literal wording is now stale, but the underlying product question (show nothing vs "None" when there's no date) is still open.
+- project-detail's not-found branch got proper buttonVariants styling for free via the Item 1 migration — it had been hand-rolling raw classes too.
+- Self-corrected mid-implementation on Item 5: first pass only narrowed formatDate's type but left a dead else-branch; caught it in final verification and removed it properly.
+
+### Verification
+Each item ran lint (0/0)/tsc/build individually as it landed; final suite clean. Full click-through via the extension: dashboard normal, no-matches, clear-filters recovery, danger-tone error + retry, two project-detail pages (with/without target date), not-found page — all confirmed. The true zero-projects "Nothing captured yet" variant wasn't exercised live (would require deleting all seed data); its logic is identical to the confirmed no-matches branch with different icon/copy/action, so relying on code review there.
+
+tech-debt.md: five resolved Consistency bullets removed (and the empty section header). Notes and Open-questions untouched. Servers/tab shut down. Nothing committed.

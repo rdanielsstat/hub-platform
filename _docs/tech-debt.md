@@ -2,14 +2,6 @@
 
 Known issues deferred for later, from the read-only code review and subsequent work. None are bugs or blockers; they're consistency, robustness, and roadmap items to address when convenient (ideally when already working in the relevant file, or as noted, alongside the backend).
 
-## Consistency
-
-- **Four duplicated empty/error-state layouts** → extract one shared component. Appears in the not-found page, the dashboard empty state, the dashboard's load-error state, and the project-detail not-found/load-error branches. Was three; the error-handling pass added a fourth shape (load-error with retry) rather than shrinking the count.
-- **Duplicated back-to-dashboard button** → project-detail hand-rolls it with raw classes instead of using `buttonVariants`, so it misses the hover/focus-visible/transition states.
-- **Three rating-widget implementations with diverging accessibility** → standardize on one (`ScorePicker` vs `RatingInput`); they use different `aria` patterns.
-- **Card visual drift** → project-detail section cards reuse the border/bg recipe but drop `shadow-sm` and don't use the `Card` primitive (this is why `card.tsx` was kept).
-- **Dead `'-'` fallback branches** → `formatDate`'s null-`iso` return in `lib/project-utils.ts` and the `: '-'` else in the `due` useMemo in `project-detail.tsx` are both unreachable (callers guard on `project.targetDate` / early-return on `!project`). Harmless; simplify when next in these files.
-
 ## Security (before deploy / before first paid user)
 
 - **Rate-limiting on signup/login** → open registration on a pay-per-use backend is an abuse surface. Not needed on localhost; add before the backend is publicly reachable.

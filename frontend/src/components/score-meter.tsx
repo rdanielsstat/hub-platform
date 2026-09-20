@@ -20,7 +20,14 @@ export function ScorePicker({
 }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-muted-foreground">
+          {label}
+        </span>
+        <span className="text-xs tabular-nums text-muted-foreground">
+          {value}/5
+        </span>
+      </div>
       <div className="flex gap-1.5">
         {[1, 2, 3, 4, 5].map((n) => (
           <button

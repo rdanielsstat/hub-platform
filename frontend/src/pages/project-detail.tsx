@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   AlertTriangle,
@@ -13,13 +13,17 @@ import {
 import { useStore } from '@/use-store'
 import { STATUSES, type Link as ProjectLink, type Status } from '@/services/api'
 import { StatusBadge } from '@/components/status-badge'
-import { RatingInput } from '@/components/detail/rating-input'
 import { NotesPanel } from '@/components/detail/notes-panel'
+import { ScorePicker } from '@/components/score-meter'
 import { Button } from '@/components/ui/button'
+import { buttonVariants } from '@/components/ui/button-variants'
+import { Card } from '@/components/ui/card'
+import { EmptyState } from '@/components/ui/empty-state'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { cn } from '@/lib/utils'
 import { formatDate, formatRelative } from '@/lib/project-utils'
 
 export function ProjectDetailPage() {
@@ -51,11 +55,6 @@ export function ProjectDetailPage() {
     setNextAction(project.nextAction)
   }
 
-  const due = useMemo(
-    () => (project ? formatDate(project.targetDate) : '-'),
-    [project],
-  )
-
   // Grow the next-action textarea to fit its wrapped content instead of
   // clipping it, by syncing the DOM height to scrollHeight after each change.
   const nextActionRef = useRef<HTMLTextAreaElement>(null)
@@ -82,40 +81,32 @@ export function ProjectDetailPage() {
     // state fixes, surfaced here too since it's the same store `error`.
     if (error) {
       return (
-        <div className="flex flex-col items-center justify-center gap-4 py-24 text-center">
-          <div className="grid size-12 place-items-center rounded-2xl bg-rose-500/10 text-rose-500">
-            <AlertTriangle className="size-6" />
-          </div>
-          <div className="space-y-1">
-            <h1 className="text-lg font-semibold">
-              Couldn&apos;t load this idea
-            </h1>
-            <p className="text-sm text-muted-foreground">{error}</p>
-          </div>
-          <Button size="lg" onClick={() => void refresh()}>
-            Try again
-          </Button>
-        </div>
+        <EmptyState
+          variant="page"
+          icon={AlertTriangle}
+          tone="danger"
+          title="Couldn't load this idea"
+          message={error}
+          action={
+            <Button size="lg" onClick={() => void refresh()}>
+              Try again
+            </Button>
+          }
+        />
       )
     }
     return (
-      <div className="flex flex-col items-center justify-center gap-4 py-24 text-center">
-        <div className="grid size-12 place-items-center rounded-2xl bg-muted text-muted-foreground">
-          <Compass className="size-6" />
-        </div>
-        <div className="space-y-1">
-          <h1 className="text-lg font-semibold">Idea not found</h1>
-          <p className="text-sm text-muted-foreground">
-            It may have been deleted. Head back to the hub.
-          </p>
-        </div>
-        <Link
-          to="/"
-          className="inline-flex h-9 items-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground"
-        >
-          Back to dashboard
-        </Link>
-      </div>
+      <EmptyState
+        variant="page"
+        icon={Compass}
+        title="Idea not found"
+        message="It may have been deleted. Head back to the hub."
+        action={
+          <Link to="/" className={buttonVariants({ size: 'lg' })}>
+            Back to dashboard
+          </Link>
+        }
+      />
     )
   }
 
@@ -179,7 +170,10 @@ export function ProjectDetailPage() {
       <div className="flex items-center justify-between gap-3">
         <Link
           to="/"
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+          className={cn(
+            buttonVariants({ variant: 'ghost', size: 'sm' }),
+            'text-muted-foreground hover:text-foreground',
+          )}
         >
           <ArrowLeft className="size-4" />
           All ideas
@@ -301,28 +295,28 @@ export function ProjectDetailPage() {
         </div>
 
         <div className="flex flex-col gap-6">
-          <section className="flex flex-col gap-4 rounded-xl border border-border bg-card p-4">
-            <RatingInput
+          <Card className="flex flex-col gap-4 p-4">
+            <ScorePicker
               label="Excitement"
               value={project.excitement}
               onChange={(v) => save({ excitement: v })}
-              accent="bg-primary"
+              tone="excitement"
             />
-            <RatingInput
+            <ScorePicker
               label="Potential"
               value={project.potential}
               onChange={(v) => save({ potential: v })}
-              accent="bg-emerald-500"
+              tone="potential"
             />
-            <RatingInput
+            <ScorePicker
               label="Effort"
               value={project.effort}
               onChange={(v) => save({ effort: v })}
-              accent="bg-amber-500"
+              tone="effort"
             />
-          </section>
+          </Card>
 
-          <section className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4">
+          <Card className="flex flex-col gap-2 p-4">
             <Label htmlFor="target-date">Target date</Label>
             <Input
               id="target-date"
@@ -331,11 +325,13 @@ export function ProjectDetailPage() {
               onChange={(e) => save({ targetDate: e.target.value || null })}
             />
             {project.targetDate ? (
-              <p className="text-xs text-muted-foreground">{due}</p>
+              <p className="text-xs text-muted-foreground">
+                {formatDate(project.targetDate)}
+              </p>
             ) : null}
-          </section>
+          </Card>
 
-          <section className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4">
+          <Card className="flex flex-col gap-2 p-4">
             <Label>Tags</Label>
             <div className="flex flex-wrap gap-1.5">
               {project.tags.map((tag) => (
@@ -381,9 +377,9 @@ export function ProjectDetailPage() {
                 <Plus />
               </Button>
             </div>
-          </section>
+          </Card>
 
-          <section className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4">
+          <Card className="flex flex-col gap-2 p-4">
             <Label>Links</Label>
             {project.links.length > 0 ? (
               <ul className="flex flex-col gap-1">
@@ -450,7 +446,7 @@ export function ProjectDetailPage() {
                 <Plus />
               </Button>
             </div>
-          </section>
+          </Card>
         </div>
       </div>
     </div>

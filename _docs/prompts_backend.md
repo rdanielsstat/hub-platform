@@ -250,23 +250,25 @@ Report what the theme mechanism looks like now and anything that didn't line up.
 
 ## 11
 
-## Dark mode persistence
+```
+This is a consistency cleanup batch from the tech-debt file. Work through the items below one at a time, in order. After each item, run lint (must stay 0/0), tsc, and build (both clean) before moving to the next, so a regression is caught at the item that caused it, not at the end. These are pattern-alignment changes to existing working code: do not change behavior, only align to patterns already used elsewhere in the codebase. Read each relevant file before changing it, and grep to confirm usages before removing or replacing anything.
 
-Theme now persists across reloads, respects system preference on first load, applies before paint (no flash), and the theme-color meta follows the toggle. Not committed.
+Item 1 — Shared empty/error-state component.
+There are now four near-identical empty/error-state layouts: the not-found page, the dashboard empty state, the dashboard load-error state (with retry), and project-detail's not-found/load-error branches. Extract one reusable component that covers both the plain-empty shape and the error-with-retry shape (e.g. an optional retry action and an icon/title/message), and replace all four call sites with it. Keep each call site's current wording, icon, and behavior identical — this is deduplication, not a redesign. Confirm all four still render and the retry buttons still work.
 
-### What the mechanism looks like now
-- **index.html** — a small inline `<script>` in `<head>`, before any stylesheet or app code, runs synchronously: reads localStorage['hub.theme']; if unset, falls back to matchMedia('(prefers-color-scheme: dark)'); if dark, adds the dark class to `<html>` and sets an approximate dark theme-color. Wrapped in try/catch (falls back to light if storage/matchMedia unavailable). This eliminates the flash — the class is on `<html>` before the browser paints.
-- **src/lib/theme.ts** (new) — source of truth from React's side: getStoredTheme/setStoredTheme (try/catch localStorage) and updateThemeColorMeta(), which reads the actual computed background-color off `<body>` and writes it into the meta tag, so it can't drift from the palette in index.css.
-- **app-header.tsx's useTheme** — initial React state reads off the DOM (does `<html>` have the dark class) rather than re-deriving, trusting the inline script's resolution. toggle() flips state and persists the explicit choice. An effect applies the class and calls updateThemeColorMeta() whenever dark changes, so the meta updates on toggle, not just load. Toggle button untouched.
+Item 2 — Back-to-dashboard button.
+project-detail hand-rolls its back button with raw classes instead of using buttonVariants, so it misses the hover/focus-visible/transition states the real button variants have. Replace it with the proper buttonVariants (matching whatever ghost/link variant fits its current look) so it gains the standard interaction states. Keep it looking essentially the same, just properly styled via the shared variants.
 
-### Didn't line up
-- The classic "normalize color via canvas fillStyle" trick (to force rgb() for theme-color) no longer works in current Chrome — canvas now preserves oklch() too. Added it defensively, checked the actual output, found it did nothing, removed it. theme-color accepts any valid CSS color and oklch() is supported by the browsers that read this meta (Chrome/Android, Safari/iOS), so it's passed through as-is. Simpler.
-- No access to true OS-level prefers-color-scheme emulation (no CDP media-emulation). Machine's real preference is light; confirmed live that a cleared preference resolves to light. For the dark-OS branch, verified the resolution expression in isolation with matchMedia mocked for all four combinations (no-stored+dark, no-stored+light, stored-light+dark-system, stored-dark+light-system) — all correct, including explicit-choice-wins. Algorithm-level, not a true dark-OS end-to-end test; flagged rather than claimed.
+Item 3 — Rating widget.
+There are multiple rating-widget implementations with diverging aria patterns (ScorePicker vs RatingInput). Standardize on one. First inspect both, tell me which you're keeping and why (keep the one that's more complete/accessible), then migrate all usages to it and remove the other. Confirm the scores still display and edit correctly everywhere they're used, and that the kept one's aria pattern is sound.
 
-### Verified
-- Toggle dark → reload: stays dark (html class, meta, screenshot).
-- Toggle light → reload: stays light (same checks).
-- Cleared preference + real (light) system pref → starts light, live.
-- Dark-system branch verified in isolation (couldn't drive a real dark-OS reload).
-- theme-color meta changes on toggle both directions, matching light/dark --background exactly.
-- Lint 0/0, tsc, build, prettier clean.
+Item 4 — Card primitive.
+project-detail's section cards reuse the border/bg recipe by hand but drop shadow-sm and don't use the Card primitive (this is why card.tsx was kept). Migrate those sections to the Card primitive so they match the rest of the app's card styling. Keep the layout intact; this is about using the shared primitive and regaining the consistent shadow, not restructuring the sections.
+
+Item 5 — Dead fallback branches.
+Remove the two unreachable branches: formatDate's null-iso return in lib/project-utils.ts, and the ': "-"' (now empty-string) else in the due useMemo in project-detail.tsx. Both are guarded against by callers, confirm that's still true before removing. Also address the "no date" placeholder note in the tech-debt file's Notes section while you're in these files: decide with me — actually, leave that one as-is and just flag it, since it's a product decision (what to show when there's no date) not a cleanup.
+
+After all five: run the full check suite once more, do a click-through of the affected screens (dashboard empty, dashboard normal, a project detail, the not-found page) to confirm nothing looks or behaves differently except the intended shadow/interaction-state gains. If the Chrome extension is available verify visually; if not, say what you couldn't check. Update the tech-debt file to remove the entries you resolved (items 1-5's consistency entries), leaving the placeholder note.
+
+Report per-item what you changed, which rating widget you kept and why, and anything that didn't line up. Don't commit, I'll review.
+```

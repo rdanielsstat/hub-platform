@@ -42,8 +42,7 @@ function parseDateOnly(iso: string): Date {
   return iso.includes('T') ? new Date(iso) : new Date(`${iso}T00:00:00`)
 }
 
-export function formatDate(iso: string | null): string {
-  if (!iso) return '-'
+export function formatDate(iso: string): string {
   return parseDateOnly(iso).toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',

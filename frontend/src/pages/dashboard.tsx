@@ -7,6 +7,7 @@ import { StatsRow } from '@/components/dashboard/stats-row'
 import { DashboardToolbar } from '@/components/dashboard/dashboard-toolbar'
 import type { SortKey } from '@/components/dashboard/sort-options'
 import { Button } from '@/components/ui/button'
+import { EmptyState } from '@/components/ui/empty-state'
 import { daysUntil, opportunityScore } from '@/lib/project-utils'
 
 export function DashboardPage({ onCapture }: { onCapture: () => void }) {
@@ -101,16 +102,46 @@ export function DashboardPage({ onCapture }: { onCapture: () => void }) {
           ))}
         </div>
       ) : error ? (
-        <ErrorState message={error} onRetry={() => void refresh()} />
+        <EmptyState
+          icon={AlertTriangle}
+          tone="danger"
+          title="Couldn't load your ideas"
+          message={error}
+          action={
+            <Button variant="outline" size="lg" onClick={() => void refresh()}>
+              Try again
+            </Button>
+          }
+        />
       ) : visible.length === 0 ? (
         <EmptyState
-          hasProjects={projects.length > 0}
-          onCapture={onCapture}
-          onReset={() => {
-            setStatus('all')
-            setQuery('')
-            setTag(null)
-          }}
+          icon={Inbox}
+          title={projects.length > 0 ? 'No matches' : 'Nothing captured yet'}
+          message={
+            projects.length > 0
+              ? 'Try clearing filters or search.'
+              : 'Capture your first idea to get started.'
+          }
+          action={
+            projects.length > 0 ? (
+              <Button
+                variant="outline"
+                size="lg"
+                onClick={() => {
+                  setStatus('all')
+                  setQuery('')
+                  setTag(null)
+                }}
+              >
+                Clear filters
+              </Button>
+            ) : (
+              <Button size="lg" onClick={onCapture}>
+                <Plus />
+                Quick capture
+              </Button>
+            )
+          }
         />
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -119,67 +150,6 @@ export function DashboardPage({ onCapture }: { onCapture: () => void }) {
           ))}
         </div>
       )}
-    </div>
-  )
-}
-
-function EmptyState({
-  hasProjects,
-  onCapture,
-  onReset,
-}: {
-  hasProjects: boolean
-  onCapture: () => void
-  onReset: () => void
-}) {
-  return (
-    <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-dashed border-border py-20 text-center">
-      <div className="grid size-12 place-items-center rounded-2xl bg-muted text-muted-foreground">
-        <Inbox className="size-6" />
-      </div>
-      <div className="space-y-1">
-        <h2 className="font-semibold">
-          {hasProjects ? 'No matches' : 'Nothing captured yet'}
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          {hasProjects
-            ? 'Try clearing filters or search.'
-            : 'Capture your first idea to get started.'}
-        </p>
-      </div>
-      {hasProjects ? (
-        <Button variant="outline" size="lg" onClick={onReset}>
-          Clear filters
-        </Button>
-      ) : (
-        <Button size="lg" onClick={onCapture}>
-          <Plus />
-          Quick capture
-        </Button>
-      )}
-    </div>
-  )
-}
-
-function ErrorState({
-  message,
-  onRetry,
-}: {
-  message: string
-  onRetry: () => void
-}) {
-  return (
-    <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-dashed border-rose-500/30 bg-rose-500/5 py-20 text-center">
-      <div className="grid size-12 place-items-center rounded-2xl bg-rose-500/10 text-rose-500">
-        <AlertTriangle className="size-6" />
-      </div>
-      <div className="space-y-1">
-        <h2 className="font-semibold">Couldn&apos;t load your ideas</h2>
-        <p className="text-sm text-muted-foreground">{message}</p>
-      </div>
-      <Button variant="outline" size="lg" onClick={onRetry}>
-        Try again
-      </Button>
     </div>
   )
 }
