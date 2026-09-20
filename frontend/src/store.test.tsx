@@ -1,4 +1,3 @@
-// @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Project } from '@/services/api'
 import { StoreProvider } from '@/store'

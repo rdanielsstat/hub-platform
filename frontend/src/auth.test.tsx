@@ -1,4 +1,3 @@
-// @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { User } from '@/services/api'
 import { AuthProvider } from '@/auth.tsx'

@@ -533,4 +533,38 @@ Nothing flagged as a design concern. The pessimistic-write pattern made the "sta
 
 ### Note
 git status shows _docs/prompts_backend.md and _docs/results_backend.md modified on disk; the agent didn't touch either (didn't edit _docs/ as code). Flagged as possibly something else in the environment writing to them — verify before committing.
-````
+
+## 17 - Deep component + user-flow tests
+
+157 tests passing (71 prior logic + 86 new component/flow). Queried by role/label/text, mocked at the boundary, no styling assertions, no app code changed. Not committed.
+
+### Setup changes
+- Added @testing-library/react, @testing-library/user-event, @testing-library/jest-dom, jsdom as devDependencies.
+- vite.config.ts now imports defineConfig from vitest/config and sets test: { environment: 'jsdom', setupFiles: ['./src/test-setup.ts'] } — jsdom is now the global default.
+- src/test-setup.ts wires jest-dom matchers plus an explicit afterEach(() => cleanup()). That second part isn't optional: this repo keeps test.globals off (explicit imports from 'vitest'), so RTL's auto-cleanup never fires; without it, every test after the first in a file leaked the prior render's DOM into the next query. Flagging as a trap for future test files here.
+- Removed the three per-file // @vitest-environment jsdom pragmas; confirmed the original 71 still pass unchanged.
+
+### Per-screen coverage (api/authApi mocked per-file via vi.hoisted; real providers do the work)
+- Login/Signup: render, valid submit → authenticate & navigate, backend error shown verbatim, disabled-until-valid, disabled-while-submitting, cross-links.
+- Dashboard: pending/error+retry/empty/no-matches+clear/populated; status-chip, tag-chip, search filtering; name and lowest-effort sorting; quick-win/stale badges scoped to the right card only.
+- Project detail: field rendering, blur-save vs no-op-blur (pitch, description, next-action, name), save-failure revert, immediate-save fields (status, scores, target date), tag add/remove, labeled+unlabeled link add/remove, two-step delete → navigate, cancel, not-found and load-error branches.
+- Quick capture: open/closed, autofocus name field, disabled-until-name, create → close, comma-tag splitting, "Capture & open" → navigate, Enter-to-submit, stays open with data intact on failure, cancel resets draft.
+- Notes panel: list, add (button and ⌘/Ctrl+Enter), draft kept on add-failure, two-step delete → remove, cancel, pessimistic "stays in list on delete-failure".
+- Error boundary: normal children render; throwing child renders fallback.
+- App header: user name vs email fallback, capture wiring, dark-mode toggle + label flip, sign-out wiring.
+- Light coverage on StatusBadge, IndicatorBadge, ScorePicker, StatsRow, DashboardToolbar, NotFoundPage — conditional/callback logic only, no styling.
+
+### Full-flow tests (2)
+- Auth → dashboard: login page → real login → dashboard shows the user's projects.
+- Capture → see it → edit it: empty dashboard → quick-capture → card appears → open detail → edit pitch → blur persists.
+(The optional third was skippable without loss.)
+
+### Skipped, with reasons
+- Full Tab-cycle focus-trap in quick-capture: base-ui's trap depends on layout/visibility jsdom doesn't compute, so a test would be fake or flaky. Kept the solid assertion: name field focused on open.
+- StatsRow active-chip "looks active" state: the active filter chip has no aria-pressed/aria-current, only a class change — tested the onSelect callback instead, and flagging it as a minor accessibility gap worth a follow-up.
+- Skeleton/loading visuals: no accessible role/text, so only asserted the negative (final content not yet showing) rather than touching classNames.
+
+### Worth knowing (not a bug, not fixed)
+base-ui's Dialog keeps content in the DOM (hidden) while closed rather than unmounting. A loose getByRole for the Capture button matched both the header's real button and the closed dialog's hidden one; fixed by scoping the query to the header landmark. Remember when querying broadly across a page with the dialog mounted.
+
+No app code changed. lint 0/0, tsc clean, build clean, format clean.

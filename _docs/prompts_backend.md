@@ -394,3 +394,43 @@ Approach and quality bar:
 
 When done: run pnpm test and report the count and that all pass; keep lint 0/0, tsc and build clean. Tell me what's covered, what you deliberately left for the component pass, and anything that was hard to test (which often points at a design worth revisiting). Don't commit, I'll review.
 ```
+
+## 17
+
+```
+Add thorough component and user-flow tests for the frontend, using React Testing Library on top of the existing Vitest + jsdom setup. This is the deep UI-behavior pass. First read the earlier logic tests (store.test.tsx, auth.test.tsx, http.test.ts, project-utils.test.ts) and the render-hook helper to match conventions, then read every component/page you'll be testing before writing its tests.
+
+Setup:
+- Add React Testing Library (@testing-library/react, @testing-library/user-event, @testing-library/jest-dom) as devDependencies.
+- Make jsdom the global default test environment in the Vitest config (the logic pass scoped it per-file; component tests need it everywhere). Remove the now-redundant per-file // @vitest-environment jsdom pragmas since the default covers them. Confirm the existing 71 tests still pass unchanged after this switch.
+- Add a jest-dom setup file wired into the Vitest config so the custom matchers are available.
+- Prefer user-event over fireEvent, and query by accessible role/label/text the way a user perceives the UI, not by test-ids or class names.
+
+Quality bar — read this carefully, it matters more than the count:
+- Test BEHAVIOR a user can observe and reach: what renders in each state, what happens on each interaction, what the user sees as a result. Assert on visible text, roles, labels, presence/absence of elements, and enabled/disabled state.
+- Do NOT test styling, class names, colors, animation, exact DOM structure, or implementation details. If a purely cosmetic change would break the test, the test is wrong — rewrite it to assert behavior instead.
+- Mock at the boundary (the api layer / authApi / fetch), never a real backend. Deterministic, no network, no real timers where they'd cause flakiness.
+- Tests must survive refactors: assert outcomes, not internal wiring.
+
+Per-screen / per-component coverage (thorough — every state and interaction):
+- Login screen: renders; submitting valid credentials calls login and navigates/authenticates; wrong credentials shows a clear error; loading/disabled state during submit; link to signup works.
+- Signup screen: renders; successful registration authenticates; "email already taken" shows the specific error; validation of required fields; loading state.
+- Dashboard: all states — loading, error (with working retry), empty ("nothing captured yet"), no-matches (with clear-filters), and populated. Filtering by status, filtering by tag, search query, and sorting all actually change what's shown. The stale/quick-win badges render on the right cards.
+- Project detail: renders a project's fields; editing a field and blurring saves (calls updateProject with the change) and an unchanged blur does NOT save (the no-op-blur behavior); status change, score changes, target date, tags add/remove, links add/remove (labeled and unlabeled); the next-action pinned display; delete requires the two-step confirm and then navigates; the not-found and load-error branches render.
+- Quick capture: opens, validates, creates a project on submit, stays open with data intact on failure, closes on success; focus-trap behavior if feasible to assert.
+- Notes panel: lists notes, adds a note (appears in list), delete requires confirm then removes; failure leaves the note in place (pessimistic).
+- Error boundary: a child that throws renders the fallback instead of crashing.
+- Any small presentational components with real conditional logic (status badge, indicator badges, stats row) — light coverage of the conditional behavior only.
+
+Critical full-flow tests (a FEW, high-value only — not dozens):
+- Auth → dashboard: unauthenticated user sees login; after logging in, lands on the dashboard showing their projects.
+- Capture → see it → edit it: from the dashboard, quick-capture a project, see it appear, open it, edit a field, confirm the change persists in the UI.
+- (Optional third if it's clean) note add → dashboard re-sort: add a note to a project and confirm the dashboard reflects the resulting recency change.
+Keep these to the journeys that would genuinely hurt if they broke; don't turn every per-screen test into a flow test.
+
+Rules:
+- Do NOT change app code to make it testable unless something is genuinely untestable as written. If you hit that, STOP and tell me what and why before changing it — do not quietly refactor app logic in a testing task.
+- If something is impractical to test well (e.g. focus-trap, some jsdom limitation), say so and skip it with a note rather than writing a weak or flaky test for it.
+
+When done: run pnpm test and report the total count and that all pass (including the prior 71 still green); keep lint 0/0, tsc and build clean. Report what's covered per screen, which flows you added, anything you skipped and why, and anything that was hard to test (which may point at a design worth revisiting). Don't commit, I'll review.
+```
