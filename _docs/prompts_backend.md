@@ -362,3 +362,35 @@ Do NOT touch: the register race condition, the void-consistency nits, the stats-
 
 Verify: frontend lint 0/0, tsc, build, and the existing tests still pass. Manually confirm the error boundary actually catches a thrown render error and shows the fallback (you can temporarily throw in a component to test, then remove it). Report what you changed, and for the dead-export item which approach you took. Don't commit, I'll review.
 ```
+
+## 16
+
+```
+Add frontend unit/logic tests for the critical non-UI logic, using the existing Vitest setup. This pass is about the store, the auth flow, and any remaining pure logic — NOT component rendering or DOM interaction (that's a separate later pass, don't pull in React Testing Library or test components here). Read the files under test first: store.tsx, auth.tsx, services/api/ (index.ts, real.ts, auth.ts, http.ts, token.ts), lib/project-utils.ts, and the existing test (project-utils.test.ts) to match its conventions.
+
+What to cover:
+
+Store (store.tsx) — the highest-value target. Test its behavior by mocking the api layer (vi.mock the '@/services/api' module or inject a fake) so each test controls whether a call resolves or rejects, with no real backend. Cover:
+- Initial load: populates projects on success; sets the error state on failure (and clears/handles loading correctly).
+- Each write path (createProject, updateProject, deleteProject, addNote, deleteNote): on success, state updates correctly (created project added, updated project replaced, deleted removed, note add/delete bumps the parent project via the returned project); on failure, state is NOT changed (pessimistic — the whole point), the error is surfaced, and the call rejects/re-throws so callers can react.
+- Confirm the pessimistic guarantee explicitly: a failed write leaves projects exactly as it was.
+
+Auth (auth.tsx / auth flow) — mock authApi and the token storage. Cover:
+- login: stores the token and sets the user/status to authenticated on success; surfaces an error and does not authenticate on failure (e.g. wrong password).
+- register: analogous.
+- logout: clears the token and resets to unauthenticated.
+- On-mount token check: with a stored token that validates, ends authenticated; with a stored token that fails validation, ends unauthenticated and the token is cleared. (This is the logout-on-any-failure spot flagged in tech-debt — test the current behavior as it actually is; don't change it in this pass, just capture it so a later change is caught.)
+- token.ts: get/set/clear round-trip, and that it degrades gracefully (no throw) if storage access throws.
+
+http.ts — the request helper: attaches the bearer token when present and omits it when skipAuth; parses a FastAPI error detail into HttpError with the right status/message; invokes the onUnauthorized handler on a 401-with-token but not on other failures. Mock fetch for these.
+
+Pure helpers — confirm project-utils.ts beyond isStale/isQuickWin (already covered): opportunityScore, daysUntil, formatRelative, formatDate, parseDateOnly — a few representative cases each, including boundary/null-ish inputs where the function accepts them.
+
+Approach and quality bar:
+- Mock at the module/dependency boundary (the api layer, authApi, fetch, localStorage), not by spinning up a backend. Tests must be deterministic and not depend on network, timers, or real storage — inject/fake anything time- or environment-dependent (reuse the injected-now pattern the existing helper tests use).
+- Match the existing test file's style and location conventions.
+- Test behavior, not implementation details — assert on outcomes (state, return values, thrown errors, calls made), not internal wiring, so the tests survive refactors.
+- Do NOT change app code to make it testable unless something is genuinely untestable as written; if you hit that, stop and tell me what and why before changing it, rather than quietly refactoring app logic in a testing task.
+
+When done: run pnpm test and report the count and that all pass; keep lint 0/0, tsc and build clean. Tell me what's covered, what you deliberately left for the component pass, and anything that was hard to test (which often points at a design worth revisiting). Don't commit, I'll review.
+```

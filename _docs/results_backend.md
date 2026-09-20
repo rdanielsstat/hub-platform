@@ -507,3 +507,30 @@ Verified live: temporarily threw inside DashboardPage, confirmed the fallback re
 - Observability/Sentry not wired; error boundary covers the frontend-crash half, backend/error-tracking deferred to deploy.
 
 Verification: lint 0/0, tsc, build, test 19/19, format:check — all clean. Deferred items (register race, void-consistency, stats-row, Link.url) left untouched as instructed. Nothing committed.
+
+## 16 - Frontend critical-logic tests
+
+Added logic tests for the store, auth flow, http/token layer, and remaining pure helpers. 71 tests total (was 19), all passing. One dep added (jsdom, per the earlier decision). No app code changed. Not committed.
+
+### Added (all in frontend/)
+- **src/lib/render-hook.tsx** — a small hand-rolled renderHook/flush helper (real React createRoot + act, no RTL) to mount StoreProvider/AuthProvider and read hook state across renders.
+- **src/store.test.tsx (13)** — initial load (success/failure); each write path (create/update/delete project, addNote, deleteNote): success updates state correctly, failure leaves projects referentially unchanged and rejects. Plus getProject.
+- **src/auth.test.tsx (8)** — on-mount token check (no token / valid / invalid, including token cleared on invalid); login/register success and failure; logout.
+- **src/services/api/token.test.ts (6)** — get/set/clear round-trip; all three degrade to a no-throw no-op when Storage methods throw.
+- **src/services/api/http.test.ts (11)** — bearer attached/omitted/skipAuth; string and FastAPI-array detail parsed into HttpError; non-JSON fallback to status text; onUnauthorized fires only on a 401-with-token; 204/200 handling.
+- **Extended project-utils.test.ts (+15)** — opportunityScore, daysUntil (null/future/past/same-day boundary), formatRelative (all buckets), formatDate (date-only vs full ISO).
+
+Total 71 tests passing. lint 0/0, build clean, format:check clean.
+
+### Dependency
+jsdom as a devDependency (your call earlier). Store/auth logic lives entirely in React hooks, which only run during a render, so there was no way to exercise them without a renderer. Scoped via a per-file // @vitest-environment jsdom pragma so the rest of the suite stays in the faster node environment.
+
+### Left for the component pass
+Anything rendering actual UI, DOM queries, or user interaction (clicks, forms) — none of that is here.
+
+### Hard to test / design notes
+Nothing flagged as a design concern. The pessimistic-write pattern made the "state unchanged on failure" tests trivial (assert the same array reference); the auth on-mount logout-on-any-failure behavior was straightforward to pin as-is without changing it.
+
+### Note
+git status shows _docs/prompts_backend.md and _docs/results_backend.md modified on disk; the agent didn't touch either (didn't edit _docs/ as code). Flagged as possibly something else in the environment writing to them — verify before committing.
+````

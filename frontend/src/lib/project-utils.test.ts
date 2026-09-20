@@ -1,6 +1,13 @@
-import { describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { Project, Status } from '@/services/api'
-import { isQuickWin, isStale } from './project-utils'
+import {
+  daysUntil,
+  formatDate,
+  formatRelative,
+  isQuickWin,
+  isStale,
+  opportunityScore,
+} from './project-utils'
 
 const NOW = new Date('2026-09-20T00:00:00Z')
 
@@ -107,5 +114,110 @@ describe('isQuickWin and isStale together', () => {
     })
     expect(isQuickWin(p)).toBe(false)
     expect(isStale(p, NOW)).toBe(false)
+  })
+})
+
+describe('opportunityScore', () => {
+  it('is excitement + potential - effort', () => {
+    expect(
+      opportunityScore(project({ excitement: 5, potential: 4, effort: 2 })),
+    ).toBe(7)
+  })
+
+  it('can be negative when effort dominates', () => {
+    expect(
+      opportunityScore(project({ excitement: 1, potential: 1, effort: 5 })),
+    ).toBe(-3)
+  })
+})
+
+describe('daysUntil', () => {
+  it('returns null for a null input', () => {
+    expect(daysUntil(null)).toBeNull()
+  })
+
+  it('is positive for a future date-only string', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-20T12:00:00Z'))
+    expect(daysUntil('2026-09-25')).toBe(5)
+    vi.useRealTimers()
+  })
+
+  it('is negative for a past date-only string', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-20T12:00:00Z'))
+    expect(daysUntil('2026-09-15')).toBe(-5)
+    vi.useRealTimers()
+  })
+
+  it('is 0 for today (date-only, before local midnight has passed)', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-20T00:00:00'))
+    expect(daysUntil('2026-09-20')).toBe(0)
+    vi.useRealTimers()
+  })
+})
+
+describe('formatRelative', () => {
+  it('is "just now" for a timestamp under a minute old', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-20T00:00:10Z'))
+    expect(formatRelative('2026-09-20T00:00:00Z')).toBe('just now')
+    vi.useRealTimers()
+  })
+
+  it('formats minutes ago', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-20T00:10:00Z'))
+    expect(formatRelative('2026-09-20T00:00:00Z')).toBe('10m ago')
+    vi.useRealTimers()
+  })
+
+  it('formats hours ago', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-20T05:00:00Z'))
+    expect(formatRelative('2026-09-20T00:00:00Z')).toBe('5h ago')
+    vi.useRealTimers()
+  })
+
+  it('formats days ago', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-25T00:00:00Z'))
+    expect(formatRelative('2026-09-20T00:00:00Z')).toBe('5d ago')
+    vi.useRealTimers()
+  })
+
+  it('formats months ago', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-11-19T00:00:00Z'))
+    expect(formatRelative('2026-09-20T00:00:00Z')).toBe('2mo ago')
+    vi.useRealTimers()
+  })
+
+  it('formats years ago', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2028-09-20T00:00:00Z'))
+    expect(formatRelative('2026-09-20T00:00:00Z')).toBe('2y ago')
+    vi.useRealTimers()
+  })
+})
+
+describe('formatDate', () => {
+  const originalTz = process.env.TZ
+
+  beforeAll(() => {
+    process.env.TZ = 'UTC'
+  })
+
+  afterAll(() => {
+    process.env.TZ = originalTz
+  })
+
+  it('formats a date-only string at local midnight, not shifted by UTC parsing', () => {
+    expect(formatDate('2026-09-01')).toBe('Sep 1, 2026')
+  })
+
+  it('formats a full ISO timestamp as an absolute instant', () => {
+    expect(formatDate('2026-09-01T00:00:00Z')).toBe('Sep 1, 2026')
   })
 })
