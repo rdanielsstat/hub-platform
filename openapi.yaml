@@ -4,8 +4,8 @@ info:
   description: >
     API contract for the Hub backend (FastAPI). Derived from the frontend's
     API client (frontend/src/services/api/) and the data model in
-    _docs/specs.md. This is the contract the backend must implement; the
-    backend does not exist yet.
+    _docs/specs.md. The backend implements this contract; attachments
+    remain provisional (see the paths below), everything else is live.
   version: 0.1.0
 servers:
   - url: http://localhost:8000

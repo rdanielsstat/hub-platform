@@ -17,7 +17,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
 
   const logout = useCallback(() => {
-    clearToken()
+    authApi.logout()
     setUser(null)
     setStatus('unauthenticated')
   }, [])

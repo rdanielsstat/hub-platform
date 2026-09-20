@@ -36,10 +36,11 @@ pnpm format:check   # prettier --check .
 - The `@/` import alias resolves to `frontend/src` (set in both
   `tsconfig.json` and `vite.config.ts`).
 - All data access goes through `frontend/src/services/api/`. Never call
-  `fetch` directly from a component. Today that layer is an in-memory mock
-  (`services/api/mock.ts`); it's the seam that gets swapped for real HTTP
-  calls to the backend later, so keep components talking to `api`/the store,
-  not to the mock internals.
+  `fetch` directly from a component. That layer is real HTTP against the
+  FastAPI backend (`services/api/real.ts`, via `http.ts`); it's the seam
+  that would let a future consumer (native iOS, agents) swap in without
+  touching components, so keep components talking to `api`/the store, not
+  to the HTTP internals.
 
 ## Backend (planned, `backend/` does not exist yet)
 

@@ -4,6 +4,7 @@ import { Loader2 } from 'lucide-react'
 import { useAuth } from '@/use-auth'
 import { StoreProvider } from '@/store'
 import { AppHeader } from '@/components/layout/app-header'
+import { ErrorBoundary } from '@/components/error-boundary'
 import { QuickCaptureDialog } from '@/components/quick-capture-dialog'
 import { Toaster } from '@/components/ui/toaster'
 import { DashboardPage } from '@/pages/dashboard'
@@ -16,7 +17,7 @@ export function App() {
   const { status } = useAuth()
 
   return (
-    <>
+    <ErrorBoundary>
       {status === 'loading' ? (
         <div className="grid min-h-dvh place-items-center">
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
@@ -36,7 +37,7 @@ export function App() {
         </StoreProvider>
       )}
       <Toaster />
-    </>
+    </ErrorBoundary>
   )
 }
 

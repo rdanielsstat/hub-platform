@@ -438,3 +438,72 @@ rm hub.db
 uv run uvicorn app.main:app --port 8000
 ```
 (seeding only runs against an empty DB, so deleting hub.db is required — the server re-seeds on startup)
+
+## 14 - Pre-deploy read-only review
+
+All objective checks green. No correctness bugs, no untracked security holes, no debug cruft. Frontend/backend contract matches openapi.yaml across auth, projects, notes. Findings are mostly polish plus two decisions. No files modified.
+
+### Objective checks
+- Frontend: eslint 0/0; tsc -b && vite build clean; vitest 19/19 pass.
+- Backend: pytest 32/32 pass (4 deprecation warnings from third-party libs only — httpx/starlette, passlib/crypt, argon2-cffi — not app code).
+
+### Fix before deploy
+1. **CORS hardcoded to localhost** — main.py:16-22. allow_origins is localhost:5173 only. Not a security bug (safe restrictive default) but a functional blocker: once the frontend deploys, requests fail CORS until prod/staging origins are added. Not covered by tech-debt's generic Deploy bullet.
+2. **Spec-required observability doesn't exist and isn't tracked as deferred** — spec §2 lists error tracking (Sentry) + dashboards as a v1 layer, not in §9 Deferred. No Sentry SDK either package; no React error boundary in App.tsx, so a render-time bug white-screens with only a console log. Decide: add it, or add to tech-debt as a deliberate deferral so it's not silently missing.
+
+### Real findings — can wait
+Correctness:
+- auth.py:15-27 — register() does check-then-insert with no try/except around the unique-constraint violation; users.email is unique at the ORM level, so a race between two simultaneous same-email registrations would surface as a 500 instead of the documented 409. Narrow window, easy to close.
+- project.py:20 — Link.url is str while openapi.yaml documents format: uri; not enforced server-side. Cosmetic.
+
+Consistency (partly slipped back after the cleanup pass):
+- Inconsistent void on fire-and-forget async calls in JSX handlers: project-detail.tsx:133,138,149,155 use void save(...); :245,302,308,314,325 call save(...) bare. Same split in notes-panel.tsx and quick-capture-dialog.tsx. No runtime difference (all handle their own errors); inconsistent within single files.
+- stats-row.tsx:19-27 hardcodes the six-status order instead of deriving from the exported STATUSES. DRY nit.
+
+Dead code:
+- theme.ts:16-23 — getStoredTheme() exported, never called (app-header reads the DOM class directly). Safe to delete.
+- auth.ts:38-40 — authApi.logout() exported, never called; the real logout path duplicates the one-line clearToken() directly. Wire it up or delete.
+
+Doc drift:
+- AGENTS.md still describes the API layer as an in-memory mock (services/api/mock.ts) — that file no longer exists; the layer is real HTTP (real.ts).
+- openapi.yaml's top description still says "the backend does not exist yet."
+- tech-debt.md still lists stale/quick-win surfacing as unbuilt — shipped. And its Notes section says the "no date" branches are "currently unreachable" — the cleanup pass deleted them outright; only the underlying product question (what to show for no date) is still open.
+
+Spec alignment:
+- seed.py's demo projects differ from spec §11's listed projects — reads like a deliberate design upgrade, not drift; confirm intentional.
+- Confirmed the only deferrals present are attachments, PWA, Postgres/Neon, rate-limiting/caps — matching tech-debt exactly. No other half-built or silently-missing v1 features beyond observability above.
+
+Tests:
+- Backend 32: strong auth + isolation coverage. Minor gaps: case-insensitive duplicate-email registration untested; expired-but-well-formed JWT untested (only a garbage token is).
+- Frontend 19: all for isStale/isQuickWin. Nothing else (auth forms, store writes, dashboard filtering/sorting, project-detail) is tested. Consistent with the project's stage; "19 tests" doesn't imply broad coverage.
+
+### Already tracked in tech-debt — confirmed still accurate, not re-flagged
+- Rate-limiting, account/project caps — neither exists.
+- "Logout-on-any-failure too aggressive" — confirmed, exact spot: auth.tsx:32-44. On app load, if a token exists, getCurrentUser()'s .catch() clears the token on ANY rejection, not just a real 401, so a network blip/cold-start during that check logs the user out. (http.ts:66's global 401 handler is correctly scoped; this is specifically the app-mount check.)
+- Postgres portability tradeoffs, no-Alembic-yet — accurate, unchanged.
+
+No files modified.
+
+## 15 - Pre-deploy cleanup batch
+
+Error boundary added and verified, two dead exports resolved, doc drift fixed, two deploy-time deferrals now tracked. All checks green. Not committed.
+
+### 1. Error boundary (verified working)
+New components/error-boundary.tsx: a class component (getDerivedStateFromError + componentDidCatch) wrapping the entire app in App.tsx (around the loading/unauthenticated/authenticated tree and the Toaster, so it catches crashes anywhere, not just routed pages). On catch it logs to console.error (placeholder until Sentry) and renders the existing EmptyState in page/danger mode: "Something went wrong" + explanation + a Reload button (window.location.assign('/')).
+
+Verified live: temporarily threw inside DashboardPage, confirmed the fallback rendered instead of a white screen, confirmed componentDidCatch's console.error fired with the error + component stack, confirmed Reload does a real navigation, then removed the throw and confirmed normal rendering. dashboard.tsx has no net diff.
+
+### 2. Dead exports
+- getStoredTheme() (lib/theme.ts) — deleted. Zero references.
+- authApi.logout() (services/api/auth.ts) — kept and wired up instead of deleted. auth.tsx's logout now calls authApi.logout() instead of duplicating clearToken() inline. Reasoning: AGENTS.md's rule is all data access goes through services/api/; the inline clearToken() was the kind of around-the-layer call that rule prevents, so routing through the api layer is the more correct fix. (The other clearToken() in auth.tsx — boot-time invalid-token cleanup — is a different concern, left as-is.)
+
+### 3. Doc drift fixed
+- AGENTS.md: API-layer paragraph rewritten to describe real.ts/http.ts as the actual state; no more mock.ts reference.
+- openapi.yaml: top description no longer says "the backend does not exist yet"; now says the backend implements the contract, attachments still provisional.
+- tech-debt.md: removed the shipped stale/quick-win roadmap entry; rewrote the Notes entry so it no longer claims the no-date branches are unreachable (they were deleted), keeping the open product question.
+
+### 4. New tracked deferrals (tech-debt.md)
+- CORS origins hardcoded to localhost in main.py; deployed frontend origins must be added at deploy or requests fail CORS.
+- Observability/Sentry not wired; error boundary covers the frontend-crash half, backend/error-tracking deferred to deploy.
+
+Verification: lint 0/0, tsc, build, test 19/19, format:check — all clean. Deferred items (register race, void-consistency, stats-row, Link.url) left untouched as instructed. Nothing committed.

@@ -316,3 +316,49 @@ Right now no seed project shows a stale badge and only one shows quick-win. Fix 
 
 The seed only runs on an empty database, so give me the command to recreate the local DB (delete the sqlite file + restart) and I'll run it myself. Tell me the resulting badge map. Don't commit.
 ```
+
+## 14
+
+```
+Read-only review pass to confirm the project is in solid shape before deployment. Do NOT change any files in this task — this is a review that produces a report, and I'll decide what to act on. Read AGENTS.md and _docs/specs.md first for intent, then review the actual current state of both frontend/ and backend/.
+
+Run the objective checks first and report results:
+- Frontend: pnpm lint, tsc, pnpm build, pnpm test — report pass/fail and any output.
+- Backend: uv run pytest — report the count and pass/fail.
+Report exact results; if anything is not green, that's the top of the report.
+
+Then do a read-only review covering:
+- Correctness: any type errors, build warnings, obvious runtime risks, or logic that looks wrong. Check the frontend/backend contract still matches (the api layer's calls vs the FastAPI routes vs openapi.yaml) — flag any drift.
+- Consistency: naming, formatting, patterns, user-visible text (casing, tone). Flag anything that diverges from patterns used elsewhere, since a consistency pass was recently done — note if anything slipped back.
+- Dead code / cruft: unused imports, unused exports, unreferenced files, leftover debug code, commented-out blocks, stray console logs.
+- Spec alignment: compare the app against _docs/specs.md and note anything missing, incomplete, or diverging — but distinguish "genuinely missing" from "deliberately deferred" (attachments, PWA, Postgres, rate-limiting are known deferrals, not gaps; don't re-flag those as problems, just confirm they're the only deferrals).
+- Security/robustness quick scan: anything obviously risky for a soon-to-be-deployed multi-user app that ISN'T already tracked in _docs/tech-debt.md. Cross-reference tech-debt.md so you don't re-report known items — only surface genuinely new findings.
+- Tests: note any meaningful gaps in coverage for the critical paths (auth, per-user isolation, the badge/stale/quick-win logic), but don't treat exhaustive coverage as required.
+
+Give me a categorized list ordered by severity, with file/line for each item, and for each: whether it's a real problem, a nice-to-have, or already tracked in tech-debt. Explicitly call out anything that should be fixed before deploy vs. anything that can wait. If the whole thing is genuinely in good shape, say so plainly rather than inventing issues to look thorough. Don't fix anything, don't commit.
+```
+
+## 15
+
+```
+Small cleanup batch from the pre-deploy review. Low-risk, verifiable. Read AGENTS.md, openapi.yaml, _docs/tech-debt.md, and the files named below before changing them.
+
+1. Add a React error boundary so a render-time crash shows a graceful fallback instead of a white screen. Wrap the app (around the routed content in App.tsx, or at whatever level catches the whole rendered tree) in an error boundary component that renders a simple, on-brand "Something went wrong" fallback with a way to reload/return to the dashboard. Match the app's existing visual style (reuse the EmptyState component if it fits). This is the only real code change in this batch.
+
+2. Delete two dead exports (grep to confirm zero references first, then remove):
+- getStoredTheme() in frontend/src/lib/theme.ts (never called; app-header reads the DOM class directly).
+- authApi.logout() in frontend/src/services/api/auth.ts (never called; the real logout path in auth.tsx duplicates the one-line clearToken()). Since auth.tsx duplicates it, prefer wiring auth.tsx to call authApi.logout() instead of deleting, if that's cleaner — your call, tell me which you did and why.
+
+3. Fix doc drift (docs only, no code):
+- AGENTS.md: the API layer is no longer an in-memory mock (services/api/mock.ts is gone); it's real HTTP via real.ts. Update that section to describe the actual current state.
+- openapi.yaml: the top-level description still says "the backend does not exist yet" — it exists and matches this contract. Fix that line.
+- _docs/tech-debt.md: remove the "Dashboard stale/quick-win surfacing" roadmap entry (shipped). Fix the Notes section's stale claim that the "no date" branches are "currently unreachable" (they were deleted); keep the underlying open product question (what to show when there's no date) but describe it accurately.
+
+4. Add tech-debt entries for the two deploy-time items the review surfaced, so they're tracked deferrals not surprises:
+- CORS origins are hardcoded to localhost in main.py; the deployed frontend origins (prod + staging) must be added there at deploy or all requests fail CORS.
+- Observability: spec §2 calls for Sentry error tracking; not built. The error boundary (this batch) covers graceful frontend failure, but Sentry/backend error tracking is deferred to the deploy phase — record it as a deliberate deferral.
+
+Do NOT touch: the register race condition, the void-consistency nits, the stats-row DRY item, or Link.url validation — those are for the later cleanup/security passes, not this batch.
+
+Verify: frontend lint 0/0, tsc, build, and the existing tests still pass. Manually confirm the error boundary actually catches a thrown render error and shows the fallback (you can temporarily throw in a component to test, then remove it). Report what you changed, and for the dead-export item which approach you took. Don't commit, I'll review.
+```

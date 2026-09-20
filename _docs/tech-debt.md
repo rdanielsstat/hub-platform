@@ -6,6 +6,8 @@ Known issues deferred for later, from the read-only code review and subsequent w
 
 - **Rate-limiting on signup/login** → open registration on a pay-per-use backend is an abuse surface. Not needed on localhost; add before the backend is publicly reachable.
 - **Account / project caps per user** → a simple cap while costs are unguarded, to avoid a single actor running up usage. Decide alongside rate-limiting.
+- **CORS origins are hardcoded to localhost** → `backend/app/main.py`'s `allow_origins` only lists `localhost:5173`/`127.0.0.1:5173`. Safe as a restrictive default, but the deployed frontend's origins (prod + staging) must be added there at deploy time or every request fails CORS.
+- **Observability (Sentry) not wired up** → spec §2 calls for error tracking (Sentry, React + FastAPI) as part of v1. A frontend error boundary now catches render crashes with a graceful fallback (see `components/error-boundary.tsx`), but nothing reports errors anywhere yet, frontend or backend. Deliberately deferred to the deploy phase, not an oversight.
 
 ## Portability tradeoffs (for the eventual Postgres/Neon swap)
 
@@ -25,7 +27,6 @@ Known issues deferred for later, from the read-only code review and subsequent w
 
 - **Attachments** — spec §3/§4.3 define an attachments table and project-detail UI; none exists yet. Deferred; not critical for v1. Needs an upload-mechanism decision (direct-to-S3 presigned vs proxied) before building.
 - **PWA installability** — spec calls for installable-as-PWA; no manifest or service worker yet.
-- **Dashboard "stale" and "quick-win" surfacing** — spec §4.2; sorting exists but there's no dedicated stale badge or quick-win callout distinct from the opportunity sort.
 - **Deploy** — Vercel (frontend) + Neon Postgres (backend). Triggers the Postgres swap above and the security items above.
 
 ## Open questions
@@ -34,4 +35,4 @@ Known issues deferred for later, from the read-only code review and subsequent w
 
 ## Notes
 
-- A minor deviation from the em-dash pass: the `'—'` "no date" placeholder in `lib/project-utils.ts` (and one spot in `project-detail.tsx`) was replaced with an empty string rather than punctuation. Both branches are currently unreachable. Decide later whether it should show something like "None" instead.
+- A minor deviation from the em-dash pass: the `'—'` "no date" placeholder was originally replaced with an empty string rather than punctuation. Both branches that produced it have since been deleted outright (the consistency cleanup removed `formatDate`'s null-`iso` case and the `due` fallback in `project-detail.tsx`); today a project with no target date just shows nothing there. The underlying product question is still open: decide whether it should show something like "None" instead of nothing.
