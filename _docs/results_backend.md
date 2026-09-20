@@ -383,3 +383,27 @@ formatDate no longer accepts null; its null-check return removed. In project-det
 Each item ran lint (0/0)/tsc/build individually as it landed; final suite clean. Full click-through via the extension: dashboard normal, no-matches, clear-filters recovery, danger-tone error + retry, two project-detail pages (with/without target date), not-found page — all confirmed. The true zero-projects "Nothing captured yet" variant wasn't exercised live (would require deleting all seed data); its logic is identical to the confirmed no-matches branch with different icon/copy/action, so relying on code review there.
 
 tech-debt.md: five resolved Consistency bullets removed (and the empty section header). Notes and Open-questions untouched. Servers/tab shut down. Nothing committed.
+
+## 12
+
+## Stale + quick-win badges
+
+Added isStale/isQuickWin helpers, a shared IndicatorBadge, and wired both badges into the project card. Added Vitest (repo had no frontend test setup) with 19 unit tests. Verified in-browser. Not committed.
+
+### Helper logic (lib/project-utils.ts)
+- isQuickWin(p): status ∈ {Inbox, Exploring, Active} && excitement >= 4 && effort <= 2
+- isStale(p, now = new Date()): status ∈ {Active, Exploring} and (now - updatedAt) >= 30 days. `now` injectable for deterministic tests.
+
+### Badges
+New IndicatorBadge (components/indicator-badge.tsx) mirrors StatusBadge's exact pill shape (rounded-full, dot + text, same padding/type scale) as one shared piece — a Quick win and Stale badge are the same shape with different colors, and duplicating StatusBadge's markup would recreate the pattern the last cleanup removed. Wired into project-card.tsx next to the status pill, wrapped in flex-wrap so it degrades if a card shows all three. Colors: quick win = lime (positive, distinct from Active's emerald and Parked's amber); stale = zinc/gray (deliberately muted, not rose/amber, per "gentle nudge, not alarming").
+
+### Tests
+Repo had no test framework, so stopped and asked — you chose Vitest. Added it as a devDependency, a pnpm test script, and lib/project-utils.test.ts with 19 cases: quick-win at/around the excitement-4/effort-2 thresholds, excluded for all three closed statuses; stale at/around the 30-day boundary, excluded for Inbox/Parked/Killed/Graduated; combined both/neither. All pass; lint, build, format:check clean.
+
+### Seed projects, actual result
+- Quick win: only "Read 24 books this year" (Active, excitement 4, effort 2 — exactly on threshold).
+- Stale: none — the only old seed projects are Parked/Killed/Graduated, correctly excluded. Verified live, then confirmed the stale badge renders by client-side-spoofing one response (non-destructive, restored after) to backdate "Train for a half-marathon" 40 days + drop effort to 2 → correctly showed Active + Quick win + Stale on one line, no overflow.
+- Confirmed Parked/Killed/Graduated never show stale even though three are 21–130 days old — correct per spec.
+
+### Didn't line up
+The verification note expected "Train for a half-marathon" and "Pivot into UX design" to look quick-win-ish; neither qualifies under the exact definition (both have effort 4-5). And no Active/Exploring seed project is naturally 30+ days stale. So with real seed data only one badge shows anywhere today (quick win on "Read 24 books this year"); everything else was verified by temporary fetch-spoofing. If you want the seed to actually exercise the stale case, that's a seed-data change (backdating an Active project's updatedAt) not made since it wasn't asked for.

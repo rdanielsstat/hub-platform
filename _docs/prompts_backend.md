@@ -272,3 +272,29 @@ After all five: run the full check suite once more, do a click-through of the af
 
 Report per-item what you changed, which rating widget you kept and why, and anything that didn't line up. Don't commit, I'll review.
 ```
+
+## 12
+
+```
+Add "stale" and "quick win" badges to project cards on the dashboard, per spec §4.2 (surface what's gone stale and high-excitement/low-effort picks). This is a new, small feature built on the now-clean card and component patterns. Read the dashboard (dashboard.tsx), the project card (components/project-card.tsx), the status badge (components/status-badge.tsx) for the existing badge pattern, and lib/project-utils.ts (which already has daysUntil / opportunityScore helpers) before building.
+
+Definitions (use exactly these):
+- Quick win: excitement >= 4 AND effort <= 2. Only for open statuses (Inbox, Exploring, Active) — a Killed/Graduated/Parked project isn't a "win to grab," so don't badge those.
+- Stale: not updated in 30+ days (updatedAt older than 30 days from now). Only for statuses where going cold is a problem: Active and Exploring. Do NOT mark Inbox, Parked, Killed, or Graduated as stale — Parked/Killed/Graduated are intentionally at rest, and a brand-new Inbox capture being old isn't the same signal. (Active/Exploring are the "supposed to be moving" states.)
+
+Build:
+- Add two small pure helper functions to lib/project-utils.ts: isStale(project) and isQuickWin(project), implementing exactly the definitions above. Keep them pure and unit-testable (take a project, return boolean; base "now" on Date so they're testable, or accept an optional now param).
+- Add badges to the project card, using the SAME visual badge pattern already used for status (status-badge.tsx) so they look native, not bolted on. A "Quick win" badge and a "Stale" badge. A project can have both, one, or neither. Keep them visually distinct from the status badge and from each other (e.g. quick win reads positive, stale reads as a gentle attention cue — not alarming, this is a nudge not an error). Don't overload the card; badges should be compact.
+- These are indicators only in this step — no new filter or sort. (Sorting already exists; this is the "surface it visibly" part of the spec, not a new control.)
+
+Testing:
+- Add unit tests for isStale and isQuickWin covering: quick win true/false around the excitement/effort thresholds; quick win NOT applied to closed statuses; stale true/false around the 30-day boundary; stale NOT applied to Inbox/Parked/Killed/Graduated; a project that is both; a project that is neither. Use a fixed/injected "now" so the 30-day boundary tests are deterministic. (These are frontend helpers — put them wherever the frontend's tests live; if there's no frontend test setup yet, tell me before adding one rather than pulling in a whole test framework unprompted.)
+
+Verification:
+- The seed data is designed to exercise this: "Train for a half-marathon" and "Pivot into UX design" should show quick-win-ish / active signals, and the deliberately-stale ones ("Dial in a sourdough starter" is Parked so should NOT be stale; check which Active/Exploring seed projects cross 30 days). Confirm in the browser that the right projects show the right badges and the wrong ones don't — especially that Parked/Killed/Graduated never show "stale."
+- Confirm a project with both badges renders cleanly and a project with neither looks normal.
+- If the Chrome extension is available, verify visually; if not, say what you couldn't check.
+- Keep lint 0/0, tsc and build clean.
+
+Report the helper logic, how the badges look, which seed projects ended up badged, and anything that didn't line up. Don't commit, I'll review.
+```

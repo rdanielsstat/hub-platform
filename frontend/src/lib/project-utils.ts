@@ -60,3 +60,21 @@ export function daysUntil(iso: string | null): number | null {
 export function opportunityScore(p: Project): number {
   return p.excitement + p.potential - p.effort
 }
+
+const QUICK_WIN_STATUSES: Status[] = ['Inbox', 'Exploring', 'Active']
+const STALE_STATUSES: Status[] = ['Active', 'Exploring']
+const STALE_THRESHOLD_DAYS = 30
+
+/** High-excitement, low-effort, and still an open idea worth grabbing. */
+export function isQuickWin(p: Project): boolean {
+  return (
+    QUICK_WIN_STATUSES.includes(p.status) && p.excitement >= 4 && p.effort <= 2
+  )
+}
+
+/** Hasn't moved in 30+ days, in a status where that's supposed to be rare. */
+export function isStale(p: Project, now: Date = new Date()): boolean {
+  if (!STALE_STATUSES.includes(p.status)) return false
+  const ageDays = (now.getTime() - new Date(p.updatedAt).getTime()) / 86400000
+  return ageDays >= STALE_THRESHOLD_DAYS
+}

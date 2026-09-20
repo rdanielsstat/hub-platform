@@ -1,10 +1,13 @@
 import { Link } from 'react-router-dom'
 import { ArrowUpRight, CalendarClock, Target, Zap } from 'lucide-react'
 import type { Project } from '@/services/api'
+import { IndicatorBadge } from '@/components/indicator-badge'
 import { StatusBadge } from '@/components/status-badge'
 import {
   daysUntil,
   formatRelative,
+  isQuickWin,
+  isStale,
   opportunityScore,
 } from '@/lib/project-utils'
 import { cn } from '@/lib/utils'
@@ -19,7 +22,23 @@ export function ProjectCard({ project }: { project: Project }) {
       className="group flex flex-col gap-3 rounded-xl border border-border bg-card p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md"
     >
       <div className="flex items-start justify-between gap-3">
-        <StatusBadge status={project.status} />
+        <div className="flex flex-wrap items-center gap-1.5">
+          <StatusBadge status={project.status} />
+          {isQuickWin(project) ? (
+            <IndicatorBadge
+              label="Quick win"
+              className="bg-lime-100 text-lime-700 dark:bg-lime-500/15 dark:text-lime-300"
+              dotClassName="bg-lime-500"
+            />
+          ) : null}
+          {isStale(project) ? (
+            <IndicatorBadge
+              label="Stale"
+              className="bg-zinc-100 text-zinc-600 dark:bg-zinc-500/15 dark:text-zinc-400"
+              dotClassName="bg-zinc-400"
+            />
+          ) : null}
+        </div>
         <ArrowUpRight className="size-4 shrink-0 text-muted-foreground/50 transition-colors group-hover:text-primary" />
       </div>
 
