@@ -66,7 +66,8 @@ def seed(store: Store) -> None:
         created_at=_days_ago(130),
     )
 
-    # 2. Exploring, notes spread over weeks.
+    # 2. Exploring, quick win + stale — high excitement/low effort, but
+    # hasn't been touched in over a month.
     p2 = store.create_project(
         owner_id=user.id,
         name="Etsy shop for my prints",
@@ -79,7 +80,7 @@ def seed(store: Store) -> None:
         status=Status.EXPLORING,
         tags=["creative", "side-hustle", "art"],
         excitement=4,
-        effort=3,
+        effort=2,
         potential=3,
         next_action="List the first three prints and see if anything sells in a month.",
         target_date=None,
@@ -87,26 +88,26 @@ def seed(store: Store) -> None:
             {"label": "Seller guide", "url": "https://www.etsy.com/seller-handbook"},
             {"label": None, "url": "https://www.pinterest.com"},
         ],
-        created_at=_days_ago(45),
-        updated_at=_days_ago(9),
+        created_at=_days_ago(70),
+        updated_at=_days_ago(40),
     )
     store.create_note(
         project_id=p2.id,
         body="Ordered sample prints to check quality",
-        created_at=_days_ago(30),
+        created_at=_days_ago(61),
     )
     store.create_note(
         project_id=p2.id,
         body="Shipping costs are brutal for large sizes, maybe stick to A4/A5",
-        created_at=_days_ago(18),
+        created_at=_days_ago(49),
     )
     store.create_note(
         project_id=p2.id,
         body="Name idea: 'Second Sun Studio'?",
-        created_at=_days_ago(9),
+        created_at=_days_ago(40),
     )
 
-    # 3. Active, recent — target date ~3 weeks out.
+    # 3. Active, stale — deadline still coming, but no progress in weeks.
     p3 = store.create_project(
         owner_id=user.id,
         name="Automate my budgeting spreadsheet",
@@ -123,18 +124,18 @@ def seed(store: Store) -> None:
         next_action="Figure out how to import the bank CSV and auto-categorize.",
         target_date=_days_from_now(21),
         links=[{"label": "Template", "url": "https://docs.google.com/spreadsheets"}],
-        created_at=_days_ago(14),
-        updated_at=_days_ago(2),
+        created_at=_days_ago(55),
+        updated_at=_days_ago(40),
     )
     store.create_note(
         project_id=p3.id,
         body="Categorize transactions automatically, look into bank CSV export",
-        created_at=_days_ago(10),
+        created_at=_days_ago(48),
     )
     store.create_note(
         project_id=p3.id,
         body="Manual entry is the thing I always give up on, fix that first",
-        created_at=_days_ago(2),
+        created_at=_days_ago(40),
     )
 
     # 4. Active, recent — target date ~10 weeks out.

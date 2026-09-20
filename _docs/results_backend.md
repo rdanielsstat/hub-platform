@@ -384,9 +384,7 @@ Each item ran lint (0/0)/tsc/build individually as it landed; final suite clean.
 
 tech-debt.md: five resolved Consistency bullets removed (and the empty section header). Notes and Open-questions untouched. Servers/tab shut down. Nothing committed.
 
-## 12
-
-## Stale + quick-win badges
+## 12 - Stale + quick-win badges
 
 Added isStale/isQuickWin helpers, a shared IndicatorBadge, and wired both badges into the project card. Added Vitest (repo had no frontend test setup) with 19 unit tests. Verified in-browser. Not committed.
 
@@ -407,3 +405,36 @@ Repo had no test framework, so stopped and asked — you chose Vitest. Added it 
 
 ### Didn't line up
 The verification note expected "Train for a half-marathon" and "Pivot into UX design" to look quick-win-ish; neither qualifies under the exact definition (both have effort 4-5). And no Active/Exploring seed project is naturally 30+ days stale. So with real seed data only one badge shows anywhere today (quick win on "Read 24 books this year"); everything else was verified by temporary fetch-spoofing. If you want the seed to actually exercise the stale case, that's a seed-data change (backdating an Active project's updatedAt) not made since it wasn't asked for.
+
+## 13 - Seed tweak: exercise both badges in the demo
+
+Seed-data only (backend/app/db/seed.py). No badge logic or frontend touched. 32 backend tests pass, seed syntax valid. Not committed.
+
+### Resulting badge map
+| Project | Status | Badges |
+|---|---|---|
+| Dial in a sourdough starter | Parked | none |
+| Etsy shop for my prints | Exploring | Quick win + Stale |
+| Automate my budgeting spreadsheet | Active | Stale |
+| Train for a half-marathon | Active | none |
+| Pivot into UX design | Exploring | none |
+| Build my portfolio site | Inbox | none |
+| Read 24 books this year | Active | Quick win (unchanged) |
+| Learn enough Spanish for the trip | Parked | none |
+| Start a podcast with the group chat | Killed | none |
+| Declutter and sell old furniture | Graduated | none |
+
+All six statuses still represented at the same counts (Inbox 1, Exploring 2, Active 3, Parked 2, Graduated 1, Killed 1).
+
+### What changed
+- Etsy shop for my prints (both-badges): effort 3 → 2 (excitement stays 4, clears quick-win), updatedAt 9d → 40d ago. Notes and createdAt pushed back proportionally (createdAt 45 → 70d; notes 30/18/9 → 61/49/40d) so every note still falls after creation and no later than the new updatedAt.
+- Automate my budgeting spreadsheet (stale-only): scores left alone (already fails quick-win), updatedAt 2d → 40d ago, createdAt 14 → 55d, notes 10/2 → 48/40d. Target date (~3 weeks out) left, giving a "deadline coming, no progress" story.
+- Comments above both blocks updated to match the new narrative. Nothing else touched.
+
+### Recreate the local DB
+```
+cd backend
+rm hub.db
+uv run uvicorn app.main:app --port 8000
+```
+(seeding only runs against an empty DB, so deleting hub.db is required — the server re-seeds on startup)

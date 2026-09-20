@@ -127,6 +127,7 @@ Keep lint at 0/0, tsc, build, and the backend tests all clean. Report what you b
 
 ## 7
 
+```
 Swap the backend's in-memory store for a real database: SQLite via SQLAlchemy, kept strictly database-agnostic so Postgres (Neon) can replace SQLite at deploy time without a rewrite, per the spec and AGENTS.md. Same API contract, same behavior, now durable across restarts. This step also replaces the demo seed data with a curated set and changes when seeding runs. Read AGENTS.md, backend/README.md, app/db/store.py, app/db/seed.py, and the existing models and routers first so the swap preserves current behavior exactly.
 
 STORAGE SWAP
@@ -180,9 +181,11 @@ VERIFICATION (both servers running)
 - If the Chrome extension is flaky, say what you couldn't verify visually rather than claiming it.
 
 Keep frontend lint/type checks clean if you touch the frontend (you likely won't), and keep the backend tests green. Report what you built, the session and table-creation approach, every portability tradeoff you made, and anything that didn't line up. Don't commit, I'll review.
+```
 
 ## 8
 
+```
 Harden the backend's auth/config for deployment readiness, Tier 1 only: move secrets and security-relevant settings into the existing config module and make unsafe defaults impossible to ship, while keeping local development frictionless. Do not add rate-limiting or account caps in this step (those are deferred to pre-deploy). Read app/core/config.py, app/auth/security.py, AGENTS.md, and backend/README.md first.
 
 Requirements:
@@ -203,6 +206,7 @@ Verification:
 - Confirm nothing security-relevant remains hardcoded in security.py.
 
 Do not touch the frontend. Keep backend tests green. Report what moved into config, how the prod guard works, the exact env vars and their defaults, and anything that didn't line up. Don't commit, I'll review.
+```
 
 ## 9
 
@@ -297,4 +301,18 @@ Verification:
 - Keep lint 0/0, tsc and build clean.
 
 Report the helper logic, how the badges look, which seed projects ended up badged, and anything that didn't line up. Don't commit, I'll review.
+```
+
+## 13
+
+```
+Seed-data only (backend/app/db/seed.py). Don't touch any badge logic or frontend code. Check frontend/src/lib/project-utils.ts for the exact isStale/isQuickWin rules first.
+
+Right now no seed project shows a stale badge and only one shows quick-win. Fix the demo to show both:
+- Make one Active or Exploring project stale: set updatedAt to ~40 days ago.
+- Make one Active or Exploring project show both badges: excitement >= 4, effort <= 2, and updatedAt ~40 days ago.
+- Leave "Read 24 books this year" as the quick-win-only example.
+- Keep all six statuses still represented; only change updatedAt/scores, and fix any note timestamps that end up newer than their backdated project.
+
+The seed only runs on an empty database, so give me the command to recreate the local DB (delete the sqlite file + restart) and I'll run it myself. Tell me the resulting badge map. Don't commit.
 ```
