@@ -1,3 +1,8 @@
+import pytest
+
+from app.db.store import DuplicateEmailError
+
+
 def test_register_returns_token(client):
     res = client.post(
         "/auth/register", json={"email": "new@example.com", "password": "password123"}
@@ -16,6 +21,19 @@ def test_register_duplicate_email_is_rejected(client):
         "/auth/register", json={"email": "dup@example.com", "password": "password123"}
     )
     assert res.status_code == 409
+
+
+def test_create_user_duplicate_email_raises_not_crashes(store):
+    """Covers the race get_user_by_email's pre-check can't: two
+    concurrent registrations both pass the check, so the second
+    create_user call is the one that has to reject the duplicate."""
+    store.create_user(email="race@example.com", password_hash="hash1")
+
+    with pytest.raises(DuplicateEmailError):
+        store.create_user(email="race@example.com", password_hash="hash2")
+
+    # the session must still be usable after the rollback
+    assert store.get_user_by_email("race@example.com") is not None
 
 
 def test_login_succeeds_with_correct_password(client):

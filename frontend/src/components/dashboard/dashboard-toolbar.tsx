@@ -66,6 +66,7 @@ export function DashboardToolbar({
                 key={tag}
                 type="button"
                 onClick={() => onTag(active ? null : tag)}
+                aria-pressed={active}
                 className={cn(
                   'rounded-md px-2 py-0.5 text-xs font-medium transition-colors',
                   active

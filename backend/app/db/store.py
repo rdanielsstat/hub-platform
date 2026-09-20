@@ -14,11 +14,21 @@ from datetime import date, datetime, timezone
 
 from fastapi import Depends
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.orm import AuthIdentityTable, NoteTable, ProjectTable, UserTable
 from app.db.session import get_db_session
 from app.models.project import Status
+
+
+class DuplicateEmailError(Exception):
+    """Raised by create_user when the email is already registered.
+
+    Covers the race a plain get_user_by_email pre-check can't: two
+    concurrent registrations for the same email can both pass that
+    check, but only one insert can win the table's unique constraint.
+    """
 
 
 def _utc(value: datetime) -> datetime:
@@ -128,18 +138,22 @@ class Store:
             created_at=now,
             updated_at=now,
         )
-        self._db.add(user)
-        self._db.flush()  # ensure the users row exists before the FK-dependent insert
-        identity = AuthIdentityTable(
-            id=str(uuid.uuid4()),
-            user_id=user.id,
-            provider="password",
-            provider_subject=email,
-            password_hash=password_hash,
-            created_at=now,
-        )
-        self._db.add(identity)
-        self._db.commit()
+        try:
+            self._db.add(user)
+            self._db.flush()  # ensure the users row exists before the FK-dependent insert
+            identity = AuthIdentityTable(
+                id=str(uuid.uuid4()),
+                user_id=user.id,
+                provider="password",
+                provider_subject=email,
+                password_hash=password_hash,
+                created_at=now,
+            )
+            self._db.add(identity)
+            self._db.commit()
+        except IntegrityError as exc:
+            self._db.rollback()
+            raise DuplicateEmailError(email) from exc
         return _user_record(user, identity)
 
     def get_user(self, user_id: str) -> UserRecord | None:

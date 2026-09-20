@@ -3,7 +3,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 
 from app.auth.dependencies import get_current_user
 from app.auth.security import create_access_token, hash_password, verify_password
-from app.db.store import Store, UserRecord, get_store
+from app.db.store import DuplicateEmailError, Store, UserRecord, get_store
 from app.models.user import RegisterInput, TokenResponse, User
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -19,11 +19,16 @@ def register(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Email already registered"
         )
-    user = store.create_user(
-        email=body.email,
-        password_hash=hash_password(body.password),
-        display_name=body.display_name,
-    )
+    try:
+        user = store.create_user(
+            email=body.email,
+            password_hash=hash_password(body.password),
+            display_name=body.display_name,
+        )
+    except DuplicateEmailError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Email already registered"
+        )
     return TokenResponse(access_token=create_access_token(user.id))
 
 
