@@ -1,10 +1,12 @@
 import os
 
 # Must happen before any `app.*` import: app.main creates tables and
-# seeds at import time against app.core.config.DATABASE_URL. Forcing this
-# to an in-memory database here (rather than e.g. setdefault) guarantees
-# the test suite can never touch a real DATABASE_URL some developer
-# happens to have set in their shell, let alone the dev hub.db file.
+# seeds at import time, reading the database URL via
+# app.core.config.get_database_url() (env var, since USE_SSM is unset
+# in tests). Forcing this to an in-memory database here (rather than
+# e.g. setdefault) guarantees the test suite can never touch a real
+# DATABASE_URL some developer happens to have set in their shell, let
+# alone the dev hub.db file.
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 
 from collections.abc import Iterator  # noqa: E402

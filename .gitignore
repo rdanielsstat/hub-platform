@@ -18,4 +18,14 @@ __v0_jsx-dev-runtime.ts
 .DS_Store
 .vscode/
 
-archive
+# OpenTofu / Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+
+# local secrets
+*.env
+.env

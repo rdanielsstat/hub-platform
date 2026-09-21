@@ -1,0 +1,11 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored.
+
+# Cloudflare zone ID for dnls.dev — find it on the domain's Overview page
+# in Cloudflare (right sidebar, "Zone ID").
+cloudflare_zone_id = "PUT_YOUR_ZONE_ID_HERE"
+
+# Optional overrides (defaults shown):
+# aws_region    = "us-east-1"
+# environment   = "prod"
+# domain_name   = "dnls.dev"
+# api_subdomain = "api.dnls.dev"
