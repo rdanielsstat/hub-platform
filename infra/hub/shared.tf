@@ -14,4 +14,6 @@ locals {
   private_subnet_ids       = data.terraform_remote_state.shared.outputs.private_subnet_ids
   lambda_security_group_id = data.terraform_remote_state.shared.outputs.lambda_security_group_id
   aurora_cluster_endpoint  = data.terraform_remote_state.shared.outputs.aurora_cluster_endpoint
+  aurora_master_param_arn  = data.terraform_remote_state.shared.outputs.aurora_master_param_arn
+  aurora_master_param_name = data.terraform_remote_state.shared.outputs.aurora_master_param_name
 }

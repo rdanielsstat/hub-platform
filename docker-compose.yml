@@ -1,0 +1,66 @@
+# Prod-parity local stack: runs the backend against real Postgres
+# instead of the SQLite default. This is the Postgres path; a plain
+# `uv run uvicorn app.main:app --reload` (no Docker) stays SQLite and
+# needs none of this.
+#
+# Sequence: postgres starts -> bootstrap connects as the local
+# superuser and creates the per-env database + a least-privilege login
+# role (see backend/app/bootstrap_db.py) -> app starts and connects as
+# that limited role, same as it would against real Aurora in prod.
+#
+# The `postgres` superuser credentials below are Compose-local dev
+# defaults, not used anywhere outside this file.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  bootstrap:
+    build:
+      context: ./backend
+      target: dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ENVIRONMENT: local
+      DATABASE_URL: postgresql+psycopg://hub_dev_user:hub_dev_password@postgres:5432/hub_dev
+      MASTER_DB_HOST: postgres
+      MASTER_DB_PORT: "5432"
+      MASTER_DB_USER: postgres
+      MASTER_DB_PASSWORD: postgres
+    command: ["python", "-m", "app.bootstrap_db"]
+
+  app:
+    build:
+      context: ./backend
+      target: dev
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    environment:
+      ENVIRONMENT: local
+      DATABASE_URL: postgresql+psycopg://hub_dev_user:hub_dev_password@postgres:5432/hub_dev
+      # HUB_JWT_SECRET intentionally left unset: ENVIRONMENT=local means
+      # app/core/config.py falls back to the dev-only default and just
+      # warns, same as a bare `uv run` with no .env.
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/app:/app/app
+
+volumes:
+  postgres_data:

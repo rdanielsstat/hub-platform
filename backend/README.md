@@ -42,6 +42,8 @@ of it.
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | No. |
 | `DB_PARAM_NAME` | — | Only used when `USE_SSM` is on: the SSM parameter name holding the DB credentials JSON. |
 | `JWT_PARAM_NAME` | — | Only used when `USE_SSM` is on: the SSM parameter name holding the raw JWT secret. |
+| `MASTER_DB_HOST` / `MASTER_DB_PORT` / `MASTER_DB_USER` / `MASTER_DB_PASSWORD` | — | Only used by the bootstrap command (below), only when `USE_SSM` is off. Never read by the app itself. |
+| `MASTER_DB_PARAM_NAME` | — | Only used by the bootstrap command, only when `USE_SSM` is on: the SSM parameter name holding master/superuser credentials JSON. Never read by the app itself. |
 
 ### JWT secret guard
 
@@ -99,6 +101,53 @@ don't exist (`app/db/session.py`'s `create_tables()`) — there's no
 Alembic yet, which is fine while the schema is still moving pre-launch.
 Once it stabilizes, that should become real Alembic migrations so future
 schema changes are tracked and reversible instead of implicit.
+
+## Postgres and the database bootstrap
+
+Two ways to run this app locally:
+
+- **Plain `uv run`, no Docker**: stays on the SQLite default above. Zero
+  setup, zero AWS.
+- **Docker Compose, prod-parity**: runs the full stack against real
+  Postgres. `docker compose up --build` from the repo root starts, in
+  order: a `postgres` service (Postgres 16, matching the deployed
+  Aurora major version), a `bootstrap` service that creates this
+  environment's database and a least-privilege login role, then the
+  `app` service, which connects as that limited role. Compose sets all
+  the env vars below for you.
+
+In both AWS deployment and Compose, the app itself connects as a
+per-environment, least-privilege Postgres role (e.g. `hub_dev_user`),
+never as a superuser. Something has to create that role and its
+database first: `app/bootstrap_db.py`, run standalone via
+`python -m app.bootstrap_db`. It:
+
+1. Connects with **master/superuser** credentials, resolved separately
+   from the app's own: from `MASTER_DB_PARAM_NAME` over SSM when
+   `USE_SSM` is on, otherwise from `MASTER_DB_HOST`/`PORT`/`USER`/
+   `PASSWORD` env vars. The deploy pipeline calls this with the shared
+   Aurora cluster's master credentials (`/dnls-shared/aurora-master` in
+   SSM); Compose calls it with the local Postgres image's `postgres`
+   superuser.
+2. Creates the per-environment database and a `LOGIN` role — with
+   `NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION` — using the
+   *same* name and password the app itself will connect with (parsed
+   from `DATABASE_URL`/`DB_PARAM_NAME`, the app's normal credential
+   source). Skips creation if the role/database already exists; never
+   updates an existing role's password.
+3. Grants that role exactly `CONNECT` on the database plus `USAGE,
+   CREATE` on the `public` schema — enough for `create_tables()` and
+   normal CRUD (the role owns whatever tables it creates, so it already
+   has full DML on its own data). Nothing broader: no superuser, no
+   `CREATEDB`/`CREATEROLE`, no ownership of the database itself. GRANTs
+   always re-run (idempotent on the Postgres side), so re-running this
+   command is always safe — the deploy pipeline calls it on every
+   deploy.
+
+The app's own runtime (`app/main.py`, `app/db/session.py`) never reads
+the `MASTER_DB_*`/`MASTER_DB_PARAM_NAME` vars and never holds master
+credentials; only `app/bootstrap_db.py` does, and only for the duration
+of that one command.
 
 ## Seeded demo account
 

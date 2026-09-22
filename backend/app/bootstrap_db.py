@@ -1,0 +1,231 @@
+"""One-time-per-deploy database bootstrap.
+
+Run standalone, separate from normal app startup: `python -m
+app.bootstrap_db`. Creates this environment's Postgres database and a
+least-privilege login role for the app to connect as, then grants that
+role exactly what app/db/session.py's create_tables() and normal CRUD
+need (CONNECT on the database, USAGE + CREATE on the public schema).
+Nothing here runs at app import time or from app/main.py; the running
+app never sees master credentials.
+
+Fully idempotent: safe to run on every deploy. An existing role/database
+is left as-is (not recreated, not have its password changed); the GRANT
+statements always re-run, since GRANT is itself a no-op when the
+privilege is already held.
+
+Two credential sources, kept deliberately separate:
+  - MASTER credentials: superuser (or otherwise privileged) credentials
+    used only here to create the database/role and grant privileges.
+    From MASTER_DB_PARAM_NAME over SSM when USE_SSM is on, otherwise
+    from MASTER_DB_HOST/PORT/USER/PASSWORD env vars.
+  - APP credentials: the exact per-environment values
+    app/core/config.py's get_database_url() already resolves for the
+    app's own DATABASE_URL (DB_PARAM_NAME over SSM, or DATABASE_URL
+    locally) — so the role created here has the same name and password
+    the app will actually connect with.
+"""
+
+import json
+import os
+import re
+import sys
+
+import psycopg
+from psycopg import errors as pg_errors
+from sqlalchemy.engine import make_url
+
+from app.core import config
+
+ADMIN_DATABASE = "postgres"
+
+_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
+
+def _quote_identifier(name: str) -> str:
+    """A dynamic Postgres identifier (role/database name) can't be a
+    bind parameter — only literal values can. Validate against a strict
+    charset first, then quote, rather than interpolating an unchecked
+    string into SQL."""
+    if not _IDENTIFIER_RE.fullmatch(name):
+        raise ValueError(f"Unsafe Postgres identifier: {name!r}")
+    return f'"{name}"'
+
+
+def _quote_literal(value: str) -> str:
+    """CREATE ROLE ... PASSWORD takes a plain string literal in its
+    grammar (an Sconst), not a bind parameter — `PASSWORD $1` is a
+    syntax error, so this can't go through execute()'s params like the
+    SELECT checks below do. Standard SQL string-literal escaping
+    (doubling embedded quotes) is safe here with
+    standard_conforming_strings on, which every supported Postgres
+    version defaults to."""
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _connect(**kwargs: object) -> psycopg.Connection:
+    """Thin wrapper so tests can substitute a fake connection without
+    touching a real socket."""
+    return psycopg.connect(**kwargs)  # type: ignore[arg-type]
+
+
+def get_master_credentials() -> dict[str, object]:
+    """Superuser credentials, resolved separately from the app's own
+    DATABASE_URL/DB_PARAM_NAME. Never cached at module scope (this runs
+    once per process invocation, not per-request)."""
+    if config.USE_SSM:
+        param_name = os.environ["MASTER_DB_PARAM_NAME"]
+        creds = json.loads(config._fetch_ssm_parameter(param_name))
+        return {
+            "host": creds["host"],
+            "port": int(creds["port"]),
+            "user": creds["username"],
+            "password": creds["password"],
+        }
+    return {
+        "host": os.environ["MASTER_DB_HOST"],
+        "port": int(os.environ.get("MASTER_DB_PORT", "5432")),
+        "user": os.environ["MASTER_DB_USER"],
+        "password": os.environ["MASTER_DB_PASSWORD"],
+    }
+
+
+def get_app_target() -> dict[str, str]:
+    """The role/database this environment's app will connect as —
+    parsed from the exact URL app/core/config.py's get_database_url()
+    already builds, so nothing here can drift from what the app uses."""
+    url = make_url(config.get_database_url())
+    if url.get_backend_name() != "postgresql":
+        raise RuntimeError(
+            f"DATABASE_URL resolves to a {url.get_backend_name()!r} URL, not "
+            "Postgres. Bootstrap only applies to the Postgres deployment "
+            "path; there's nothing to bootstrap for the local SQLite "
+            "default."
+        )
+    if not url.username or not url.database:
+        raise RuntimeError(
+            "DATABASE_URL is missing a username or database name; can't "
+            "determine what role/database to bootstrap."
+        )
+    return {
+        "role": url.username,
+        "password": url.password or "",
+        "dbname": url.database,
+    }
+
+
+def _role_exists(cur: psycopg.Cursor, role: str) -> bool:
+    cur.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (role,))
+    return cur.fetchone() is not None
+
+
+def _database_exists(cur: psycopg.Cursor, dbname: str) -> bool:
+    cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (dbname,))
+    return cur.fetchone() is not None
+
+
+def _ensure_role(cur: psycopg.Cursor, role: str, password: str) -> None:
+    if _role_exists(cur, role):
+        print(f"Role {role!r} already exists, skipping.")
+        return
+    try:
+        cur.execute(
+            f"CREATE ROLE {_quote_identifier(role)} WITH LOGIN "
+            f"PASSWORD {_quote_literal(password)} "
+            "NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION"
+        )
+        print(f"Created role {role!r}.")
+    except pg_errors.DuplicateObject:
+        print(f"Role {role!r} was created concurrently, skipping.")
+
+
+def _ensure_database(cur: psycopg.Cursor, dbname: str) -> None:
+    if _database_exists(cur, dbname):
+        print(f"Database {dbname!r} already exists, skipping.")
+        return
+    try:
+        cur.execute(f"CREATE DATABASE {_quote_identifier(dbname)}")
+        print(f"Created database {dbname!r}.")
+    except pg_errors.DuplicateDatabase:
+        print(f"Database {dbname!r} was created concurrently, skipping.")
+
+
+def _grant_privileges(cur: psycopg.Cursor, dbname: str, role: str) -> None:
+    """Least-privilege grant: CONNECT on the database, plus USAGE +
+    CREATE on the public schema, which is exactly what create_tables()
+    (CREATE TABLE/INDEX) and normal CRUD after that need. No superuser,
+    no CREATEDB/CREATEROLE, no ownership of the database itself. GRANT
+    is idempotent (a no-op if already held), so this always runs."""
+    cur.execute(
+        f"GRANT CONNECT ON DATABASE {_quote_identifier(dbname)} "
+        f"TO {_quote_identifier(role)}"
+    )
+    cur.execute(f"GRANT USAGE, CREATE ON SCHEMA public TO {_quote_identifier(role)}")
+    print(
+        f"Granted CONNECT on {dbname!r} and USAGE, CREATE on schema public "
+        f"to {role!r}."
+    )
+
+
+def bootstrap() -> None:
+    master = get_master_credentials()
+    target = get_app_target()
+
+    admin_conn = _connect(
+        host=master["host"],
+        port=master["port"],
+        user=master["user"],
+        password=master["password"],
+        dbname=ADMIN_DATABASE,
+        autocommit=True,
+    )
+    try:
+        with admin_conn.cursor() as cur:
+            _ensure_role(cur, target["role"], target["password"])
+            _ensure_database(cur, target["dbname"])
+    finally:
+        admin_conn.close()
+
+    # GRANTs on the target database's schema need a connection to that
+    # database, not the admin one.
+    target_conn = _connect(
+        host=master["host"],
+        port=master["port"],
+        user=master["user"],
+        password=master["password"],
+        dbname=target["dbname"],
+        autocommit=True,
+    )
+    try:
+        with target_conn.cursor() as cur:
+            _grant_privileges(cur, target["dbname"], target["role"])
+    finally:
+        target_conn.close()
+
+
+def lambda_handler(event: object, context: object) -> dict[str, str]:
+    """AWS Lambda entry point, invoked once per deploy via a container
+    image with command `app.bootstrap_db.lambda_handler` — the deploy
+    pipeline's equivalent of running the CLI below. Reads the exact same
+    env vars (MASTER_DB_PARAM_NAME, DB_PARAM_NAME, USE_SSM) as the CLI,
+    since it calls the same bootstrap() function.
+
+    Unlike main() below, this does not catch exceptions: a failed
+    bootstrap must propagate and show up as a failed Lambda invocation,
+    not a quietly-successful one. `event`/`context` are unused — this
+    isn't triggered by any particular event shape, just invoked.
+    """
+    bootstrap()
+    return {"status": "ok", "message": "Bootstrap complete."}
+
+
+def main() -> None:
+    try:
+        bootstrap()
+    except Exception as exc:
+        print(f"Bootstrap failed: {exc!r}", file=sys.stderr)
+        raise SystemExit(1)
+    print("Bootstrap complete.")
+
+
+if __name__ == "__main__":
+    main()

@@ -24,3 +24,7 @@ output "aurora_cluster_id" {
 output "aurora_master_param_arn" {
   value = aws_ssm_parameter.db_master.arn
 }
+
+output "aurora_master_param_name" {
+  value = aws_ssm_parameter.db_master.name
+}
