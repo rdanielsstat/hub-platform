@@ -4,10 +4,13 @@ info:
   description: >
     API contract for the Hub backend (FastAPI). Derived from the frontend's
     API client (frontend/src/services/api/) and the data model in
-    _docs/specs.md. The backend implements this contract; attachments
-    remain provisional (see the paths below), everything else is live.
+    _docs/specs.md. The backend implements this contract;
+    backend/tests/test_openapi_contract.py fails if the paths and methods
+    here and in the FastAPI app drift apart.
   version: 0.1.0
 servers:
+  - url: https://hub.dnls.dev/api
+    description: Production (CloudFront forwards /api/* to the API)
   - url: http://localhost:8000
     description: Local development
 
@@ -15,12 +18,31 @@ tags:
   - name: auth
   - name: projects
   - name: notes
-  - name: attachments
+  - name: health
 
 security:
   - bearerAuth: []
 
 paths:
+  /health:
+    get:
+      tags: [health]
+      summary: Liveness check
+      description: Unauthenticated. Does not touch the database.
+      security: []
+      responses:
+        '200':
+          description: The API is up
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+
   /auth/register:
     post:
       tags: [auth]
@@ -134,7 +156,7 @@ paths:
         '422':
           $ref: '#/components/responses/ValidationError'
 
-  /projects/{projectId}:
+  /projects/{project_id}:
     parameters:
       - $ref: '#/components/parameters/ProjectId'
     get:
@@ -180,7 +202,7 @@ paths:
     delete:
       tags: [projects]
       summary: Delete a project
-      description: Also deletes the project's notes and attachments (cascade).
+      description: Also deletes the project's notes (cascade).
       responses:
         '204':
           description: Project deleted
@@ -189,7 +211,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /projects/{projectId}/notes:
+  /projects/{project_id}/notes:
     parameters:
       - $ref: '#/components/parameters/ProjectId'
     get:
@@ -235,7 +257,7 @@ paths:
         '422':
           $ref: '#/components/responses/ValidationError'
 
-  /notes/{noteId}:
+  /notes/{note_id}:
     parameters:
       - $ref: '#/components/parameters/NoteId'
     delete:
@@ -257,73 +279,6 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /projects/{projectId}/attachments:
-    parameters:
-      - $ref: '#/components/parameters/ProjectId'
-    get:
-      tags: [attachments]
-      summary: List a project's attachments
-      description: >
-        PROVISIONAL. The frontend does not call this yet (no attachments UI
-        exists). Shape follows the spec's `attachments` table; not confirmed
-        against any real caller. See openapi.yaml walkthrough for open
-        questions (upload mechanism).
-      responses:
-        '200':
-          description: The project's attachments
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Attachment'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-    post:
-      tags: [attachments]
-      summary: Add an attachment to a project
-      description: >
-        PROVISIONAL and UNDECIDED. Modeled here as a JSON body referencing an
-        already-uploaded file (e.g. after a direct-to-S3 presigned PUT), but
-        a proxied multipart upload is equally plausible and not yet decided.
-        Do not implement against this until confirmed.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateAttachmentInput'
-      responses:
-        '201':
-          description: Attachment created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Attachment'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-
-  /attachments/{attachmentId}:
-    parameters:
-      - $ref: '#/components/parameters/AttachmentId'
-    delete:
-      tags: [attachments]
-      summary: Delete an attachment
-      description: PROVISIONAL, see POST /projects/{projectId}/attachments.
-      responses:
-        '204':
-          description: Attachment deleted
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
 components:
   securitySchemes:
     bearerAuth:
@@ -333,21 +288,14 @@ components:
 
   parameters:
     ProjectId:
-      name: projectId
+      name: project_id
       in: path
       required: true
       schema:
         type: string
         format: uuid
     NoteId:
-      name: noteId
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
-    AttachmentId:
-      name: attachmentId
+      name: note_id
       in: path
       required: true
       schema:
@@ -636,36 +584,6 @@ components:
           $ref: '#/components/schemas/Note'
         project:
           $ref: '#/components/schemas/Project'
-
-    Attachment:
-      type: object
-      description: PROVISIONAL, see paths using it.
-      required: [id, projectId, filePath, caption, createdAt]
-      properties:
-        id:
-          type: string
-          format: uuid
-        projectId:
-          type: string
-          format: uuid
-        filePath:
-          type: string
-          description: Storage key/URL.
-        caption:
-          type: string
-        createdAt:
-          type: string
-          format: date-time
-
-    CreateAttachmentInput:
-      type: object
-      description: PROVISIONAL, see paths using it.
-      required: [filePath]
-      properties:
-        filePath:
-          type: string
-        caption:
-          type: string
 
     HTTPError:
       type: object

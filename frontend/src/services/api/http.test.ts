@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockToken = vi.hoisted(() => ({ getToken: vi.fn() }))
 vi.mock('./token', () => mockToken)
@@ -157,5 +157,43 @@ describe('response handling', () => {
     )
 
     await expect(httpRequest('/projects/p1')).resolves.toEqual({ id: 'p1' })
+  })
+})
+
+describe('request URL', () => {
+  async function requestedUrl(path: string): Promise<string> {
+    vi.resetModules()
+    const { httpRequest: freshHttpRequest } = await import('./http')
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(jsonResponse(200, { ok: true }))
+
+    await freshHttpRequest(path)
+
+    return String(fetchSpy.mock.lastCall?.[0])
+  }
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('prefixes paths with /api by default (same-origin behind CloudFront)', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', undefined)
+
+    expect(await requestedUrl('/projects')).toBe('/api/projects')
+    expect(await requestedUrl('/projects/abc/notes')).toBe(
+      '/api/projects/abc/notes',
+    )
+  })
+
+  it('prefixes paths with VITE_API_BASE_URL when set (local uvicorn)', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:8000')
+
+    expect(await requestedUrl('/projects')).toBe(
+      'http://localhost:8000/projects',
+    )
+    expect(await requestedUrl('/auth/login')).toBe(
+      'http://localhost:8000/auth/login',
+    )
   })
 })
