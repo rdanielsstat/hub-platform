@@ -51,6 +51,7 @@ FastAPI app in `backend/`, Python dependencies managed with `uv`.
 
 ```
 uv sync                              # install, from inside backend/
+SEED_DEMO_DATA=true uv run python -m app.db.init_local  # tables + demo data, once
 uv run uvicorn app.main:app --reload # start the dev server (http://localhost:8000)
 uv run pytest                        # run the test suite
 ```
@@ -65,9 +66,10 @@ uv run pytest                        # run the test suite
   variables with dev-safe defaults. Its `require_safe_jwt_secret()` runs at
   startup (`app/main.py`) and refuses to start outside a local `ENVIRONMENT`
   if `HUB_JWT_SECRET` is unset or still the built-in dev default.
-- The database seeds one demo account (with sample projects/notes) the first
-  time it's ever empty; an existing database is never re-seeded or
-  overwritten (`app/db/seed.py`).
+- Importing the app does no database work. Locally, `uv run python -m
+  app.db.init_local` creates tables and, with `SEED_DEMO_DATA=true`,
+  seeds one demo account into an empty database (never re-seeds). It
+  refuses to run with `USE_SSM` on (`app/db/init_local.py`).
 
 See `backend/README.md` for the full setup, config table, and details.
 

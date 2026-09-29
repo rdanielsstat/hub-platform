@@ -1,6 +1,7 @@
 """Seed data so the API has something to log in to and look at.
 
-Runs once at startup (see app/main.py), and only when the database has
+Runs only from the local init step (app/db/init_local.py), only with
+SEED_DEMO_DATA on, never with USE_SSM on, and only when the database has
 no users yet: a fresh database gets the demo account and these ten
 projects; an existing database is never re-seeded, duplicated, or
 overwritten on restart.

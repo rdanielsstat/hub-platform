@@ -8,12 +8,13 @@ need zero env vars and no AWS access at all: USE_SSM is off by default,
 so DATABASE_URL and HUB_JWT_SECRET are read straight from the
 environment, exactly as before. With USE_SSM on (the AWS/Lambda
 deployments), get_database_url() and get_jwt_secret() instead fetch
-their values from SSM, lazily and cached after the first successful
-read, so a transient SSM/DB outage at Lambda cold start (see
-app/main.py's startup try/except) never turns into an import-time
-crash. Anywhere USE_SSM is on, or ENVIRONMENT isn't local/dev,
-app/main.py calls `require_safe_jwt_secret()` against the resolved
-secret and refuses to run on a missing or default value.
+their values from SSM, cached after the first successful read. The
+JWT secret is resolved at import (app/main.py) and any failure there
+is fatal: a Lambda that can't load its signing key must not start.
+The database URL stays lazy; nothing touches the database at import.
+Anywhere USE_SSM is on, or ENVIRONMENT isn't local/dev, app/main.py
+calls `require_safe_jwt_secret()` against the resolved secret and
+refuses to run on a missing or default value.
 """
 
 import os
@@ -21,11 +22,39 @@ from typing import Any
 
 ENVIRONMENT = os.environ.get("ENVIRONMENT", "local")
 
+
+def env_flag(name: str) -> bool:
+    """A boolean env var: 1/true/yes (any case, surrounding whitespace
+    ignored) is on; anything else, including unset, is off."""
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes"}
+
+
 # On: DATABASE_URL and the JWT secret come from AWS SSM Parameter Store
 # (DB_URL_PARAM_NAME / JWT_PARAM_NAME, both SecureString) instead of plain
 # env vars. Off by default so local dev and Docker Compose never need
 # AWS credentials or network access.
-USE_SSM = os.environ.get("USE_SSM", "").strip().lower() in {"1", "true", "yes"}
+USE_SSM = env_flag("USE_SSM")
+
+# On: `python -m app.db.init_local` seeds the demo account (with its
+# hardcoded, publicly-known password; see app/db/seed.py) into an empty
+# database. Local only: require_safe_seed_setting() refuses to start
+# with this on while USE_SSM is on, so demo credentials can never reach
+# a deployed database.
+SEED_DEMO_DATA = env_flag("SEED_DEMO_DATA")
+
+_DEFAULT_CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
+
+
+def parse_cors_origins(raw: str | None) -> list[str]:
+    """Comma-separated origins, whitespace around each entry ignored.
+    Unset or empty falls back to the local Vite dev server. In AWS,
+    CloudFront serves the frontend and API from one origin, so CORS
+    only matters for local development."""
+    origins = [entry.strip() for entry in (raw or "").split(",") if entry.strip()]
+    return origins or list(_DEFAULT_CORS_ORIGINS)
+
+
+CORS_ORIGINS = parse_cors_origins(os.environ.get("CORS_ORIGINS"))
 
 # Only a fallback for local dev — never a real secret. See
 # require_safe_jwt_secret() below: with USE_SSM on, or anywhere
@@ -148,4 +177,19 @@ def require_safe_jwt_secret(
             f"ENVIRONMENT={environment!r} (USE_SSM={use_ssm}) is not a bare "
             "local run. Refusing to start. Set HUB_JWT_SECRET (or the SSM "
             "parameter named by JWT_PARAM_NAME) to a strong, unique secret."
+        )
+
+
+def require_safe_seed_setting(
+    seed_demo_data: bool = SEED_DEMO_DATA,
+    use_ssm: bool = USE_SSM,
+) -> None:
+    """Refuse to run with SEED_DEMO_DATA on anywhere USE_SSM is on: the
+    demo account's password is hardcoded in the repo. Pure function,
+    like require_safe_jwt_secret()."""
+    if seed_demo_data and use_ssm:
+        raise RuntimeError(
+            "SEED_DEMO_DATA is on while USE_SSM is on. Demo data (with its "
+            "publicly-known password) is for local development only. "
+            "Refusing to start."
         )

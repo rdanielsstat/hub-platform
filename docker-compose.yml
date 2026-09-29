@@ -5,8 +5,10 @@
 #
 # Sequence: postgres starts -> bootstrap connects as the local
 # superuser and creates the per-env database + a least-privilege login
-# role (see backend/app/bootstrap_db.py) -> app starts and connects as
-# that limited role, same as it would against real Aurora in prod.
+# role (see backend/app/bootstrap_db.py) -> init_local creates tables
+# and seeds the demo account (see backend/app/db/init_local.py) -> app
+# starts and connects as that limited role. The app itself does no
+# database work at import.
 #
 # The `postgres` superuser credentials below are Compose-local dev
 # defaults, not used anywhere outside this file.
@@ -44,12 +46,25 @@ services:
       MASTER_DB_PASSWORD: postgres
     command: ["python", "-m", "app.bootstrap_db"]
 
-  app:
+  init_local:
     build:
       context: ./backend
       target: dev
     depends_on:
       bootstrap:
+        condition: service_completed_successfully
+    environment:
+      ENVIRONMENT: local
+      DATABASE_URL: postgresql+psycopg://hub_dev_user:hub_dev_password@postgres:5432/hub_dev
+      SEED_DEMO_DATA: "true"
+    command: ["python", "-m", "app.db.init_local"]
+
+  app:
+    build:
+      context: ./backend
+      target: dev
+    depends_on:
+      init_local:
         condition: service_completed_successfully
     environment:
       ENVIRONMENT: local

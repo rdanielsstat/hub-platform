@@ -15,8 +15,14 @@ uv sync
 ## Run the dev server
 
 ```
+SEED_DEMO_DATA=true uv run python -m app.db.init_local   # once: tables + demo account
 uv run uvicorn app.main:app --reload
 ```
+
+Importing the app does no database work: tables and the demo account
+come from `app/db/init_local.py`, a separate idempotent step (safe to
+re-run; it only creates what's missing and never re-seeds). It refuses
+to run with `USE_SSM` on. Docker Compose runs it for you.
 
 Then visit:
 
@@ -24,7 +30,7 @@ Then visit:
 - `http://localhost:8000/docs` (auto-generated OpenAPI docs, includes a
   working "Authorize" button for the bearer token)
 
-CORS is currently open to the Vite dev server at `http://localhost:5173`.
+CORS allows `CORS_ORIGINS` (default: the Vite dev server at `http://localhost:5173` and `http://127.0.0.1:5173`).
 
 ## Config
 
@@ -40,6 +46,8 @@ of it.
 | `DATABASE_URL` | `sqlite:///./hub.db` | No if `USE_SSM` is off, but you'll want a real database URL outside dev. Ignored if `USE_SSM` is on. |
 | `HUB_JWT_SECRET` | a known dev-only string | **Yes, if `USE_SSM` is off.** See below. Ignored if `USE_SSM` is on. |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | No. |
+| `SEED_DEMO_DATA` | off | No. Local only: lets `python -m app.db.init_local` seed the demo account. Must be off with `USE_SSM` on; the app refuses to start otherwise. |
+| `CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | No. Comma-separated. Only matters locally; CloudFront makes the deployed site same-origin. |
 | `DB_PARAM_NAME` | — | Only used when `USE_SSM` is on: the SSM parameter name holding the DB credentials JSON. |
 | `JWT_PARAM_NAME` | — | Only used when `USE_SSM` is on: the SSM parameter name holding the raw JWT secret. |
 | `MASTER_DB_HOST` / `MASTER_DB_PORT` / `MASTER_DB_USER` / `MASTER_DB_PASSWORD` | — | Only used by the bootstrap command (below), only when `USE_SSM` is off. Never read by the app itself. |
@@ -151,9 +159,11 @@ of that one command.
 
 ## Seeded demo account
 
-The database seeds one user with ten varied projects (and notes) the
-first time it's ever empty — a fresh database gets this; an existing one
-is never re-seeded, duplicated, or overwritten on restart:
+With `SEED_DEMO_DATA=true`, `python -m app.db.init_local` seeds one
+user with ten varied projects (and notes) into a database with no users
+yet; an existing one is never re-seeded, duplicated, or overwritten.
+Local only: with `USE_SSM` on, init_local refuses to run and the app
+refuses to start if `SEED_DEMO_DATA` is on.
 
 - email: `demo@hub.dev`
 - password: `demo1234`

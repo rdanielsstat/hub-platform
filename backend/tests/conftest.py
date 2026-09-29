@@ -1,9 +1,9 @@
 import os
 
-# Must happen before any `app.*` import: app.main creates tables and
-# seeds at import time, reading the database URL via
+# Must happen before any `app.*` import. app.main does no database work
+# at import, but anything that later calls
 # app.core.config.get_database_url() (env var, since USE_SSM is unset
-# in tests). Forcing this to an in-memory database here (rather than
+# in tests) resolves and caches it once per process. Forcing this to an in-memory database here (rather than
 # e.g. setdefault) guarantees the test suite can never touch a real
 # DATABASE_URL some developer happens to have set in their shell, let
 # alone the dev hub.db file.
@@ -28,7 +28,7 @@ TEST_PASSWORD = "password123"
 @pytest.fixture()
 def store() -> Iterator[Store]:
     """A fresh, isolated in-memory SQLite database per test — distinct
-    from the one main.py touches at import time above, and never the dev
+    from the process-wide one configured above, and never the dev
     database (hub.db) or shared with any other test.
 
     StaticPool keeps every connection this engine hands out pointing at

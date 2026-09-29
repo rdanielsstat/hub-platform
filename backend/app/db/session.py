@@ -39,8 +39,8 @@ def enable_sqlite_foreign_keys(target_engine: Engine, database_url: str) -> None
 
 # Built lazily on first use, not at import: get_database_url() may hit
 # AWS SSM, and resolving it eagerly at module import would turn a
-# transient SSM/DB outage into an import-time crash — fatal at Lambda
-# cold start (see app/main.py's startup try/except). Cached after the
+# transient SSM/DB outage into an import-time crash, and importing the
+# app must do no database work at all (see app/main.py). Cached after the
 # first build, same as config.py's own get_database_url()/
 # get_jwt_secret() caches.
 _engine: Engine | None = None

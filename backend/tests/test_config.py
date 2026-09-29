@@ -302,3 +302,38 @@ def test_ssm_client_is_built_lazily_via_boto3_and_cached(monkeypatch):
 
     assert created == ["ssm"]
     assert config._get_ssm_client() is client
+
+
+# ---- SEED_DEMO_DATA ----
+
+
+def test_seed_demo_data_with_use_ssm_raises():
+    with pytest.raises(RuntimeError, match="SEED_DEMO_DATA"):
+        config.require_safe_seed_setting(seed_demo_data=True, use_ssm=True)
+
+
+@pytest.mark.parametrize(
+    ("seed_demo_data", "use_ssm"), [(True, False), (False, True), (False, False)]
+)
+def test_seed_setting_allowed_combinations_do_not_raise(seed_demo_data, use_ssm):
+    config.require_safe_seed_setting(seed_demo_data=seed_demo_data, use_ssm=use_ssm)
+
+
+def test_seed_demo_data_defaults_to_off(monkeypatch):
+    monkeypatch.delenv("SEED_DEMO_DATA", raising=False)
+
+    assert config.env_flag("SEED_DEMO_DATA") is False
+
+
+@pytest.mark.parametrize("value", ["1", "true", "TRUE", " yes "])
+def test_env_flag_truthy_values(monkeypatch, value):
+    monkeypatch.setenv("SEED_DEMO_DATA", value)
+
+    assert config.env_flag("SEED_DEMO_DATA") is True
+
+
+@pytest.mark.parametrize("value", ["", "0", "false", "no"])
+def test_env_flag_falsy_values(monkeypatch, value):
+    monkeypatch.setenv("SEED_DEMO_DATA", value)
+
+    assert config.env_flag("SEED_DEMO_DATA") is False
