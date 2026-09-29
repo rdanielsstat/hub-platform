@@ -1,28 +1,36 @@
-"""One-time-per-deploy database bootstrap.
+"""One-time-per-deploy database bootstrap. Owns table creation: the app
+itself does no database work at import (see app/main.py).
 
 Run standalone, separate from normal app startup: `python -m
-app.bootstrap_db`. Creates this environment's Postgres database and a
-least-privilege login role for the app to connect as, then grants that
-role exactly what app/db/session.py's create_tables() and normal CRUD
-need (CONNECT on the database, USAGE + CREATE on the public schema).
-Nothing here runs at app import time or from app/main.py; the running
-app never sees master credentials.
+app.bootstrap_db`, or via lambda_handler below. Two modes, picked by
+USE_SSM:
+
+  - Cloud (USE_SSM on): Neon already provides the role and database, so
+    this only creates tables, connecting with the URL in
+    DB_URL_PARAM_NAME (the direct, non-pooled endpoint: PgBouncer's
+    transaction mode is a poor fit for DDL). No master credentials, no
+    CREATE ROLE, no CREATE DATABASE.
+  - Local (USE_SSM off): against the Docker Compose Postgres, creates
+    this environment's database and a least-privilege login role for
+    the app, grants that role exactly what table creation and normal
+    CRUD need (CONNECT on the database, USAGE + CREATE on the public
+    schema), then creates the tables connected as that role.
 
 Fully idempotent: safe to run on every deploy. An existing role/database
 is left as-is (not recreated, not have its password changed); the GRANT
 statements always re-run, since GRANT is itself a no-op when the
-privilege is already held.
+privilege is already held; table creation only creates what's missing.
+Any failure propagates: lambda_handler fails the invocation and the CLI
+exits 1, never reporting success against an unreachable database.
 
-Two credential sources, kept deliberately separate:
+Local mode's two credential sources, kept deliberately separate:
   - MASTER credentials: superuser (or otherwise privileged) credentials
     used only here to create the database/role and grant privileges.
-    From MASTER_DB_PARAM_NAME over SSM when USE_SSM is on, otherwise
-    from MASTER_DB_HOST/PORT/USER/PASSWORD env vars.
+    From MASTER_DB_HOST/PORT/USER/PASSWORD env vars.
   - APP credentials: the exact per-environment values
     app/core/config.py's get_database_url() already resolves for the
-    app's own DATABASE_URL (DB_PARAM_NAME over SSM, or DATABASE_URL
-    locally) — so the role created here has the same name and password
-    the app will actually connect with.
+    app's own DATABASE_URL, so the role created here has the same name
+    and password the app will actually connect with.
 """
 
 import json
@@ -32,9 +40,11 @@ import sys
 
 import psycopg
 from psycopg import errors as pg_errors
+from sqlalchemy import create_engine
 from sqlalchemy.engine import make_url
 
 from app.core import config
+from app.db.orm import Base
 
 ADMIN_DATABASE = "postgres"
 
@@ -70,7 +80,7 @@ def _connect(**kwargs: object) -> psycopg.Connection:
 
 def get_master_credentials() -> dict[str, object]:
     """Superuser credentials, resolved separately from the app's own
-    DATABASE_URL/DB_PARAM_NAME. Never cached at module scope (this runs
+    DATABASE_URL. Never cached at module scope (this runs
     once per process invocation, not per-request)."""
     if config.USE_SSM:
         param_name = os.environ["MASTER_DB_PARAM_NAME"]
@@ -166,7 +176,23 @@ def _grant_privileges(cur: psycopg.Cursor, dbname: str, role: str) -> None:
     )
 
 
+def _create_tables(database_url: str) -> None:
+    """Create any missing tables, connected with database_url. A
+    dedicated engine, disposed afterwards, rather than the app's cached
+    one in app/db/session.py: this runs once and exits."""
+    engine = create_engine(database_url)
+    try:
+        Base.metadata.create_all(bind=engine)
+    finally:
+        engine.dispose()
+    print("Tables created (any that already existed were left as-is).")
+
+
 def bootstrap() -> None:
+    if config.USE_SSM:
+        _create_tables(config.get_database_url())
+        return
+
     master = get_master_credentials()
     target = get_app_target()
 
@@ -201,13 +227,17 @@ def bootstrap() -> None:
     finally:
         target_conn.close()
 
+    # As the app's own role, so the tables belong to the role that will
+    # use them.
+    _create_tables(config.get_database_url())
+
 
 def lambda_handler(event: object, context: object) -> dict[str, str]:
     """AWS Lambda entry point, invoked once per deploy via a container
     image with command `app.bootstrap_db.lambda_handler` — the deploy
     pipeline's equivalent of running the CLI below. Reads the exact same
-    env vars (MASTER_DB_PARAM_NAME, DB_PARAM_NAME, USE_SSM) as the CLI,
-    since it calls the same bootstrap() function.
+    env vars (USE_SSM, DB_URL_PARAM_NAME) as the CLI, since it calls the
+    same bootstrap() function.
 
     Unlike main() below, this does not catch exceptions: a failed
     bootstrap must propagate and show up as a failed Lambda invocation,

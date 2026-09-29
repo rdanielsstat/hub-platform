@@ -79,7 +79,8 @@ def SessionLocal() -> Session:
 
 
 def create_tables() -> None:
-    """v1 migration story: create tables on startup if they don't exist.
+    """v1 migration story: create tables if they don't exist. Called by
+    the local init step (app/db/init_local.py), never at app import.
     No Alembic yet — the schema is still moving pre-launch. Once it
     stabilizes, swap this for real Alembic migrations so future schema
     changes are tracked and reversible instead of implicit."""

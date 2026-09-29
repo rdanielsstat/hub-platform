@@ -48,10 +48,9 @@ of it.
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | No. |
 | `SEED_DEMO_DATA` | off | No. Local only: lets `python -m app.db.init_local` seed the demo account. Must be off with `USE_SSM` on; the app refuses to start otherwise. |
 | `CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | No. Comma-separated. Only matters locally; CloudFront makes the deployed site same-origin. |
-| `DB_PARAM_NAME` | — | Only used when `USE_SSM` is on: the SSM parameter name holding the DB credentials JSON. |
+| `DB_URL_PARAM_NAME` | — | Only used when `USE_SSM` is on: the SSM parameter name holding the full database URL. |
 | `JWT_PARAM_NAME` | — | Only used when `USE_SSM` is on: the SSM parameter name holding the raw JWT secret. |
-| `MASTER_DB_HOST` / `MASTER_DB_PORT` / `MASTER_DB_USER` / `MASTER_DB_PASSWORD` | — | Only used by the bootstrap command (below), only when `USE_SSM` is off. Never read by the app itself. |
-| `MASTER_DB_PARAM_NAME` | — | Only used by the bootstrap command, only when `USE_SSM` is on: the SSM parameter name holding master/superuser credentials JSON. Never read by the app itself. |
+| `MASTER_DB_HOST` / `MASTER_DB_PORT` / `MASTER_DB_USER` / `MASTER_DB_PASSWORD` | — | Only used by the bootstrap command (below), only in local mode (`USE_SSM` off). Never read by the app itself. |
 
 ### JWT secret guard
 
@@ -71,91 +70,88 @@ python -c "import secrets; print(secrets.token_urlsafe(64))"
 
 ### AWS SSM (`USE_SSM=true`)
 
-Used by the Lambda deployment, running inside a VPC with an SSM
-interface endpoint. `app/core/config.py`'s `get_database_url()` and
-`get_jwt_secret()` fetch two `SecureString` parameters via boto3
-(`WithDecryption=True`), lazily and cached after the first successful
-read per process — never called eagerly at import, and never more than
-once per warm Lambda container:
+Used by the Lambda deployment. `app/core/config.py`'s
+`get_database_url()` and `get_jwt_secret()` fetch two `SecureString`
+parameters via boto3 (`WithDecryption=True`), cached after the first
+successful read per process:
 
-- `DB_PARAM_NAME` — a JSON string: `{"username", "password", "host",
-  "port", "dbname"}`. Built into a
-  `postgresql+psycopg://user:pass@host:port/dbname` URL (`psycopg` is
-  already a dependency).
-- `JWT_PARAM_NAME` — the raw JWT secret string, used as-is.
+- `DB_URL_PARAM_NAME`: the full connection URL (Neon's, e.g.
+  `postgresql://user:pass@host/db?sslmode=require&channel_binding=require`).
+  A leading `postgresql://` is rewritten to `postgresql+psycopg://`; the
+  rest, query string included, is kept exactly. The app points this at
+  the pooled URL (`/hub-<env>/db-url`), the bootstrap at the direct one
+  (`/hub-<env>/db-url-direct`).
+- `JWT_PARAM_NAME`: the raw JWT secret string, used as-is.
 
 boto3 resolves its own region and credentials from the Lambda execution
 environment; nothing else needs configuring. The SSM client itself is
 only ever built when `USE_SSM` is on, so a local/Compose run never
 touches boto3 or needs AWS credentials at all.
 
-A fetch that fails because SSM/the DB is transiently unreachable (e.g.
-during Lambda cold start) logs a warning and lets startup continue,
-matching `app/main.py`'s existing DB-creation try/except — later calls
-retry rather than sticking with a bad cached value. A fetch that
-*succeeds* but returns a missing/default JWT secret still hard-fails via
-the guard above, since that's a real misconfiguration, not an outage.
+The JWT secret is resolved when the app is imported, and any failure is
+fatal: a secret that can't be fetched, or is missing or the dev default,
+stops the process instead of starting an app that signs tokens with a
+known key. The database URL is resolved lazily, on first use.
 
 ## Database
 
 SQLite by default, via a local file (`hub.db`, gitignored). Accepts a
 Postgres URL (e.g. `postgresql+psycopg://user:pass@host/db`) via
-`DATABASE_URL` with no code change, or built automatically from SSM
-when `USE_SSM` is on (see above). `psycopg[binary]` is already a
-dependency.
+`DATABASE_URL` with no code change, or from SSM when `USE_SSM` is on
+(see above). `psycopg[binary]` is already a dependency.
 
-Data persists across restarts now. Tables are created on startup if they
-don't exist (`app/db/session.py`'s `create_tables()`) — there's no
-Alembic yet, which is fine while the schema is still moving pre-launch.
-Once it stabilizes, that should become real Alembic migrations so future
-schema changes are tracked and reversible instead of implicit.
+Importing the app does no database work. Tables are created by a
+separate step: `python -m app.db.init_local` for plain local dev, or
+the bootstrap below for Compose and AWS. Both only create missing
+tables (`Base.metadata.create_all`); there's no Alembic yet, which is
+fine while the schema is still moving pre-launch. Once it stabilizes,
+that should become real Alembic migrations so future schema changes are
+tracked and reversible instead of implicit.
 
 ## Postgres and the database bootstrap
 
 Two ways to run this app locally:
 
 - **Plain `uv run`, no Docker**: stays on the SQLite default above. Zero
-  setup, zero AWS.
+  AWS; run `python -m app.db.init_local` once for tables (see "Run the
+  dev server").
 - **Docker Compose, prod-parity**: runs the full stack against real
   Postgres. `docker compose up --build` from the repo root starts, in
-  order: a `postgres` service (Postgres 16, matching the deployed
-  Aurora major version), a `bootstrap` service that creates this
-  environment's database and a least-privilege login role, then the
-  `app` service, which connects as that limited role. Compose sets all
-  the env vars below for you.
+  order: a `postgres` service (Postgres 17, matching Neon), a
+  `bootstrap` service, an `init_local` service that seeds the demo
+  account, then the `app` service, which connects as a limited role.
+  Compose sets all the env vars for you.
 
-In both AWS deployment and Compose, the app itself connects as a
-per-environment, least-privilege Postgres role (e.g. `hub_dev_user`),
-never as a superuser. Something has to create that role and its
-database first: `app/bootstrap_db.py`, run standalone via
-`python -m app.bootstrap_db`. It:
+`app/bootstrap_db.py`, run via `python -m app.bootstrap_db` (or its
+`lambda_handler` in AWS), owns table creation and has two modes:
 
-1. Connects with **master/superuser** credentials, resolved separately
-   from the app's own: from `MASTER_DB_PARAM_NAME` over SSM when
-   `USE_SSM` is on, otherwise from `MASTER_DB_HOST`/`PORT`/`USER`/
-   `PASSWORD` env vars. The deploy pipeline calls this with the shared
-   Aurora cluster's master credentials (`/dnls-shared/aurora-master` in
-   SSM); Compose calls it with the local Postgres image's `postgres`
-   superuser.
-2. Creates the per-environment database and a `LOGIN` role — with
-   `NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION` — using the
-   *same* name and password the app itself will connect with (parsed
-   from `DATABASE_URL`/`DB_PARAM_NAME`, the app's normal credential
-   source). Skips creation if the role/database already exists; never
-   updates an existing role's password.
+**Cloud (`USE_SSM` on).** Neon already provides the role and database,
+so the bootstrap only creates tables, connecting with the URL in
+`DB_URL_PARAM_NAME`. The deployment points that at the direct
+(non-pooled) endpoint, since PgBouncer's transaction mode is a poor fit
+for DDL. No master credentials, no `CREATE ROLE`, no `CREATE DATABASE`.
+
+**Local (`USE_SSM` off).** Against the Compose Postgres, it:
+
+1. Connects with **master/superuser** credentials from
+   `MASTER_DB_HOST`/`PORT`/`USER`/`PASSWORD` (Compose passes the local
+   image's `postgres` superuser).
+2. Creates the per-environment database and a `LOGIN` role, with
+   `NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION`, using the
+   *same* name and password the app will connect with (parsed from
+   `DATABASE_URL`). Skips creation if the role/database already exists;
+   never updates an existing role's password.
 3. Grants that role exactly `CONNECT` on the database plus `USAGE,
-   CREATE` on the `public` schema — enough for `create_tables()` and
-   normal CRUD (the role owns whatever tables it creates, so it already
-   has full DML on its own data). Nothing broader: no superuser, no
-   `CREATEDB`/`CREATEROLE`, no ownership of the database itself. GRANTs
-   always re-run (idempotent on the Postgres side), so re-running this
-   command is always safe — the deploy pipeline calls it on every
-   deploy.
+   CREATE` on the `public` schema. Nothing broader: no superuser, no
+   `CREATEDB`/`CREATEROLE`, no ownership of the database itself.
+4. Creates the tables, connected as that role, so the role owns them.
+
+Every step is idempotent, so re-running is always safe. A failure in
+either mode propagates: the CLI exits 1 and `lambda_handler` fails the
+invocation, rather than reporting success.
 
 The app's own runtime (`app/main.py`, `app/db/session.py`) never reads
-the `MASTER_DB_*`/`MASTER_DB_PARAM_NAME` vars and never holds master
-credentials; only `app/bootstrap_db.py` does, and only for the duration
-of that one command.
+the `MASTER_DB_*` vars and never holds master credentials.
 
 ## Seeded demo account
 

@@ -10,12 +10,14 @@ import re
 
 import pytest
 from psycopg import errors as pg_errors
+from sqlalchemy import create_engine, inspect, text
 
 from app.bootstrap_db import (
     _quote_identifier,
     _quote_literal,
     bootstrap,
     get_app_target,
+    main,
     get_master_credentials,
     lambda_handler,
 )
@@ -86,7 +88,13 @@ def fake_connect(monkeypatch: pytest.MonkeyPatch, fake_pg_state: dict):
     def _connect(**kwargs: object) -> FakeConnection:
         return FakeConnection(fake_pg_state, **kwargs)
 
+    def _create_tables(database_url: str) -> None:
+        fake_pg_state["executed"].append(("CREATE TABLES", database_url))
+
     monkeypatch.setattr("app.bootstrap_db._connect", _connect)
+    # Table creation goes through SQLAlchemy, not _connect; record it
+    # instead of letting it reach for a real Postgres.
+    monkeypatch.setattr("app.bootstrap_db._create_tables", _create_tables)
     return _connect
 
 
@@ -355,33 +363,17 @@ def test_lambda_handler_runs_bootstrap_and_returns_success(
     assert fake_pg_state["databases"] == {"hub_dev"}
 
 
-def test_lambda_handler_reads_same_env_vars_as_cli_via_ssm(monkeypatch, fake_connect, fake_pg_state):
-    """The Lambda path uses MASTER_DB_PARAM_NAME/DB_URL_PARAM_NAME (USE_SSM
-    on) — the same resolution the CLI uses, not a separate source."""
-    monkeypatch.setattr(config, "USE_SSM", True)
-    monkeypatch.setattr(config, "_database_url", None)
-    monkeypatch.setenv("MASTER_DB_PARAM_NAME", "/dnls-shared/aurora-master")
-    monkeypatch.setenv("DB_URL_PARAM_NAME", "/hub-dev/db-url-direct")
-
-    def fake_fetch(name: str) -> str:
-        if name == "/dnls-shared/aurora-master":
-            return json.dumps(
-                {"username": "master", "password": "s3cret", "host": "db.internal", "port": 5432}
-            )
-        if name == "/hub-dev/db-url-direct":
-            return (
-                "postgresql://hub_dev_user:hub_dev_password@db.internal:5432"
-                "/hub_dev?sslmode=require"
-            )
-        raise AssertionError(f"unexpected SSM parameter: {name}")
-
-    monkeypatch.setattr(config, "_fetch_ssm_parameter", fake_fetch)
-
+def test_lambda_handler_cloud_mode_creates_tables_without_master_credentials(
+    cloud_env, cloud_db_file
+):
+    """Replaces the old SSM test that expected CREATE ROLE/DATABASE with
+    MASTER_DB_PARAM_NAME: in cloud mode Neon provides both, so the
+    Lambda only creates tables from DB_URL_PARAM_NAME."""
     result = lambda_handler({}, None)
 
     assert result == {"status": "ok", "message": "Bootstrap complete."}
-    assert fake_pg_state["roles"] == {"hub_dev_user"}
-    assert fake_pg_state["databases"] == {"hub_dev"}
+    assert EXPECTED_TABLES <= _table_names(cloud_db_file)
+    assert cloud_env == ["/hub-prod/db-url-direct"]
 
 
 def test_lambda_handler_propagates_exceptions(monkeypatch):
@@ -393,3 +385,157 @@ def test_lambda_handler_propagates_exceptions(monkeypatch):
 
     with pytest.raises(KeyError):
         lambda_handler({}, None)
+
+
+# ---- local mode: tables ----
+
+
+def test_local_bootstrap_creates_tables_after_grants_as_the_app_role(
+    local_master_env, app_database_url, fake_connect, fake_pg_state
+):
+    bootstrap()
+
+    executed = [q for q, _ in fake_pg_state["executed"]]
+    table_steps = [
+        params for q, params in fake_pg_state["executed"] if q == "CREATE TABLES"
+    ]
+    assert table_steps == [
+        "postgresql+psycopg://hub_dev_user:hub_dev_password@postgres:5432/hub_dev"
+    ]
+    last_grant = max(i for i, q in enumerate(executed) if q.startswith("GRANT"))
+    assert executed.index("CREATE TABLES") > last_grant
+
+
+# ---- cloud mode (USE_SSM on): tables only ----
+
+EXPECTED_TABLES = {"users", "auth_identities", "projects", "notes"}
+
+
+def _table_names(db_file) -> set[str]:
+    engine = create_engine(f"sqlite:///{db_file}")
+    try:
+        return set(inspect(engine).get_table_names())
+    finally:
+        engine.dispose()
+
+
+@pytest.fixture()
+def cloud_db_file(tmp_path):
+    return tmp_path / "cloud.db"
+
+
+@pytest.fixture()
+def cloud_ssm_url(cloud_db_file) -> dict[str, str]:
+    """What DB_URL_PARAM_NAME's SSM parameter holds. Tests may replace
+    the value. A throwaway SQLite file stands in for Neon so DDL
+    actually runs and can be inspected."""
+    return {"url": f"sqlite:///{cloud_db_file}"}
+
+
+@pytest.fixture()
+def cloud_env(monkeypatch: pytest.MonkeyPatch, cloud_ssm_url) -> list[str]:
+    """USE_SSM on, DB_URL_PARAM_NAME set, no master credentials
+    anywhere, and any attempt to open an admin (psycopg) connection or
+    read master credentials fails the test. Returns the list of SSM
+    parameter names fetched."""
+    monkeypatch.setattr(config, "USE_SSM", True)
+    monkeypatch.setattr(config, "_database_url", None)
+    monkeypatch.setenv("DB_URL_PARAM_NAME", "/hub-prod/db-url-direct")
+    for var in (
+        "MASTER_DB_PARAM_NAME",
+        "MASTER_DB_HOST",
+        "MASTER_DB_USER",
+        "MASTER_DB_PASSWORD",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    fetched: list[str] = []
+
+    def fake_fetch(name: str) -> str:
+        fetched.append(name)
+        if name == "/hub-prod/db-url-direct":
+            return cloud_ssm_url["url"]
+        raise AssertionError(f"unexpected SSM parameter: {name}")
+
+    def no_admin_connection(**kwargs: object) -> None:
+        raise AssertionError("cloud mode must not open an admin connection")
+
+    def no_master_credentials() -> None:
+        raise AssertionError("cloud mode must not read master credentials")
+
+    monkeypatch.setattr(config, "_fetch_ssm_parameter", fake_fetch)
+    monkeypatch.setattr("app.bootstrap_db._connect", no_admin_connection)
+    monkeypatch.setattr(
+        "app.bootstrap_db.get_master_credentials", no_master_credentials
+    )
+    return fetched
+
+
+def test_cloud_bootstrap_creates_tables(cloud_env, cloud_db_file):
+    bootstrap()
+
+    assert EXPECTED_TABLES <= _table_names(cloud_db_file)
+    assert cloud_env == ["/hub-prod/db-url-direct"]
+
+
+def test_cloud_bootstrap_does_not_create_role_or_database(cloud_env, capsys):
+    """cloud_env already fails the test on any admin connection or
+    master-credential read, which is the only way role/database creation
+    can happen. Also check nothing claims to have done it."""
+    bootstrap()
+
+    out = capsys.readouterr().out
+    # Local mode prints "Role ... already exists" / "Created role ..." and
+    # the same for the database; cloud mode must print neither.
+    assert "Role " not in out and "role " not in out
+    assert "Database " not in out and "database " not in out
+
+
+def test_cloud_bootstrap_is_idempotent_running_twice(cloud_env, cloud_db_file):
+    bootstrap()
+    engine = create_engine(f"sqlite:///{cloud_db_file}")
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO users (id, email, display_name, created_at, updated_at) "
+                    "VALUES ('u1', 'kept@example.com', 'Kept', '2026-01-01', '2026-01-01')"
+                )
+            )
+    finally:
+        engine.dispose()
+
+    bootstrap()
+
+    assert EXPECTED_TABLES <= _table_names(cloud_db_file)
+    engine = create_engine(f"sqlite:///{cloud_db_file}")
+    try:
+        with engine.connect() as conn:
+            emails = conn.execute(text("SELECT email FROM users")).scalars().all()
+    finally:
+        engine.dispose()
+    assert emails == ["kept@example.com"]
+
+
+def test_cloud_bootstrap_raises_when_database_is_unreachable(cloud_env, cloud_ssm_url):
+    # Nothing listens on port 1; connect_timeout keeps a filtered port
+    # from hanging the test.
+    cloud_ssm_url["url"] = (
+        "postgresql://hub:hub@127.0.0.1:1/hub?sslmode=disable&connect_timeout=2"
+    )
+
+    with pytest.raises(Exception, match="127.0.0.1"):
+        lambda_handler({}, None)
+
+
+def test_cloud_cli_exits_nonzero_when_database_is_unreachable(
+    cloud_env, cloud_ssm_url, capsys
+):
+    cloud_ssm_url["url"] = (
+        "postgresql://hub:hub@127.0.0.1:1/hub?sslmode=disable&connect_timeout=2"
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 1
+    assert "Bootstrap complete." not in capsys.readouterr().out
