@@ -1,5 +1,3 @@
-import json
-
 import pytest
 
 from app.core import config
@@ -156,53 +154,111 @@ def test_local_path_never_builds_an_ssm_client(monkeypatch):
 # ---- get_database_url() / get_jwt_secret(): AWS SSM path (mocked) ----
 
 
-def test_get_database_url_builds_postgres_url_from_ssm_json(monkeypatch):
+NEON_POOLED_URL = (
+    "postgresql://hub_app:p%40ss@ep-cool-name-123456-pooler.us-east-2.aws.neon.tech"
+    "/hub?sslmode=require&channel_binding=require"
+)
+
+
+def test_get_database_url_returns_ssm_value_verbatim(monkeypatch):
     monkeypatch.setattr(config, "USE_SSM", True)
     monkeypatch.setattr(config, "_database_url", None)
-    monkeypatch.setenv("DB_PARAM_NAME", "/hub/prod/db")
-    fake_client = _FakeSSMClient(
-        {
-            "/hub/prod/db": json.dumps(
-                {
-                    "username": "hub_app",
-                    "password": "p@ss/word",
-                    "host": "db.internal",
-                    "port": 5432,
-                    "dbname": "hub",
-                }
-            )
-        }
-    )
+    monkeypatch.setenv("DB_URL_PARAM_NAME", "/hub-prod/db-url")
+    ssm_value = "postgresql+psycopg://hub_app:p%40ss@db.example.com/hub?sslmode=require"
+    fake_client = _FakeSSMClient({"/hub-prod/db-url": ssm_value})
     monkeypatch.setattr(config, "_get_ssm_client", lambda: fake_client)
 
-    url = config.get_database_url()
+    assert config.get_database_url() == ssm_value
 
-    assert url == "postgresql+psycopg://hub_app:p%40ss%2Fword@db.internal:5432/hub"
+
+def test_get_database_url_normalizes_neon_url_from_ssm(monkeypatch):
+    monkeypatch.setattr(config, "USE_SSM", True)
+    monkeypatch.setattr(config, "_database_url", None)
+    monkeypatch.setenv("DB_URL_PARAM_NAME", "/hub-prod/db-url")
+    fake_client = _FakeSSMClient({"/hub-prod/db-url": NEON_POOLED_URL})
+    monkeypatch.setattr(config, "_get_ssm_client", lambda: fake_client)
+
+    assert config.get_database_url() == (
+        "postgresql+psycopg://hub_app:p%40ss@ep-cool-name-123456-pooler.us-east-2.aws.neon.tech"
+        "/hub?sslmode=require&channel_binding=require"
+    )
 
 
 def test_get_database_url_from_ssm_is_cached_after_first_fetch(monkeypatch):
     monkeypatch.setattr(config, "USE_SSM", True)
     monkeypatch.setattr(config, "_database_url", None)
-    monkeypatch.setenv("DB_PARAM_NAME", "/hub/prod/db")
-    fake_client = _FakeSSMClient(
-        {
-            "/hub/prod/db": json.dumps(
-                {
-                    "username": "u",
-                    "password": "p",
-                    "host": "h",
-                    "port": 5432,
-                    "dbname": "d",
-                }
-            )
-        }
-    )
+    monkeypatch.setenv("DB_URL_PARAM_NAME", "/hub-prod/db-url")
+    fake_client = _FakeSSMClient({"/hub-prod/db-url": NEON_POOLED_URL})
     monkeypatch.setattr(config, "_get_ssm_client", lambda: fake_client)
 
     config.get_database_url()
     config.get_database_url()
 
-    assert fake_client.calls == ["/hub/prod/db"]
+    assert fake_client.calls == ["/hub-prod/db-url"]
+
+
+def test_get_database_url_ignores_legacy_db_param_name(monkeypatch):
+    """DB_PARAM_NAME (the old JSON credentials parameter) no longer
+    exists in AWS; only DB_URL_PARAM_NAME is read."""
+    monkeypatch.setattr(config, "USE_SSM", True)
+    monkeypatch.setattr(config, "_database_url", None)
+    monkeypatch.delenv("DB_URL_PARAM_NAME", raising=False)
+    monkeypatch.setenv("DB_PARAM_NAME", "/hub/prod/db")
+    fake_client = _FakeSSMClient({"/hub/prod/db": "{}"})
+    monkeypatch.setattr(config, "_get_ssm_client", lambda: fake_client)
+
+    with pytest.raises(KeyError, match="DB_URL_PARAM_NAME"):
+        config.get_database_url()
+    assert fake_client.calls == []
+
+
+# ---- normalize_database_url() ----
+
+
+def test_normalize_rewrites_plain_postgresql_scheme_to_psycopg():
+    assert (
+        config.normalize_database_url("postgresql://u:p@host/db")
+        == "postgresql+psycopg://u:p@host/db"
+    )
+
+
+def test_normalize_leaves_psycopg_url_alone():
+    url = "postgresql+psycopg://u:p@host:5432/db"
+    assert config.normalize_database_url(url) == url
+
+
+def test_normalize_leaves_sqlite_url_alone():
+    assert config.normalize_database_url("sqlite:///./hub.db") == "sqlite:///./hub.db"
+    assert config.normalize_database_url("sqlite:///:memory:") == "sqlite:///:memory:"
+
+
+def test_normalize_preserves_query_string_with_multiple_params():
+    url = (
+        "postgresql://u:p%40ss@host/db"
+        "?sslmode=require&channel_binding=require&options=endpoint%3Dep-abc"
+    )
+    assert config.normalize_database_url(url) == (
+        "postgresql+psycopg://u:p%40ss@host/db"
+        "?sslmode=require&channel_binding=require&options=endpoint%3Dep-abc"
+    )
+
+
+def test_normalize_only_rewrites_the_leading_scheme():
+    """A 'postgresql://' appearing later in the URL (here inside a
+    query value) must not be touched."""
+    url = "postgresql+psycopg://u:p@host/db?application_name=postgresql://x"
+    assert config.normalize_database_url(url) == url
+
+
+def test_get_database_url_normalizes_database_url_env_var(monkeypatch):
+    monkeypatch.setattr(config, "USE_SSM", False)
+    monkeypatch.setattr(config, "_database_url", None)
+    monkeypatch.setenv("DATABASE_URL", NEON_POOLED_URL)
+
+    assert config.get_database_url() == (
+        "postgresql+psycopg://hub_app:p%40ss@ep-cool-name-123456-pooler.us-east-2.aws.neon.tech"
+        "/hub?sslmode=require&channel_binding=require"
+    )
 
 
 def test_get_jwt_secret_reads_raw_value_from_ssm(monkeypatch):

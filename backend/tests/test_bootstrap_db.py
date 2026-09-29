@@ -356,27 +356,22 @@ def test_lambda_handler_runs_bootstrap_and_returns_success(
 
 
 def test_lambda_handler_reads_same_env_vars_as_cli_via_ssm(monkeypatch, fake_connect, fake_pg_state):
-    """The Lambda path uses MASTER_DB_PARAM_NAME/DB_PARAM_NAME (USE_SSM
+    """The Lambda path uses MASTER_DB_PARAM_NAME/DB_URL_PARAM_NAME (USE_SSM
     on) — the same resolution the CLI uses, not a separate source."""
     monkeypatch.setattr(config, "USE_SSM", True)
     monkeypatch.setattr(config, "_database_url", None)
     monkeypatch.setenv("MASTER_DB_PARAM_NAME", "/dnls-shared/aurora-master")
-    monkeypatch.setenv("DB_PARAM_NAME", "/hub/dev/db-credentials")
+    monkeypatch.setenv("DB_URL_PARAM_NAME", "/hub-dev/db-url-direct")
 
     def fake_fetch(name: str) -> str:
         if name == "/dnls-shared/aurora-master":
             return json.dumps(
                 {"username": "master", "password": "s3cret", "host": "db.internal", "port": 5432}
             )
-        if name == "/hub/dev/db-credentials":
-            return json.dumps(
-                {
-                    "username": "hub_dev_user",
-                    "password": "hub_dev_password",
-                    "host": "db.internal",
-                    "port": 5432,
-                    "dbname": "hub_dev",
-                }
+        if name == "/hub-dev/db-url-direct":
+            return (
+                "postgresql://hub_dev_user:hub_dev_password@db.internal:5432"
+                "/hub_dev?sslmode=require"
             )
         raise AssertionError(f"unexpected SSM parameter: {name}")
 

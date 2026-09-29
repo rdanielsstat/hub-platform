@@ -16,15 +16,13 @@ app/main.py calls `require_safe_jwt_secret()` against the resolved
 secret and refuses to run on a missing or default value.
 """
 
-import json
 import os
 from typing import Any
-from urllib.parse import quote_plus
 
 ENVIRONMENT = os.environ.get("ENVIRONMENT", "local")
 
 # On: DATABASE_URL and the JWT secret come from AWS SSM Parameter Store
-# (DB_PARAM_NAME / JWT_PARAM_NAME, both SecureString) instead of plain
+# (DB_URL_PARAM_NAME / JWT_PARAM_NAME, both SecureString) instead of plain
 # env vars. Off by default so local dev and Docker Compose never need
 # AWS credentials or network access.
 USE_SSM = os.environ.get("USE_SSM", "").strip().lower() in {"1", "true", "yes"}
@@ -71,27 +69,30 @@ def _fetch_ssm_parameter(name: str) -> str:
     return response["Parameter"]["Value"]
 
 
-def _build_database_url_from_ssm() -> str:
-    param_name = os.environ["DB_PARAM_NAME"]
-    creds = json.loads(_fetch_ssm_parameter(param_name))
-    user = quote_plus(str(creds["username"]))
-    password = quote_plus(str(creds["password"]))
-    return (
-        f"postgresql+psycopg://{user}:{password}"
-        f"@{creds['host']}:{creds['port']}/{creds['dbname']}"
-    )
+def normalize_database_url(url: str) -> str:
+    """Point a plain postgresql:// URL (the form Neon hands out) at the
+    psycopg 3 driver SQLAlchemy needs. Only the leading scheme changes;
+    everything after it, query string included (Neon requires
+    sslmode=require and may add channel_binding=require), is kept
+    byte-for-byte. postgresql+psycopg:// and sqlite:// pass through."""
+    prefix = "postgresql://"
+    if url.startswith(prefix):
+        return "postgresql+psycopg://" + url[len(prefix) :]
+    return url
 
 
 def get_database_url() -> str:
-    """The SQLAlchemy database URL: from AWS SSM when USE_SSM is on,
+    """The SQLAlchemy database URL: from AWS SSM (DB_URL_PARAM_NAME,
+    whose value is the full connection URL) when USE_SSM is on,
     otherwise from DATABASE_URL exactly as before. Resolved at most
     once per process."""
     global _database_url
     if _database_url is None:
         if USE_SSM:
-            _database_url = _build_database_url_from_ssm()
+            raw_url = _fetch_ssm_parameter(os.environ["DB_URL_PARAM_NAME"])
         else:
-            _database_url = os.environ.get("DATABASE_URL", "sqlite:///./hub.db")
+            raw_url = os.environ.get("DATABASE_URL", "sqlite:///./hub.db")
+        _database_url = normalize_database_url(raw_url)
     return _database_url
 
 
