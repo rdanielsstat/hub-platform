@@ -1,11 +1,24 @@
 # Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored.
 
-# Cloudflare zone ID for dnls.dev — find it on the domain's Overview page
-# in Cloudflare (right sidebar, "Zone ID").
+# Cloudflare zone ID for dnls.dev: the domain's Overview page in Cloudflare,
+# right sidebar, "Zone ID".
 cloudflare_zone_id = "PUT_YOUR_ZONE_ID_HERE"
 
+# Neon connection strings, per environment.
+# Neon console > project > Connect (left sidebar, under the branch selector).
+#   pooled: Connection pooling toggle ON  (hostname contains -pooler)
+#   direct: Connection pooling toggle OFF
+neon_urls = {
+  dev = {
+    pooled = "REPLACE_ME"
+    direct = "REPLACE_ME"
+  }
+  prod = {
+    pooled = "REPLACE_ME"
+    direct = "REPLACE_ME"
+  }
+}
+
 # Optional overrides (defaults shown):
-# aws_region    = "us-east-1"
-# environment   = "prod"
-# domain_name   = "dnls.dev"
-# api_subdomain = "api.dnls.dev"
+# aws_region       = "us-east-1"
+# lambda_image_tag = "latest"

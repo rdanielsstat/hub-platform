@@ -1,4 +1,7 @@
-# Backend Lambda for this environment, attached to the shared VPC.
+# Backend Lambda for this environment. NOT in a VPC: it reaches Neon over
+# public TLS and SSM over the public AWS endpoint, so there are no interface
+# endpoints and no NAT gateway. That is the whole reason this stack costs
+# cents instead of tens of dollars.
 
 data "aws_iam_policy_document" "lambda_assume" {
   statement {
@@ -20,19 +23,13 @@ resource "aws_iam_role_policy_attachment" "lambda_basic" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-resource "aws_iam_role_policy_attachment" "lambda_vpc" {
-  role       = aws_iam_role.lambda.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
-}
-
-# Allow reading ONLY this environment's own SSM parameters (db creds + jwt).
-# SSM SecureString values are encrypted with the AWS-managed key by default,
-# which the SSM service decrypts on GetParameter without a separate KMS grant.
+# Read ONLY this environment's own parameters, and NOT the direct URL, which
+# belongs to the bootstrap role alone.
 data "aws_iam_policy_document" "lambda_ssm" {
   statement {
     actions = ["ssm:GetParameter", "ssm:GetParameters"]
     resources = [
-      aws_ssm_parameter.app_db.arn,
+      aws_ssm_parameter.db_url.arn,
       aws_ssm_parameter.jwt.arn,
     ]
   }
@@ -44,6 +41,14 @@ resource "aws_iam_role_policy" "lambda_ssm" {
   policy = data.aws_iam_policy_document.lambda_ssm.json
 }
 
+# Declared explicitly so retention is 14 days. Left to Lambda, the group is
+# auto-created with retention set to never expire, and you pay $0.03/GB-month
+# on those logs forever.
+resource "aws_cloudwatch_log_group" "backend" {
+  name              = "/aws/lambda/${local.name}-backend"
+  retention_in_days = 14
+}
+
 resource "aws_lambda_function" "backend" {
   function_name = "${local.name}-backend"
   role          = aws_iam_role.lambda.arn
@@ -53,24 +58,26 @@ resource "aws_lambda_function" "backend" {
   timeout     = 30
   memory_size = 512
 
-  vpc_config {
-    subnet_ids         = local.private_subnet_ids
-    security_group_ids = [local.lambda_security_group_id]
-  }
+  depends_on = [aws_cloudwatch_log_group.backend]
 
   environment {
     variables = {
       APP_NAME    = "hub"
       ENVIRONMENT = local.environment
 
-      # Turn on SSM-backed secret loading. This flag (not ENVIRONMENT) is what
-      # makes config.py fetch DATABASE_URL + JWT secret from SSM at runtime.
+      # Turn on SSM-backed secret loading.
       USE_SSM = "true"
 
-      # The app fetches secret VALUES from SSM at runtime using these names;
-      # values themselves are never placed in the Lambda environment.
-      DB_PARAM_NAME  = aws_ssm_parameter.app_db.name
-      JWT_PARAM_NAME = aws_ssm_parameter.jwt.name
+      # Parameter NAMES only. Values are fetched at runtime.
+      DB_URL_PARAM_NAME = aws_ssm_parameter.db_url.name
+      JWT_PARAM_NAME    = aws_ssm_parameter.jwt.name
+
+      # CloudFront serves the API at <subdomain>/api/*, so Mangum strips this
+      # prefix before FastAPI sees the path. Routes stay at /projects etc.
+      API_BASE_PATH = "/api"
+
+      # Same-origin in AWS, so this is belt-and-braces rather than required.
+      CORS_ORIGINS = "https://${local.subdomain}"
     }
   }
 }

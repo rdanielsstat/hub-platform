@@ -6,9 +6,19 @@ output "subdomain" {
   value = local.subdomain
 }
 
+output "site_url" {
+  description = "What a reviewer opens."
+  value       = "https://${local.subdomain}"
+}
+
 output "cloudfront_domain" {
   description = "CloudFront domain the subdomain CNAME points at."
   value       = aws_cloudfront_distribution.frontend.domain_name
+}
+
+output "cloudfront_distribution_id" {
+  description = "Needed by CI to invalidate after a frontend deploy."
+  value       = aws_cloudfront_distribution.frontend.id
 }
 
 output "frontend_bucket" {
@@ -22,5 +32,11 @@ output "ecr_repository_url" {
 }
 
 output "api_endpoint" {
-  value = aws_apigatewayv2_api.backend.api_endpoint
+  description = "Direct API Gateway URL. Normal traffic goes via CloudFront /api/*."
+  value       = aws_apigatewayv2_api.backend.api_endpoint
+}
+
+output "deployed_image_tag" {
+  description = "The image tag currently deployed. The promote workflow reads this from dev."
+  value       = var.lambda_image_tag
 }

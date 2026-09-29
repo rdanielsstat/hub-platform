@@ -1,0 +1,121 @@
+# Manual promotion. Takes the image tag CURRENTLY deployed in dev and applies
+# that exact tag to prod. Nothing is rebuilt, so production runs the bytes you
+# tested in dev.
+
+name: Promote to production
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "promote" to confirm'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: us-east-1
+  TOFU_VERSION: 1.12.6
+
+jobs:
+  promote:
+    if: inputs.confirm == 'promote'
+    runs-on: ubuntu-latest
+    environment: prod
+    env:
+      TF_VAR_cloudflare_zone_id: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+      TF_VAR_neon_urls: ${{ secrets.NEON_URLS }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+
+      - name: Read the tag currently live in dev
+        id: tag
+        working-directory: infra/hub
+        run: |
+          tofu init -input=false
+          tofu workspace select dev
+          TAG=$(tofu output -raw deployed_image_tag)
+          if [ "$TAG" = "latest" ]; then
+            echo "dev is on 'latest'; run CI first so a real tag is deployed."
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Promoting $TAG"
+
+      # Copy the exact image from the dev repo into the prod repo. Same digest,
+      # same tag, no rebuild.
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Copy image dev to prod
+        working-directory: infra/hub
+        run: |
+          DEV_REPO=$(tofu output -raw ecr_repository_url)
+          tofu workspace select prod || tofu workspace new prod
+          tofu apply -input=false -auto-approve -target=aws_ecr_repository.backend
+          PROD_REPO=$(tofu output -raw ecr_repository_url)
+          docker pull "$DEV_REPO:${{ steps.tag.outputs.tag }}"
+          docker tag "$DEV_REPO:${{ steps.tag.outputs.tag }}" "$PROD_REPO:${{ steps.tag.outputs.tag }}"
+          docker push "$PROD_REPO:${{ steps.tag.outputs.tag }}"
+
+      - name: Apply prod
+        working-directory: infra/hub
+        run: |
+          tofu workspace select prod
+          tofu apply -input=false -auto-approve -var="lambda_image_tag=${{ steps.tag.outputs.tag }}"
+
+      - name: Bootstrap schema
+        working-directory: infra/hub
+        run: |
+          FN=$(tofu output -raw bootstrap_function_name)
+          aws lambda invoke --function-name "$FN" --cli-binary-format raw-in-base64-out /tmp/bootstrap.json
+          cat /tmp/bootstrap.json
+          grep -q '"errorMessage"' /tmp/bootstrap.json && exit 1 || true
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Build frontend
+        working-directory: frontend
+        env:
+          VITE_API_BASE_URL: /api
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Deploy frontend
+        working-directory: infra/hub
+        run: |
+          BUCKET=$(tofu output -raw frontend_bucket)
+          DIST=$(tofu output -raw cloudfront_distribution_id)
+          aws s3 sync ../../frontend/dist "s3://$BUCKET" --delete
+          aws cloudfront create-invalidation --distribution-id "$DIST" --paths "/*"
+
+      - name: Smoke test
+        working-directory: infra/hub
+        run: |
+          URL=$(tofu output -raw site_url)
+          for i in 1 2 3 4 5; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$URL/api/health") && [ "$code" = "200" ] && exit 0
+            sleep 10
+          done
+          echo "Health check never returned 200"
+          exit 1

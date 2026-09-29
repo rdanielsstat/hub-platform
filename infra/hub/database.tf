@@ -1,37 +1,25 @@
-# Each environment gets its OWN database (inside the shared Aurora cluster) and
-# its OWN credentials. prod and dev share cluster hardware but never a database.
+# Per-environment configuration, stored in SSM Parameter Store.
 #
-# Design seam, stated plainly: the AWS provider can't run CREATE DATABASE /
-# CREATE ROLE inside Postgres — that's a data-plane action on a private cluster
-# reachable only from in-VPC Lambda. So the app's own migrations create/own its
-# schema in a database named per-environment (hub_prod / hub_dev). This file
-# provisions the per-env SSM parameters the app reads at runtime; creating the
-# DB/role is a bootstrap step the app runs, not a Terraform resource.
+# Parameter Store standard parameters are free. There is no Secrets Manager
+# anywhere in this stack, and no VPC, because Neon is reached over the public
+# internet with TLS and the Lambda has ordinary outbound access.
 #
-# Secrets are SSM Parameter Store SecureString (free tier), not Secrets Manager.
+# The app Lambda reads the pooled URL. The bootstrap Lambda reads the direct
+# URL. Neither value is ever placed in a Lambda environment variable; only the
+# parameter NAMES are, and the values are fetched at runtime.
 
-locals {
-  db_name = "hub_${local.environment}" # hub_prod / hub_dev
-}
-
-resource "random_password" "app_db" {
-  length           = 32
-  special          = true
-  override_special = "!#$%&*()-_=+[]{}"
-}
-
-# This environment's DB credentials (JSON), read by the app at runtime.
-resource "aws_ssm_parameter" "app_db" {
-  name        = "/${local.name}/db-credentials"
-  description = "DB credentials for ${local.name}"
+resource "aws_ssm_parameter" "db_url" {
+  name        = "/${local.name}/db-url"
+  description = "Neon pooled connection string for ${local.name}"
   type        = "SecureString"
-  value = jsonencode({
-    username = "${local.db_name}_user"
-    password = random_password.app_db.result
-    host     = local.aurora_cluster_endpoint
-    port     = 5432
-    dbname   = local.db_name
-  })
+  value       = local.neon.pooled
+}
+
+resource "aws_ssm_parameter" "db_url_direct" {
+  name        = "/${local.name}/db-url-direct"
+  description = "Neon direct connection string for ${local.name} (schema bootstrap only)"
+  type        = "SecureString"
+  value       = local.neon.direct
 }
 
 # This environment's JWT signing secret, generated and stored (not hard-coded).

@@ -1,0 +1,142 @@
+# Push to main: test everything, build one image, deploy it to dev.
+# Production is never touched here. See promote.yml.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  id-token: write # required to exchange the GitHub token for AWS credentials
+
+env:
+  AWS_REGION: us-east-1
+  TOFU_VERSION: 1.12.6
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+      - name: Backend tests
+        working-directory: backend
+        run: uv run pytest -q
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Frontend tests
+        working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm test -- --run
+
+  deploy-dev:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: dev
+    env:
+      TF_VAR_cloudflare_zone_id: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+      TF_VAR_neon_urls: ${{ secrets.NEON_URLS }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+
+      - name: Compute image tag
+        id: tag
+        run: echo "tag=$(date -u +%Y%m%d-%H%M%S)-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Init and select workspace
+        working-directory: infra/hub
+        run: |
+          tofu init -input=false
+          tofu workspace select dev || tofu workspace new dev
+
+      # Chicken and egg: a container-image Lambda cannot be created before its
+      # image exists, and the image cannot be pushed before the repo exists.
+      # So create the repo first, push, then apply everything.
+      - name: Ensure ECR repository
+        working-directory: infra/hub
+        run: tofu apply -input=false -auto-approve -target=aws_ecr_repository.backend
+
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+
+      - name: Build and push image
+        working-directory: infra/hub
+        run: |
+          REPO=$(tofu output -raw ecr_repository_url)
+          docker build --target prod -t "$REPO:${{ steps.tag.outputs.tag }}" ../../backend
+          docker push "$REPO:${{ steps.tag.outputs.tag }}"
+
+      - name: Apply
+        working-directory: infra/hub
+        run: tofu apply -input=false -auto-approve -var="lambda_image_tag=${{ steps.tag.outputs.tag }}"
+
+      # Creates tables if they do not exist. Idempotent, runs every deploy.
+      - name: Bootstrap schema
+        working-directory: infra/hub
+        run: |
+          FN=$(tofu output -raw bootstrap_function_name)
+          aws lambda invoke --function-name "$FN" --cli-binary-format raw-in-base64-out /tmp/bootstrap.json
+          cat /tmp/bootstrap.json
+          grep -q '"errorMessage"' /tmp/bootstrap.json && exit 1 || true
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      # VITE_API_BASE_URL is "/api" in every environment because the API is
+      # same-origin behind CloudFront. The built artifact is therefore
+      # identical for dev and prod.
+      - name: Build frontend
+        working-directory: frontend
+        env:
+          VITE_API_BASE_URL: /api
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Deploy frontend
+        working-directory: infra/hub
+        run: |
+          BUCKET=$(tofu output -raw frontend_bucket)
+          DIST=$(tofu output -raw cloudfront_distribution_id)
+          aws s3 sync ../../frontend/dist "s3://$BUCKET" --delete
+          aws cloudfront create-invalidation --distribution-id "$DIST" --paths "/*"
+
+      - name: Smoke test
+        working-directory: infra/hub
+        run: |
+          URL=$(tofu output -raw site_url)
+          for i in 1 2 3 4 5; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$URL/api/health") && [ "$code" = "200" ] && exit 0
+            sleep 10
+          done
+          echo "Health check never returned 200"
+          exit 1

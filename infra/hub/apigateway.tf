@@ -1,4 +1,9 @@
-# HTTP API fronting this environment's Lambda, served at api.<subdomain>.
+# HTTP API fronting this environment's Lambda.
+#
+# CHANGED: there is no custom domain and no api.<subdomain> record any more.
+# CloudFront forwards <subdomain>/api/* to this API's default endpoint, so the
+# browser only ever talks to one origin. That removes a certificate, two DNS
+# records, an API Gateway domain name, a base path mapping, and all CORS.
 
 resource "aws_apigatewayv2_api" "backend" {
   name          = "${local.name}-backend"
@@ -30,19 +35,4 @@ resource "aws_lambda_permission" "apigw" {
   function_name = aws_lambda_function.backend.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.backend.execution_arn}/*/*"
-}
-
-resource "aws_apigatewayv2_domain_name" "backend" {
-  domain_name = "api.${local.subdomain}"
-  domain_name_configuration {
-    certificate_arn = aws_acm_certificate_validation.api.certificate_arn
-    endpoint_type   = "REGIONAL"
-    security_policy = "TLS_1_2"
-  }
-}
-
-resource "aws_apigatewayv2_api_mapping" "backend" {
-  api_id      = aws_apigatewayv2_api.backend.id
-  domain_name = aws_apigatewayv2_domain_name.backend.id
-  stage       = aws_apigatewayv2_stage.backend.id
 }
