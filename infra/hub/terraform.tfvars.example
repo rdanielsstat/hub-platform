@@ -23,8 +23,8 @@ neon_urls = {
 # are happy to publish in the README, and do not reuse a password from
 # anywhere else. Omit an environment entirely to give it no demo account.
 demo_passwords = {
-  dev  = "demo-hub-2026"
-  prod = "demo-hub-2026"
+  dev  = "REPLACE_ME"
+  prod = "REPLACE_ME"
 }
 
 # Optional overrides (defaults shown):
