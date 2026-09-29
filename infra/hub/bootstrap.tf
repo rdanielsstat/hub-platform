@@ -77,3 +77,8 @@ resource "aws_lambda_function" "bootstrap" {
     }
   }
 }
+
+output "bootstrap_function_name" {
+  description = "Invoke this once per deploy (idempotent) before the app goes live."
+  value       = aws_lambda_function.bootstrap.function_name
+}
