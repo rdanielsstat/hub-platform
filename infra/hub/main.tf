@@ -31,6 +31,23 @@ variable "neon_urls" {
   sensitive = true
 }
 
+# Password for the seeded demo account, per workspace. Leave an entry out (or
+# set it to "") and that environment gets NO demo user at all.
+#
+# The password lives in terraform.tfvars (gitignored) and reaches the bootstrap
+# through SSM. It is never in the repo, never in app/db/seed.py, and never the
+# same value as the local demo1234.
+#
+# This is a real, writable, publicly advertised account. Treat its data as
+# disposable: anyone with the credentials can edit or delete it. That is what
+# the "Reset demo data" workflow is for.
+variable "demo_passwords" {
+  description = "Per-environment demo account password. Omit an environment to skip seeding it."
+  type        = map(string)
+  default     = {}
+  sensitive   = true
+}
+
 # The workspace name IS the environment: `prod` or `dev`.
 # Everything below derives from it, so switching workspace switches all names
 # and the subdomain with no other edits.
@@ -47,6 +64,9 @@ locals {
 
   # This environment's Neon strings, selected by workspace.
   neon = lookup(var.neon_urls, local.environment, { pooled = "", direct = "" })
+
+  # Empty string means "no demo account in this environment".
+  demo_password = lookup(var.demo_passwords, local.environment, "")
 }
 
 resource "terraform_data" "guard_env" {

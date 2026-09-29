@@ -19,6 +19,14 @@ neon_urls = {
   }
 }
 
+# Password for the seeded demo account, per environment. Pick something you
+# are happy to publish in the README, and do not reuse a password from
+# anywhere else. Omit an environment entirely to give it no demo account.
+demo_passwords = {
+  dev  = "demo-hub-2026"
+  prod = "demo-hub-2026"
+}
+
 # Optional overrides (defaults shown):
 # aws_region       = "us-east-1"
 # lambda_image_tag = "latest"

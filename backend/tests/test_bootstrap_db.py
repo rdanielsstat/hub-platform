@@ -446,6 +446,8 @@ def cloud_env(monkeypatch: pytest.MonkeyPatch, cloud_ssm_url) -> list[str]:
         "MASTER_DB_HOST",
         "MASTER_DB_USER",
         "MASTER_DB_PASSWORD",
+        # No demo account: tests/test_demo_seed.py covers that path.
+        "DEMO_PASSWORD_PARAM_NAME",
     ):
         monkeypatch.delenv(var, raising=False)
     fetched: list[str] = []

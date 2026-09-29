@@ -5,8 +5,9 @@
 # internet with TLS and the Lambda has ordinary outbound access.
 #
 # The app Lambda reads the pooled URL. The bootstrap Lambda reads the direct
-# URL. Neither value is ever placed in a Lambda environment variable; only the
-# parameter NAMES are, and the values are fetched at runtime.
+# URL and the demo password. Neither value is ever placed in a Lambda
+# environment variable; only the parameter NAMES are, and the values are
+# fetched at runtime.
 
 resource "aws_ssm_parameter" "db_url" {
   name        = "/${local.name}/db-url"
@@ -33,4 +34,15 @@ resource "aws_ssm_parameter" "jwt" {
   description = "JWT signing secret for ${local.name}"
   type        = "SecureString"
   value       = random_password.jwt.result
+}
+
+# Demo account password, created only when this environment has one. When it
+# is absent the bootstrap gets no DEMO_PASSWORD_PARAM_NAME at all and cannot
+# seed a demo user even by accident.
+resource "aws_ssm_parameter" "demo_password" {
+  count       = local.demo_password != "" ? 1 : 0
+  name        = "/${local.name}/demo-password"
+  description = "Password for the seeded demo account in ${local.name}"
+  type        = "SecureString"
+  value       = local.demo_password
 }

@@ -1,10 +1,17 @@
 """Seed data so the API has something to log in to and look at.
 
-Runs only from the local init step (app/db/init_local.py), only with
-SEED_DEMO_DATA on, never with USE_SSM on, and only when the database has
-no users yet: a fresh database gets the demo account and these ten
-projects; an existing database is never re-seeded, duplicated, or
-overwritten on restart.
+Two callers, both of which seed only when the demo account doesn't
+exist yet, so existing data is never re-seeded, duplicated, or
+overwritten:
+
+  - Local: app/db/init_local.py, only with SEED_DEMO_DATA on and never
+    with USE_SSM on, into a database with no users. Uses the default,
+    publicly-known SEED_USER_PASSWORD.
+  - Deployed: app/bootstrap_db.py, only when the environment sets
+    DEMO_PASSWORD_PARAM_NAME, always passing the password it read from
+    SSM. It never falls back to SEED_USER_PASSWORD. Its explicit
+    {"reset_demo": true} invocation deletes the demo account first and
+    then seeds again.
 """
 
 from datetime import date, datetime, timedelta, timezone
@@ -33,10 +40,10 @@ def _end_of_this_year() -> date:
     return date(datetime.now(timezone.utc).year, 12, 31)
 
 
-def seed(store: Store) -> None:
+def seed(store: Store, password: str = SEED_USER_PASSWORD) -> None:
     user = store.create_user(
         email=SEED_USER_EMAIL,
-        password_hash=hash_password(SEED_USER_PASSWORD),
+        password_hash=hash_password(password),
         display_name="Demo User",
     )
 

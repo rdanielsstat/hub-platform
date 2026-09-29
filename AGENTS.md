@@ -58,7 +58,7 @@ uv run pytest                        # run the test suite
 
 - Storage: SQLite via SQLAlchemy (`app/db/`), kept database-agnostic so it
   can move to Postgres later via `DATABASE_URL` with no code change.
-- Auth is roll-your-own: password hashing (argon2 via passlib) + JWT bearer
+- Auth is roll-your-own: password hashing (argon2 via argon2-cffi) + JWT bearer
   tokens (PyJWT), OAuth2 password flow (`app/auth/`). Token-based so the same
   API can serve the web app and a future iOS app.
 - Multi-user with per-user data isolation.

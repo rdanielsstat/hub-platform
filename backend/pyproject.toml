@@ -9,7 +9,6 @@ dependencies = [
     "email-validator>=2.3.0",
     "fastapi>=0.141.1",
     "mangum>=0.22.0",
-    "passlib>=1.7.4",
     "psycopg[binary]>=3.3.6",
     "pyjwt>=2.14.0",
     "python-multipart>=0.0.32",

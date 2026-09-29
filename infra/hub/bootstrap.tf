@@ -5,10 +5,15 @@
 # try/except that hid failures. It happens here instead: once per deploy,
 # explicitly, and it fails loudly.
 #
+# It also seeds the demo account, when this environment has one. The demo
+# password comes from SSM, never from app/db/seed.py's local demo1234. Invoked
+# with {"reset_demo": true} it wipes the demo user's data and re-seeds it,
+# touching no other account.
+#
 # SECURITY BOUNDARY: this is a separate function with its own role. Only this
-# role can read the DIRECT connection string. The app role reads the pooled
-# one. It is not fronted by any API, so nothing can reach it over the network;
-# it runs only when CI invokes it.
+# role can read the DIRECT connection string and the demo password. The app
+# role reads neither. It is not fronted by any API, so nothing can reach it
+# over the network; it runs only when CI invokes it.
 #
 # It runs the SAME image as the app, with the CMD overridden.
 
@@ -32,10 +37,14 @@ resource "aws_iam_role_policy_attachment" "bootstrap_basic" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
+# The demo password ARN is in this list only when the environment has one.
 data "aws_iam_policy_document" "bootstrap_ssm" {
   statement {
-    actions   = ["ssm:GetParameter", "ssm:GetParameters"]
-    resources = [aws_ssm_parameter.db_url_direct.arn]
+    actions = ["ssm:GetParameter", "ssm:GetParameters"]
+    resources = concat(
+      [aws_ssm_parameter.db_url_direct.arn],
+      aws_ssm_parameter.demo_password[*].arn,
+    )
   }
 }
 
@@ -66,15 +75,22 @@ resource "aws_lambda_function" "bootstrap" {
   depends_on = [aws_cloudwatch_log_group.bootstrap]
 
   environment {
-    variables = {
-      APP_NAME    = "hub"
-      ENVIRONMENT = local.environment
-      USE_SSM     = "true"
+    variables = merge(
+      {
+        APP_NAME    = "hub"
+        ENVIRONMENT = local.environment
+        USE_SSM     = "true"
 
-      # Direct (non-pooled) URL: PgBouncer transaction mode is a poor fit for
-      # DDL, so schema work uses the plain endpoint.
-      DB_URL_PARAM_NAME = aws_ssm_parameter.db_url_direct.name
-    }
+        # Direct (non-pooled) URL: PgBouncer transaction mode is a poor fit for
+        # DDL, so schema work uses the plain endpoint.
+        DB_URL_PARAM_NAME = aws_ssm_parameter.db_url_direct.name
+      },
+      # Absent entirely when this environment has no demo account, so absence
+      # is what stops the seeding rather than a flag the code has to honour.
+      local.demo_password != "" ? {
+        DEMO_PASSWORD_PARAM_NAME = aws_ssm_parameter.demo_password[0].name
+      } : {},
+    )
   }
 }
 

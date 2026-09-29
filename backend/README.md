@@ -50,6 +50,7 @@ of it.
 | `CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | No. Comma-separated. Only matters locally; CloudFront makes the deployed site same-origin. |
 | `DB_URL_PARAM_NAME` | — | Only used when `USE_SSM` is on: the SSM parameter name holding the full database URL. |
 | `JWT_PARAM_NAME` | — | Only used when `USE_SSM` is on: the SSM parameter name holding the raw JWT secret. |
+| `DEMO_PASSWORD_PARAM_NAME` | — | Only read by the bootstrap, only in cloud mode: the SSM parameter holding this environment's demo account password. Absent means no demo account. See "Seeded demo account". |
 | `MASTER_DB_HOST` / `MASTER_DB_PORT` / `MASTER_DB_USER` / `MASTER_DB_PASSWORD` | — | Only used by the bootstrap command (below), only in local mode (`USE_SSM` off). Never read by the app itself. |
 
 ### JWT secret guard
@@ -130,6 +131,8 @@ so the bootstrap only creates tables, connecting with the URL in
 `DB_URL_PARAM_NAME`. The deployment points that at the direct
 (non-pooled) endpoint, since PgBouncer's transaction mode is a poor fit
 for DDL. No master credentials, no `CREATE ROLE`, no `CREATE DATABASE`.
+It then seeds the demo account if the environment has one (see "Seeded
+demo account").
 
 **Local (`USE_SSM` off).** Against the Compose Postgres, it:
 
@@ -155,14 +158,32 @@ the `MASTER_DB_*` vars and never holds master credentials.
 
 ## Seeded demo account
 
-With `SEED_DEMO_DATA=true`, `python -m app.db.init_local` seeds one
-user with ten varied projects (and notes) into a database with no users
-yet; an existing one is never re-seeded, duplicated, or overwritten.
-Local only: with `USE_SSM` on, init_local refuses to run and the app
+One user, `demo@hub.dev`, with ten varied projects and their notes
+(`app/db/seed.py`), so there's something to log in to and look at.
+
+**Locally**, with `SEED_DEMO_DATA=true`, `python -m app.db.init_local`
+seeds it into a database with no users yet, with the password
+`demo1234`. An existing database is never re-seeded, duplicated, or
+overwritten. With `USE_SSM` on, init_local refuses to run and the app
 refuses to start if `SEED_DEMO_DATA` is on.
 
-- email: `demo@hub.dev`
-- password: `demo1234`
+**Deployed**, the bootstrap seeds it when the environment has a demo
+account, which is when its Lambda has `DEMO_PASSWORD_PARAM_NAME` set.
+The password comes from that SSM parameter, one per environment, and
+only the bootstrap's role can read it. `demo1234` is never used; a
+missing or empty parameter fails the bootstrap instead. Every deploy
+creates the account only if it doesn't exist yet and otherwise leaves it
+exactly as it is, password included.
+
+It is a real, writable account: anyone with the password can edit or
+delete its projects, and those changes persist across deploys. To put it
+back to the seed data, run the **Reset demo data** workflow from the
+Actions tab, pick the environment, and type `reset` to confirm. That
+invokes the bootstrap with `{"reset_demo": true}`, which deletes the
+demo user and everything it owns (its notes, projects, and login), then
+seeds it again with the current SSM password. No other account's data
+is touched. In an environment without a demo account it refuses and
+deletes nothing.
 
 ## Run the tests
 
@@ -176,7 +197,7 @@ across tests, never a real database.
 
 ## Auth
 
-Roll-your-own: passwords hashed with argon2 (via passlib), JWT bearer
+Roll-your-own: passwords hashed with argon2 (via argon2-cffi), JWT bearer
 tokens (via PyJWT), OAuth2 password flow. `POST /auth/login` takes
 `application/x-www-form-urlencoded` with `username` (the email) and
 `password`, matching openapi.yaml and FastAPI's built-in OAuth2 tooling.

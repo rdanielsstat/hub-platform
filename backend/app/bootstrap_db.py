@@ -9,7 +9,8 @@ USE_SSM:
     this only creates tables, connecting with the URL in
     DB_URL_PARAM_NAME (the direct, non-pooled endpoint: PgBouncer's
     transaction mode is a poor fit for DDL). No master credentials, no
-    CREATE ROLE, no CREATE DATABASE.
+    CREATE ROLE, no CREATE DATABASE. Then seeds the demo account, if
+    this environment has one (see "Demo account" below).
   - Local (USE_SSM off): against the Docker Compose Postgres, creates
     this environment's database and a least-privilege login role for
     the app, grants that role exactly what table creation and normal
@@ -31,20 +32,38 @@ Local mode's two credential sources, kept deliberately separate:
     app/core/config.py's get_database_url() already resolves for the
     app's own DATABASE_URL, so the role created here has the same name
     and password the app will actually connect with.
+
+Demo account (cloud mode only). DEMO_PASSWORD_PARAM_NAME names an SSM
+SecureString holding the demo password, and is absent entirely in an
+environment with no demo account. Absent or empty: nothing is seeded.
+Set: the demo user (app/db/seed.py's email, projects and notes) is
+created with that password if it doesn't exist yet; an existing demo
+user is left exactly as it is. Set but the parameter is missing or
+empty: raise. The local seed's hardcoded password is never used here.
+
+Invoked with {"reset_demo": true} (and only exactly that), the Lambda
+instead deletes the demo user and everything it owns, then seeds it
+again. See reset_demo().
 """
 
 import json
 import os
 import re
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 import psycopg
 from psycopg import errors as pg_errors
 from sqlalchemy import create_engine
 from sqlalchemy.engine import make_url
+from sqlalchemy.orm import sessionmaker
 
 from app.core import config
 from app.db.orm import Base
+from app.db.seed import SEED_USER_EMAIL, seed
+from app.db.session import enable_sqlite_foreign_keys
+from app.db.store import Store
 
 ADMIN_DATABASE = "postgres"
 
@@ -188,9 +207,91 @@ def _create_tables(database_url: str) -> None:
     print("Tables created (any that already existed were left as-is).")
 
 
+@contextmanager
+def _store(database_url: str) -> Iterator[Store]:
+    """A Store on its own engine, disposed afterwards, for the same
+    reason as _create_tables()."""
+    engine = create_engine(database_url)
+    enable_sqlite_foreign_keys(engine, database_url)
+    db = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)()
+    try:
+        yield Store(db)
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def _demo_password_param_name() -> str | None:
+    """The SSM parameter holding this environment's demo password, or
+    None when the environment has no demo account."""
+    return os.environ.get("DEMO_PASSWORD_PARAM_NAME", "").strip() or None
+
+
+def _read_demo_password(param_name: str) -> str:
+    """Raises rather than returning an empty password; a missing
+    parameter raises from the SSM client itself."""
+    password = config._fetch_ssm_parameter(param_name)
+    if not password.strip():
+        raise RuntimeError(
+            f"SSM parameter {param_name!r} (DEMO_PASSWORD_PARAM_NAME) is "
+            "empty. Refusing to create the demo account without a password."
+        )
+    return password
+
+
+def _seed_demo_account(database_url: str) -> None:
+    param_name = _demo_password_param_name()
+    if param_name is None:
+        print("DEMO_PASSWORD_PARAM_NAME is not set: no demo account here, not seeding.")
+        return
+    password = _read_demo_password(param_name)
+    with _store(database_url) as store:
+        if store.get_user_by_email(SEED_USER_EMAIL) is not None:
+            print(f"Demo account {SEED_USER_EMAIL!r} already exists, leaving it as-is.")
+            return
+        seed(store, password=password)
+    print(f"Seeded demo account {SEED_USER_EMAIL!r}.")
+
+
+def reset_demo() -> dict[str, str]:
+    """Delete the demo user and everything it owns, then seed it again
+    with the current password from SSM. Touches only rows owned by the
+    demo user (see Store.delete_user_and_owned_data). Refuses, before
+    deleting anything, outside cloud mode or when this environment has
+    no usable demo password."""
+    if not config.USE_SSM:
+        raise RuntimeError(
+            "reset_demo only runs in a deployed environment (USE_SSM on). "
+            "Nothing was deleted."
+        )
+    param_name = _demo_password_param_name()
+    if param_name is None:
+        raise RuntimeError(
+            "DEMO_PASSWORD_PARAM_NAME is not set: this environment has no "
+            "demo account. Refusing to reset. Nothing was deleted."
+        )
+    password = _read_demo_password(param_name)
+
+    database_url = config.get_database_url()
+    _create_tables(database_url)
+    with _store(database_url) as store:
+        existing = store.get_user_by_email(SEED_USER_EMAIL)
+        if existing is not None:
+            store.delete_user_and_owned_data(existing.id)
+            print(f"Deleted demo account {SEED_USER_EMAIL!r} and everything it owned.")
+        seed(store, password=password)
+    print(f"Seeded demo account {SEED_USER_EMAIL!r}.")
+    return {
+        "status": "ok",
+        "message": f"Demo account {SEED_USER_EMAIL} reset to the seed data.",
+    }
+
+
 def bootstrap() -> None:
     if config.USE_SSM:
-        _create_tables(config.get_database_url())
+        database_url = config.get_database_url()
+        _create_tables(database_url)
+        _seed_demo_account(database_url)
         return
 
     master = get_master_credentials()
@@ -241,9 +342,13 @@ def lambda_handler(event: object, context: object) -> dict[str, str]:
 
     Unlike main() below, this does not catch exceptions: a failed
     bootstrap must propagate and show up as a failed Lambda invocation,
-    not a quietly-successful one. `event`/`context` are unused — this
-    isn't triggered by any particular event shape, just invoked.
+    not a quietly-successful one. `context` is unused. `event` matters
+    only when it is exactly {"reset_demo": true}, which runs
+    reset_demo() instead; any other event (none, {}, "reset_demo":
+    false, a truthy non-boolean) is a normal bootstrap.
     """
+    if isinstance(event, dict) and event.get("reset_demo") is True:
+        return reset_demo()
     bootstrap()
     return {"status": "ok", "message": "Bootstrap complete."}
 

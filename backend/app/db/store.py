@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
 from fastapi import Depends
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -180,6 +180,30 @@ class Store:
         if identity is None:
             return None
         return _user_record(user, identity)
+
+    def delete_user_and_owned_data(self, user_id: str) -> None:
+        """Delete one user and everything they own, in one transaction:
+        notes on their projects, their projects, their auth identities,
+        then the user row. Used only by the demo reset (see
+        app/bootstrap_db.py). Every statement is filtered by this user's
+        id, rather than relying on the FK cascades, so what gets deleted
+        is visible here and doesn't depend on SQLite's FK pragma."""
+        owned_projects = select(ProjectTable.id).where(ProjectTable.owner_id == user_id)
+        try:
+            self._db.execute(
+                delete(NoteTable).where(NoteTable.project_id.in_(owned_projects))
+            )
+            self._db.execute(
+                delete(ProjectTable).where(ProjectTable.owner_id == user_id)
+            )
+            self._db.execute(
+                delete(AuthIdentityTable).where(AuthIdentityTable.user_id == user_id)
+            )
+            self._db.execute(delete(UserTable).where(UserTable.id == user_id))
+            self._db.commit()
+        except Exception:
+            self._db.rollback()
+            raise
 
     def _get_password_identity(self, user_id: str) -> AuthIdentityTable | None:
         return self._db.scalar(
