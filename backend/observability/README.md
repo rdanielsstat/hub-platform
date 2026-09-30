@@ -50,17 +50,12 @@ up almost immediately.
 
 ## Point the backend at it
 
-The backend already defaults to `http://localhost:4318` when
-`OTEL_EXPORTER_OTLP_ENDPOINT` is unset, so from `backend/`:
+Observability is off unless `OTEL_ENABLED=true`. With it on and
+`OTEL_EXPORTER_OTLP_ENDPOINT` unset, the backend exports to
+`http://localhost:4318`, so from `backend/`:
 
 ```
-uv run uvicorn app.main:app --reload
-```
-
-Or set it explicitly:
-
-```
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 uv run uvicorn app.main:app --reload
+OTEL_ENABLED=true uv run uvicorn app.main:app --reload
 ```
 
 At startup the backend prints

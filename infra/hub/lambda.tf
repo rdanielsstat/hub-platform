@@ -61,7 +61,8 @@ resource "aws_lambda_function" "backend" {
   depends_on = [aws_cloudwatch_log_group.backend]
 
   environment {
-    variables = {
+    # local.otel_env (main.tf) adds the OTel settings in dev only.
+    variables = merge({
       APP_NAME    = "hub"
       ENVIRONMENT = local.environment
 
@@ -78,6 +79,6 @@ resource "aws_lambda_function" "backend" {
 
       # Same-origin in AWS, so this is belt-and-braces rather than required.
       CORS_ORIGINS = "https://${local.subdomain}"
-    }
+    }, local.otel_env)
   }
 }

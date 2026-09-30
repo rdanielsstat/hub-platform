@@ -47,6 +47,7 @@ of it.
 | `HUB_JWT_SECRET` | a known dev-only string | **Yes, if `USE_SSM` is off.** See below. Ignored if `USE_SSM` is on. |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | No. |
 | `SEED_DEMO_DATA` | off | No. Local only: lets `python -m app.db.init_local` seed the demo account. Must be off with `USE_SSM` on; the app refuses to start otherwise. |
+| `OTEL_ENABLED` | off | No. On exports traces and metrics via OpenTelemetry (`observability/`). Set for the dev Lambda by OpenTofu; see `observability/README.md` for local use. |
 | `CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | No. Comma-separated. Only matters locally; CloudFront makes the deployed site same-origin. |
 | `DB_URL_PARAM_NAME` | — | Only used when `USE_SSM` is on: the SSM parameter name holding the full database URL. |
 | `JWT_PARAM_NAME` | — | Only used when `USE_SSM` is on: the SSM parameter name holding the raw JWT secret. |

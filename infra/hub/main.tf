@@ -48,6 +48,26 @@ variable "demo_passwords" {
   sensitive   = true
 }
 
+# Grafana Cloud OTLP settings for the dev Lambda (lambda.tf), exactly as
+# Grafana's OTLP setup page gives them. Dev only for now: prod gets no
+# OTel variables at all. CI supplies them as TF_VAR_otel_endpoint_dev /
+# TF_VAR_otel_headers_dev from the dev environment's secrets; locally,
+# terraform.tfvars (gitignored). The "" defaults exist only so prod
+# applies (promote.yml) don't need them: guard_otel_dev below fails any
+# dev plan where either is missing.
+variable "otel_endpoint_dev" {
+  description = "OTEL_EXPORTER_OTLP_ENDPOINT for the dev Lambda."
+  type        = string
+  default     = ""
+}
+
+variable "otel_headers_dev" {
+  description = "OTEL_EXPORTER_OTLP_HEADERS for the dev Lambda (carries the Grafana token)."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
 # The workspace name IS the environment: `prod` or `dev`.
 # Everything below derives from it, so switching workspace switches all names
 # and the subdomain with no other edits.
@@ -67,6 +87,16 @@ locals {
 
   # Empty string means "no demo account in this environment".
   demo_password = lookup(var.demo_passwords, local.environment, "")
+
+  # OpenTelemetry export to Grafana Cloud: dev only. Empty in prod, so
+  # the prod Lambda's environment is unchanged and OTEL_ENABLED stays off.
+  otel_env = {
+    for k, v in {
+      OTEL_ENABLED                = "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT = var.otel_endpoint_dev
+      OTEL_EXPORTER_OTLP_HEADERS  = var.otel_headers_dev
+    } : k => v if local.environment == "dev"
+  }
 }
 
 resource "terraform_data" "guard_env" {
@@ -87,6 +117,19 @@ resource "terraform_data" "guard_neon" {
     precondition {
       condition     = local.neon.pooled != "" && local.neon.direct != ""
       error_message = "No neon_urls entry for this workspace. Add it to terraform.tfvars (or TF_VAR_neon_urls in CI)."
+    }
+  }
+}
+
+# Fail the dev plan loudly if the Grafana settings are missing, rather
+# than deploying a dev Lambda that exports nowhere.
+resource "terraform_data" "guard_otel_dev" {
+  count = local.environment == "dev" ? 1 : 0
+
+  lifecycle {
+    precondition {
+      condition     = var.otel_endpoint_dev != "" && var.otel_headers_dev != ""
+      error_message = "otel_endpoint_dev and otel_headers_dev must be set for dev. Add them to terraform.tfvars (or TF_VAR_otel_endpoint_dev / TF_VAR_otel_headers_dev in CI)."
     }
   }
 }

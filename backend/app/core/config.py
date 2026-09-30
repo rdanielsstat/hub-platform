@@ -42,6 +42,12 @@ USE_SSM = env_flag("USE_SSM")
 # a deployed database.
 SEED_DEMO_DATA = env_flag("SEED_DEMO_DATA")
 
+# On: export traces and metrics via OpenTelemetry (observability/, set
+# up in app/main.py). Off by default, so local runs and tests never
+# export unless asked, even with OTEL_EXPORTER_OTLP_ENDPOINT set in a
+# .env. Where it goes is observability/config.py's concern.
+OTEL_ENABLED = env_flag("OTEL_ENABLED")
+
 _DEFAULT_CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
 

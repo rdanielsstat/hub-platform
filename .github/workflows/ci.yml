@@ -51,6 +51,10 @@ jobs:
       TF_VAR_neon_urls: ${{ secrets.NEON_URLS }}
       TF_VAR_demo_passwords: ${{ secrets.DEMO_PASSWORDS }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      # Grafana Cloud OTLP settings for the dev Lambda only (secrets on
+      # the dev environment). promote.yml deliberately doesn't pass them.
+      TF_VAR_otel_endpoint_dev: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT_DEV }}
+      TF_VAR_otel_headers_dev: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS_DEV }}
     steps:
       - uses: actions/checkout@v4
 
