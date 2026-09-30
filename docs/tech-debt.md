@@ -27,6 +27,11 @@
   Current backend tests use in-memory SQLite.
 - Makefile for the common commands.
 
+## Observability
+
+- Prod Lambda Grafana Cloud wiring (new instance, separate tokens).
+- Prod SERVICE_VERSION SemVer versioning (follow CI/CD pattern from dev).
+
 ## Deferred features
 
 - Attachments. Needs an upload-mechanism decision (direct-to-S3 presigned vs
