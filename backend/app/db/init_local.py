@@ -9,17 +9,25 @@ Refuses to run at all when USE_SSM is on: deployed databases get their
 schema from the bootstrap, and must never receive the demo account and
 its hardcoded password.
 
+Reads backend/.env when run as a script (see main()), so SEED_DEMO_DATA
+and DATABASE_URL can live there instead of on the command line.
+
 Idempotent: create_tables() only creates what's missing, and seeding
 only ever happens into a database with no users, so an existing
 database is never re-seeded, duplicated, or overwritten.
 """
 
 import sys
+from pathlib import Path
+
+from dotenv import load_dotenv
 
 from app.core import config
 from app.db.seed import seed
 from app.db.session import SessionLocal, create_tables
 from app.db.store import Store
+
+ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 
 
 def init_local(
@@ -48,8 +56,18 @@ def init_local(
 
 
 def main() -> None:
+    # Only here, not at import: importing this module (as the tests do)
+    # must never pull a developer's .env into the process. Existing env
+    # vars win over the file. The flags are then re-read rather than
+    # taken from config's constants, which were fixed when config was
+    # imported, before the file was loaded. DATABASE_URL needs nothing
+    # extra: config reads it lazily on first use.
+    load_dotenv(ENV_FILE)
     try:
-        init_local()
+        init_local(
+            use_ssm=config.env_flag("USE_SSM"),
+            seed_demo_data=config.env_flag("SEED_DEMO_DATA"),
+        )
     except Exception as exc:
         print(f"Local database init failed: {exc!r}", file=sys.stderr)
         raise SystemExit(1)
