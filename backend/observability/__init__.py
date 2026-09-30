@@ -212,7 +212,12 @@ def _setup(
     # since the last 60s tick aren't lost when the process freezes.
     app.router.add_event_handler("shutdown", handle.flush)
 
-    where = "Grafana Cloud" if config.target == "grafana" else "local collector"
+    if "grafana.net" in config.endpoint:
+        where = "Grafana Cloud"
+    elif "localhost" in config.endpoint:
+        where = "local collector"
+    else:
+        where = config.endpoint
     _log(
         f"exporting traces and metrics to {where} at {config.endpoint} "
         f"(service.version={config.service_version}, "
