@@ -95,6 +95,9 @@ locals {
       OTEL_ENABLED                = "true"
       OTEL_EXPORTER_OTLP_ENDPOINT = var.otel_endpoint_dev
       OTEL_EXPORTER_OTLP_HEADERS  = var.otel_headers_dev
+      # The deployed image tag (CI's -var lambda_image_tag), reported as
+      # the service.version resource attribute on all telemetry.
+      SERVICE_VERSION = var.lambda_image_tag
     } : k => v if local.environment == "dev"
   }
 }
