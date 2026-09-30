@@ -35,6 +35,7 @@ from tests.conftest import TEST_PASSWORD
 OPENAPI_PATH = Path(__file__).resolve().parents[2] / "openapi.yaml"
 
 _OBSERVABILITY_VARS = (
+    "SERVICE_VERSION",
     "LAMBDA_IMAGE_TAG",
     "ENVIRONMENT",
     "OTEL_EXPORTER_OTLP_ENDPOINT",
@@ -147,6 +148,21 @@ def test_resource_attribute_defaults() -> None:
     assert config.service_name == "hub-platform"
     assert config.service_version == "local-dev"
     assert config.environment == "dev"
+
+
+def test_service_version_from_service_version_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SERVICE_VERSION", "20260930-120000-abc1234")
+    assert load_config().service_version == "20260930-120000-abc1234"
+
+
+def test_service_version_wins_over_lambda_image_tag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SERVICE_VERSION", "from-service-version")
+    monkeypatch.setenv("LAMBDA_IMAGE_TAG", "from-lambda-image-tag")
+    assert load_config().service_version == "from-service-version"
 
 
 def test_tracer_provider_uses_simple_span_processor() -> None:

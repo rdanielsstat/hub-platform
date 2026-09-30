@@ -10,7 +10,10 @@ on localhost:4318.
     OTEL_EXPORTER_OTLP_HEADERS   Comma-separated key=value pairs, values
                                  URL-encoded, e.g.
                                  Authorization=Basic%20<base64 token>
-    LAMBDA_IMAGE_TAG             service.version (default "local-dev").
+    SERVICE_VERSION              service.version; the dev Lambda gets its
+                                 image tag here (infra/hub).
+    LAMBDA_IMAGE_TAG             service.version if SERVICE_VERSION is
+                                 unset (default "local-dev").
     ENVIRONMENT                  deployment.environment (default "dev").
     OTEL_SDK_DISABLED            "true" turns observability off entirely.
 """
@@ -62,7 +65,11 @@ def load_config() -> ObservabilityConfig:
 
     return ObservabilityConfig(
         service_name=SERVICE_NAME,
-        service_version=os.environ.get("LAMBDA_IMAGE_TAG") or "local-dev",
+        service_version=(
+            os.environ.get("SERVICE_VERSION")
+            or os.environ.get("LAMBDA_IMAGE_TAG")
+            or "local-dev"
+        ),
         environment=os.environ.get("ENVIRONMENT") or "dev",
         endpoint=endpoint,
         target=target,
