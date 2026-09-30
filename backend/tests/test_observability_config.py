@@ -80,3 +80,21 @@ def test_only_deploy_dev_gets_the_dev_otel_secrets() -> None:
     assert env["TF_VAR_otel_endpoint_dev"] == "${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT_DEV }}"
     assert env["TF_VAR_otel_headers_dev"] == "${{ secrets.OTEL_EXPORTER_OTLP_HEADERS_DEV }}"
     assert "OTEL_EXPORTER_OTLP" not in PROMOTE_PATH.read_text()
+
+
+def test_deploy_dev_passes_semver_service_version() -> None:
+    ci = yaml.safe_load(CI_PATH.read_text())
+    steps = ci["jobs"]["deploy-dev"]["steps"]
+
+    (checkout,) = [s for s in steps if s.get("uses", "").startswith("actions/checkout")]
+    # git describe needs the history and tags; the default is depth 1.
+    assert checkout["with"]["fetch-depth"] == 0
+
+    (compute,) = [s for s in steps if s.get("id") == "tag"]
+    assert ".github/scripts/service-version.sh" in compute["run"]
+    assert 'version=' in compute["run"]
+
+    (apply,) = [s for s in steps if s.get("name") == "Apply"]
+    assert '-var="service_version=${{ steps.tag.outputs.version }}"' in apply["run"]
+    # Image tags stay unique per build.
+    assert '-var="lambda_image_tag=${{ steps.tag.outputs.tag }}"' in apply["run"]

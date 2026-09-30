@@ -186,6 +186,30 @@ seeds it again with the current SSM password. No other account's data
 is touched. In an environment without a demo account it refuses and
 deletes nothing.
 
+## Releases and SERVICE_VERSION
+
+Every merge to `main` deploys dev; no tag is needed. The dev Lambda
+reports a SemVer `SERVICE_VERSION` (the `service.version` on its
+telemetry), derived from the nearest `vX.Y.Z` git tag by
+`.github/scripts/service-version.sh`:
+
+| HEAD | SERVICE_VERSION |
+|---|---|
+| no release tag yet | `0.0.0+<sha>` |
+| tagged `v1.2.0` | `1.2.0` |
+| 2 commits after `v1.2.0` | `1.2.0+2.g<sha>` |
+
+To mark a release, tag the commit on `main` and push the tag:
+
+```
+git tag -a v1.2.0 -m "v1.2.0"
+git push origin v1.2.0
+```
+
+Pushing a tag doesn't deploy anything by itself; the version shows up on
+the next deploy of that commit or a later one. Image tags are unaffected:
+they stay `<timestamp>-<sha>`, unique per build.
+
 ## Run the tests
 
 ```
