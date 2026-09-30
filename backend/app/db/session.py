@@ -8,7 +8,8 @@ FK enforcement, which Postgres already does natively).
 
 from collections.abc import Iterator
 
-from sqlalchemy import create_engine, event
+import sqlalchemy
+from sqlalchemy import event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -61,7 +62,11 @@ def _get_engine() -> Engine:
         # request. Neon's pooler closes idle connections and its compute
         # scales to zero, so a warm Lambda routinely holds dead ones.
         # A pool-level option, valid for every dialect, SQLite included.
-        engine = create_engine(
+        # sqlalchemy.create_engine, looked up here rather than imported
+        # by name: OpenTelemetry's SQLAlchemy instrumentation patches the
+        # module attribute at startup (observability/), after this module
+        # was imported, and a name bound at import would bypass it.
+        engine = sqlalchemy.create_engine(
             database_url, connect_args=connect_args, pool_pre_ping=True
         )
         enable_sqlite_foreign_keys(engine, database_url)

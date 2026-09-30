@@ -8,6 +8,10 @@ import os
 # DATABASE_URL some developer happens to have set in their shell, let
 # alone the dev hub.db file.
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
+# Same idea for telemetry: the app imported below must never try to
+# export to a real collector. tests/test_observability.py builds its own
+# instrumented apps with in-memory exporters instead.
+os.environ["OTEL_SDK_DISABLED"] = "true"
 
 from collections.abc import Iterator  # noqa: E402
 

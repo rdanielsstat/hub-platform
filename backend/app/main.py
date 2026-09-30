@@ -9,6 +9,7 @@ from app.core.config import (
     require_safe_seed_setting,
 )
 from app.routers import auth, health, notes, projects
+from observability import initialize_observability
 
 # First thing at startup, and deliberately not wrapped in try/except:
 # a JWT secret that can't be loaded (SSM unreachable, parameter
@@ -35,6 +36,10 @@ app = FastAPI(
     redoc_url="/redoc" if _docs_enabled else None,
     openapi_url="/openapi.json" if _docs_enabled else None,
 )
+
+# Traces and metrics to Grafana Cloud (or a local collector). Never
+# raises: a broken telemetry setup is logged and the app runs without it.
+initialize_observability(app)
 
 app.add_middleware(
     CORSMiddleware,

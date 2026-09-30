@@ -22,6 +22,7 @@ COPY --from=deps /src/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt --target "${LAMBDA_TASK_ROOT}"
 
 COPY app ${LAMBDA_TASK_ROOT}/app
+COPY observability ${LAMBDA_TASK_ROOT}/observability
 
 # Mangum-wrapped FastAPI app; see app/lambda_handler.py.
 CMD ["app.lambda_handler.handler"]
@@ -35,6 +36,7 @@ COPY --from=deps /src/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
+COPY observability ./observability
 
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
