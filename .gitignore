@@ -29,3 +29,5 @@ crash.log
 # local secrets
 *.env
 .env
+
+temp
