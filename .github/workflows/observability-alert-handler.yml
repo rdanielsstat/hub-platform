@@ -1,0 +1,64 @@
+# On-call agent, stage 5: an alert comes in, OpenAI writes a short
+# diagnostic. For now it's triggered by hand (workflow_dispatch) to test
+# the flow; the Grafana alert webhook comes later.
+#
+# Runs in the observability-oncall environment, which requires a
+# reviewer's approval before the job starts (and so before any OpenAI
+# spend). The diagnostic lands in the run log and the job summary.
+#
+# Spend guard: backend/oncall/diagnose.py estimates the monthly cost
+# (one call x runs_per_month) and skips the OpenAI call, with a warning,
+# if that exceeds $5/month. It's an estimate; no billing API is queried.
+#
+# Model and prices default to gpt-4o-mini; override with the repo
+# variables ONCALL_OPENAI_MODEL, ONCALL_INPUT_PRICE_PER_M and
+# ONCALL_OUTPUT_PRICE_PER_M (USD per 1M tokens) when switching models.
+
+name: Observability alert handler
+
+on:
+  workflow_dispatch:
+    inputs:
+      alert_summary:
+        description: Alert to diagnose
+        required: true
+        type: string
+        default: >-
+          High error rate on registration: auth_register_post_errors_total
+          is 25% of auth_register_post_total over the last 15 minutes
+          (normally under 1%), mostly HTTP 500s.
+      runs_per_month:
+        description: Expected runs per month, for the $5/month spend estimate
+        required: true
+        type: number
+        default: 30
+
+permissions:
+  contents: read
+
+concurrency:
+  group: observability-oncall
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    environment: observability-oncall
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Diagnose alert
+        working-directory: backend
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ONCALL_MODEL: ${{ vars.ONCALL_OPENAI_MODEL || 'gpt-4o-mini' }}
+          ONCALL_INPUT_PRICE_PER_M: ${{ vars.ONCALL_INPUT_PRICE_PER_M || '0.15' }}
+          ONCALL_OUTPUT_PRICE_PER_M: ${{ vars.ONCALL_OUTPUT_PRICE_PER_M || '0.60' }}
+          ALERT_SUMMARY: ${{ inputs.alert_summary }}
+          ONCALL_RUNS_PER_MONTH: ${{ inputs.runs_per_month }}
+        run: python -m oncall.diagnose
