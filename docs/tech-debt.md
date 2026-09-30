@@ -33,3 +33,30 @@
   after five minutes, so the first request after idle is slow. Not yet
   root-caused; also entangled with an environment quirk seen in the automated
   browser tab.
+
+## Project requirements
+
+- Root `README.md`.
+- `product-spec.md` at the repo root. Currently `docs/specs.md`.
+- Separate unit and integration tests with markers or subdirectories, and
+  document the command for each.
+- `ops/` directory.
+- `security/` directory, containing:
+  - PR audit output
+  - deterministic security scan output (checkov or tfsec over `infra/`,
+    pip-audit over backend deps, trivy over the image)
+  - agent and extension security notes
+  - operational diagnosis output
+  - AI tool and data policy
+- `agent-capabilities/`, `agent-hooks/`, `mcp-server/`, and either `plugins/`
+  or `custom-agent/`, plus `docs/agent-extension-pack.md` and
+  `docs/permissions.md`. Needs a reusable workflow, a subagent, an MCP tool or
+  server, and a hook or guardrail.
+- Promote to prod so `hub.dnls.dev` is live.
+- Make the repo public before peer review.
+- Do not destroy the stack until peer review is finished.
+
+## Housekeeping
+
+- `AGENTS.md` says storage "can move to Postgres later via DATABASE_URL".
+  Postgres is already in use, locally and deployed.
