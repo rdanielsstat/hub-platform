@@ -48,6 +48,21 @@ variable "demo_passwords" {
   sensitive   = true
 }
 
+# SemVer reported as SERVICE_VERSION (service.version on telemetry) by the
+# dev Lambda. CI derives it from git tags (.github/scripts/service-version.sh):
+# 1.2.0 on a release tag, 1.2.0+2.g<sha> after it, 0.0.0+<sha> before any.
+# Separate from lambda_image_tag, which must stay unique per build.
+variable "service_version" {
+  description = "SemVer for SERVICE_VERSION, e.g. 1.2.0 or 1.2.0+3.gabc1234."
+  type        = string
+  default     = "0.0.0+local"
+
+  validation {
+    condition     = can(regex("^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$", var.service_version))
+    error_message = "service_version must be SemVer without a leading v, e.g. 1.2.0 or 1.2.0+3.gabc1234."
+  }
+}
+
 # Grafana Cloud OTLP settings for the dev Lambda (lambda.tf), exactly as
 # Grafana's OTLP setup page gives them. Dev only for now: prod gets no
 # OTel variables at all. CI supplies them as TF_VAR_otel_endpoint_dev /
@@ -95,9 +110,9 @@ locals {
       OTEL_ENABLED                = "true"
       OTEL_EXPORTER_OTLP_ENDPOINT = var.otel_endpoint_dev
       OTEL_EXPORTER_OTLP_HEADERS  = var.otel_headers_dev
-      # The deployed image tag (CI's -var lambda_image_tag), reported as
-      # the service.version resource attribute on all telemetry.
-      SERVICE_VERSION = var.lambda_image_tag
+      # SemVer from git tags (CI's -var service_version), reported as the
+      # service.version resource attribute on all telemetry.
+      SERVICE_VERSION = var.service_version
     } : k => v if local.environment == "dev"
   }
 }

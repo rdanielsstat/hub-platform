@@ -57,6 +57,9 @@ jobs:
       TF_VAR_otel_headers_dev: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS_DEV }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history and tags, for service-version.sh's git describe.
+          fetch-depth: 0
 
       - uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -67,9 +70,13 @@ jobs:
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
 
-      - name: Compute image tag
+      # tag: the image tag, unique per build (promote.yml relies on that).
+      # version: SemVer from the nearest vX.Y.Z git tag, for SERVICE_VERSION.
+      - name: Compute image tag and version
         id: tag
-        run: echo "tag=$(date -u +%Y%m%d-%H%M%S)-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "tag=$(date -u +%Y%m%d-%H%M%S)-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "version=$(bash .github/scripts/service-version.sh)" >> "$GITHUB_OUTPUT"
 
       - name: Init and select workspace
         working-directory: infra/hub
@@ -96,7 +103,10 @@ jobs:
 
       - name: Apply
         working-directory: infra/hub
-        run: tofu apply -input=false -auto-approve -var="lambda_image_tag=${{ steps.tag.outputs.tag }}"
+        run: >-
+          tofu apply -input=false -auto-approve
+          -var="lambda_image_tag=${{ steps.tag.outputs.tag }}"
+          -var="service_version=${{ steps.tag.outputs.version }}"
 
       # Creates tables if they do not exist. Idempotent, runs every deploy.
       - name: Bootstrap schema
