@@ -1,0 +1,26 @@
+# Single-binary Tempo with local storage, based on Tempo's own
+# single-binary docker-compose example. Receives OTLP/gRPC from the
+# collector; Grafana queries it on 3200.
+stream_over_http_enabled: true
+
+server:
+  http_listen_port: 3200
+  log_level: warn
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks
+
+usage_report:
+  reporting_enabled: false
