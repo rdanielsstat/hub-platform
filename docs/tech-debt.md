@@ -20,6 +20,13 @@
 - Move to Alembic. `create_all()` creates missing tables but cannot alter
   existing ones.
 
+## Testing
+
+- End-to-end tests with Playwright, run against Docker Compose.
+- Integration tests that run against Docker Compose and real Postgres.
+  Current backend tests use in-memory SQLite.
+- Makefile for the common commands.
+
 ## Deferred features
 
 - Attachments. Needs an upload-mechanism decision (direct-to-S3 presigned vs
