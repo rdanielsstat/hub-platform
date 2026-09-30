@@ -2,8 +2,8 @@
 to Grafana Cloud, or to a local collector when Grafana isn't configured
 (see config.py).
 
-Call initialize_observability(app) once, right after creating the
-FastAPI app. It never raises: a bad config or unreachable collector
+Call initialize_observability(app, enabled=...) once, right after
+creating the FastAPI app; app/main.py passes the OTEL_ENABLED setting. It never raises: a bad config or unreachable collector
 is reported and the app carries on without (or with degraded)
 telemetry.
 """
@@ -110,6 +110,7 @@ class _FailFastSpanExporter(SpanExporter):
 def initialize_observability(
     app: FastAPI,
     *,
+    enabled: bool = True,
     span_exporter: SpanExporter | None = None,
     metric_reader: MetricReader | None = None,
 ) -> Observability | None:
@@ -117,7 +118,11 @@ def initialize_observability(
 
     span_exporter / metric_reader replace the OTLP ones; tests pass
     in-memory versions. Returns None when disabled or when setup fails.
+    enabled=False skips everything: no instrumentation, no exporters.
     """
+    if not enabled:
+        _log("disabled")
+        return None
     try:
         config = load_config()
         if config.disabled:

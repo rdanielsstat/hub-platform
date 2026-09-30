@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import (
     CORS_ORIGINS,
+    OTEL_ENABLED,
     get_jwt_secret,
     is_local_environment,
     require_safe_jwt_secret,
@@ -37,9 +38,10 @@ app = FastAPI(
     openapi_url="/openapi.json" if _docs_enabled else None,
 )
 
-# Traces and metrics to Grafana Cloud (or a local collector). Never
-# raises: a broken telemetry setup is logged and the app runs without it.
-initialize_observability(app)
+# Traces and metrics to Grafana Cloud (or a local collector), only with
+# OTEL_ENABLED on. Never raises: a broken telemetry setup is logged and
+# the app runs without it.
+initialize_observability(app, enabled=OTEL_ENABLED)
 
 app.add_middleware(
     CORSMiddleware,
