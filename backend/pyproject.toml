@@ -13,6 +13,7 @@ dependencies = [
     "opentelemetry-instrumentation-fastapi>=0.66b0",
     "opentelemetry-instrumentation-sqlalchemy>=0.66b0",
     "opentelemetry-sdk>=1.45.0",
+    "playwright>=1.63.0",
     "psycopg[binary]>=3.3.6",
     "pyjwt>=2.14.0",
     "python-dotenv>=1.2.3",

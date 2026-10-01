@@ -16,6 +16,8 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    // Unit tests only; Playwright specs in tests/ run via playwright test.
+    include: ['src/**/*.test.{ts,tsx}'],
     setupFiles: ['./src/test-setup.ts'],
   },
 })
