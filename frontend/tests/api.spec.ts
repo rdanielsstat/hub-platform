@@ -22,10 +22,6 @@ import {
  * Live API tests against the running FastAPI server (localhost:8000),
  * using only Playwright's request fixture; no browser. Every test makes
  * its own user(s), so tests are isolated and run in parallel.
- *
- * Tests marked test.fail() assert the correct behavior for a known bug
- * and pass while the bug exists. When the bug is fixed, Playwright
- * reports them as "unexpectedly passed": drop the test.fail() line then.
  */
 
 const url = (path: string) => `${API_URL}${path}`
@@ -936,13 +932,10 @@ test.describe('projects', () => {
       expect(res.status()).toBe(405)
     })
 
-    // Known bug: UpdateProjectInput types every field as optional-and-
-    // nullable, but only targetDate is nullable in the database. An
-    // explicit null for any other field gets past validation and fails in
-    // the store: NOT NULL columns raise IntegrityError (500), and for
-    // tags/links the null is actually saved, after which every read of the
-    // project (including GET /projects for the whole account) is a 500.
-    // Expected: 422, and the project stays readable.
+    // Only targetDate may be null. Before this was validated, a null for
+    // any other field was a 500, and for tags/links it was saved and broke
+    // every later read of the project, including GET /projects for the
+    // whole account.
     for (const field of [
       'name',
       'pitch',
@@ -958,9 +951,8 @@ test.describe('projects', () => {
       test(`explicit null for ${field} is rejected and leaves the project intact`, async ({
         request,
       }) => {
-        test.fail(true, 'PATCH with null for a non-nullable field returns 500')
         const res = await patch(request, project.id, { [field]: null })
-        expect(res.status()).toBe(422)
+        await expect422(res, ['body', field])
         expect(
           (await getProjectViaApi(request, user, project.id)).status(),
         ).toBe(200)

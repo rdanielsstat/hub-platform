@@ -77,3 +77,27 @@ class UpdateProjectInput(CamelModel):
     next_action: str | None = None
     target_date: date | None = None
     links: list[Link] | None = None
+
+    # None is only the "not sent" default here. An explicit null is valid
+    # for target_date alone (it clears the date); for any other field it
+    # would hit a NOT NULL column, or for tags/links be stored and break
+    # every later read of the project. Before-mode validators don't run on
+    # omitted fields, so partial updates are unaffected.
+    @field_validator(
+        "name",
+        "pitch",
+        "description",
+        "status",
+        "tags",
+        "excitement",
+        "effort",
+        "potential",
+        "next_action",
+        "links",
+        mode="before",
+    )
+    @classmethod
+    def _reject_explicit_null(cls, value: object) -> object:
+        if value is None:
+            raise ValueError("may not be null")
+        return value

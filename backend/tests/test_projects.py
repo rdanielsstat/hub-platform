@@ -1,3 +1,6 @@
+import pytest
+
+
 def test_create_get_patch_delete_own_project(client, register_and_login):
     headers = register_and_login("crud@example.com")
 
@@ -125,3 +128,65 @@ def test_project_list_never_includes_another_users_projects(client, register_and
 
     res = client.get("/projects", headers=headers_a)
     assert [p["name"] for p in res.json()] == ["A1"]
+
+
+# -- PATCH null handling -------------------------------------------------
+
+
+NON_NULLABLE_PATCH_FIELDS = [
+    "name",
+    "pitch",
+    "description",
+    "status",
+    "tags",
+    "excitement",
+    "effort",
+    "potential",
+    "nextAction",
+    "links",
+]
+
+
+@pytest.mark.parametrize("field", NON_NULLABLE_PATCH_FIELDS)
+def test_patch_rejects_null_for_non_nullable_field(client, register_and_login, field):
+    headers = register_and_login(f"patch-null-{field.lower()}@example.com")
+    created = client.post(
+        "/projects", json={"name": "Idea", "tags": ["keep"]}, headers=headers
+    ).json()
+
+    res = client.patch(f"/projects/{created['id']}", json={field: None}, headers=headers)
+    assert res.status_code == 422
+    assert res.json()["detail"][0]["loc"] == ["body", field]
+
+    # Nothing was written, and the project (and the list) still read fine.
+    res = client.get(f"/projects/{created['id']}", headers=headers)
+    assert res.status_code == 200
+    assert res.json() == created
+    assert client.get("/projects", headers=headers).status_code == 200
+
+
+def test_patch_null_target_date_clears_it(client, register_and_login):
+    headers = register_and_login("patch-null-date@example.com")
+    created = client.post(
+        "/projects", json={"name": "Idea", "targetDate": "2030-01-01"}, headers=headers
+    ).json()
+
+    res = client.patch(
+        f"/projects/{created['id']}", json={"targetDate": None}, headers=headers
+    )
+    assert res.status_code == 200
+    assert res.json()["targetDate"] is None
+
+
+def test_patch_empty_body_is_a_no_op(client, register_and_login):
+    headers = register_and_login("patch-empty@example.com")
+    created = client.post(
+        "/projects", json={"name": "Idea", "tags": ["keep"]}, headers=headers
+    ).json()
+
+    res = client.patch(f"/projects/{created['id']}", json={}, headers=headers)
+    assert res.status_code == 200
+    body = res.json()
+    assert {k: v for k, v in body.items() if k != "updatedAt"} == {
+        k: v for k, v in created.items() if k != "updatedAt"
+    }
