@@ -76,8 +76,8 @@ uv run pytest                        # run the test suite
 - Multi-user with per-user data isolation.
 - `app/core/config.py` is the single settings source, read from environment
   variables with dev-safe defaults. Its `require_safe_jwt_secret()` runs at
-  startup and refuses to start outside a local `ENVIRONMENT` if `HUB_JWT_SECRET`
-  is unset or still the built-in dev default.
+  startup and refuses to start, outside a local `ENVIRONMENT` or whenever
+  `USE_SSM` is on, if the JWT secret is unset or still the built-in dev default.
 - Database initialization: Importing the app does no database work. Tables are
   created by `init_local` locally (or with SEED_DEMO_DATA=true), `bootstrap_db.py`
   (separate Lambda, run on every deploy) when deployed, and `create_all` directly
@@ -98,7 +98,9 @@ Frontend: Vitest 5.0, React Testing Library 16, jsdom. `pnpm test`
 Backend: pytest 9.1. `uv run pytest` (from inside `backend/`). Each test gets
 its own in-memory SQLite database.
 
-E2E: Playwright is planned (not yet implemented). See `docs/tech-debt.md`.
+E2E: Playwright is done. 187 tests in `frontend/tests/` cover signup, login,
+dashboard, projects, filters, sorts, edits, deletes, and API endpoints. Run
+`pnpm exec playwright test` from `frontend/` with the backend and dev server running.
 
 **All tests must pass before a task is considered done.** This includes:
 - Frontend unit tests (`pnpm test` from `frontend/`)
@@ -182,8 +184,10 @@ Gateway. Same-origin setup (no CORS needed). DNS and ACM in Cloudflare.
 when `USE_SSM=true`. The app uses the pooled URL, bootstrap uses the direct URL.
 Local dev uses SQLite or Postgres 17 via Docker Compose.
 
-**Secrets**: Stored in SSM SecureStrings (JWT secret, database URL, OTEL tokens).
-Read at startup with `USE_SSM=true` in Lambda, via boto3.
+**Secrets**: The JWT secret and database URLs are stored in SSM SecureStrings and
+read at startup with `USE_SSM=true` in Lambda, via boto3. OTEL tokens are passed from
+GitHub secrets (`TF_VAR_otel_headers_dev`) to the dev Lambda's environment; they are
+not stored in SSM.
 
 **CI/CD** (`.github/workflows/`):
 - `ci.yml`: on PR, run tests; on push to main, run tests, deploy to dev (build
@@ -220,7 +224,7 @@ default; optional local Grafana/Tempo/Prometheus/Loki stack in `backend/observab
 - Copies the current backend image from dev ECR to prod ECR (no rebuild, exact bytes)
 - Rebuilds and deploys frontend from current main checkout
 - Smoke-tests prod /api/health
-- Requires confirmation and GitHub prod environment approval
+- Requires typing "promote" to confirm, and reviewer approval (GitHub prod environment to be created)
 
 **Tech debt (not yet wired):**
 - E2E test automation on tagged releases (planned via `e2e-testing` skill)

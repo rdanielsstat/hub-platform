@@ -1,5 +1,7 @@
 # Prompts
 
+> Historical session log. Paths and details reflect the repo when each prompt was written (for example, `_docs/` was later renamed `docs/`), so some are now out of date.
+
 ## v0.app front-end specification
 
 This prompt was given to v0 to scaffold the initial site. It is not part of the Claude Code session.

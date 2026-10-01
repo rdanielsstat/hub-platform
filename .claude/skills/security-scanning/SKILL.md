@@ -26,9 +26,11 @@ Perform a thorough security audit of the codebase: check for dependency vulnerab
 From `backend/`:
 
 ```bash
-pip install pip-audit
-pip-audit
+uv export --frozen --no-hashes --format requirements-txt > /tmp/hub-requirements.txt
+uvx pip-audit --disable-pip --no-deps -r /tmp/hub-requirements.txt
 ```
+
+(`uv export` pins every dependency, so `--disable-pip --no-deps` audits that exact list without building a temporary virtualenv.)
 
 Report any vulnerabilities found:
 - If severity is HIGH or CRITICAL, report the issue and stop
@@ -55,21 +57,21 @@ Report findings same as backend:
 - HIGH/CRITICAL stops the scan; report and exit
 - MEDIUM/LOW is documented and continues
 
-Check for dangerous patterns in package.json:
+Check for suspicious package names in package.json:
 
 ```bash
-grep -E '"dependencies":|"devDependencies":' package.json -A 20 | grep -E 'eval|script|shell|exec'
+grep -E '"dependencies":|"devDependencies":' package.json -A 30 | grep -E '"[^"]*(eval|shell|exec)[^"]*":'
 ```
 
-(Should find nothing; if it does, that's a red flag.)
+(Should find nothing; if it does, look at the package. The pattern leaves out "script" on purpose: it would always match `typescript`.)
 
 ### 3. Scan for secrets in git history
 
 Check if any secrets (keys, tokens, passwords) are accidentally committed:
 
 ```bash
-# Install if needed
-pip install truffleHog
+# Install the v3 binary if needed (the pip package "truffleHog" is the old v2 tool and doesn't support these flags)
+brew install trufflehog
 
 # Scan the last 50 commits
 trufflehog git file://. --since-commit HEAD~50 --only-verified
@@ -85,9 +87,10 @@ If secrets are found:
 From `backend/`:
 
 ```bash
-pip install bandit
-bandit -r app/ --severity-level=medium --exit-code=1
+uvx bandit -r app/ --severity-level=medium
 ```
+
+(Bandit exits non-zero when it finds issues at or above that severity.)
 
 Bandit checks for:
 - SQL injection risks (unparameterized queries)
@@ -111,7 +114,7 @@ From `frontend/`:
 pnpm lint --max-warnings=0
 ```
 
-ESLint is configured with security plugins. Report any warnings as security findings. Also manually check for:
+ESLint has no security plugins configured (only the React hooks and React Refresh rules), so lint mostly catches correctness issues. Report any warnings that bear on security. Then check manually for:
 
 ```bash
 grep -r "eval(" src/ --include="*.ts" --include="*.tsx"
@@ -146,8 +149,8 @@ Report:
 Check that no GPL or other restrictive licenses sneak in:
 
 ```bash
-pip install pip-licenses
-pip-licenses --fail-on=GPL,AGPL
+# From backend/: runs pip-licenses inside the project's environment
+uv run --with pip-licenses pip-licenses --fail-on="GNU General Public License;GNU Affero General Public License"
 
 # For frontend (manual check of package.json)
 pnpm licenses list 2>/dev/null | grep -E 'GPL|AGPL|SSPL'
@@ -345,9 +348,11 @@ These are aspirational checks for future work.
 ## Troubleshooting
 
 **Command not found (pip-audit, bandit, trufflehog):**
-Install from the repo's own dependencies or globally:
+`uvx` runs pip-audit and bandit without installing them. Install trufflehog v3 with Homebrew:
 ```bash
-pip install pip-audit bandit truffleHog --break-system-packages
+uvx pip-audit --version
+uvx bandit --version
+brew install trufflehog
 ```
 
 **Secrets found in history:**

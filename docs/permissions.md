@@ -18,7 +18,7 @@ This document defines what AI agents can and cannot do in the Hub-Platform exten
 
 4. **Least privilege.**
    - Agents have only the minimum access needed for their task
-   - Agents do not have production database access (except read-only for diagnostics)
+   - Agents do not have production database access
 
 ## Reusable Skills (.claude/skills/)
 
@@ -43,10 +43,12 @@ Skills are workflows that agents execute at human request. The human invokes the
 - Access production databases or logs
 - Run destructive commands (force push, rebase main, etc.)
 
+One exception to "deploy": the release skill pushes to `main`, which deploys to dev automatically through CI. It never deploys to prod.
+
 ### Skill-specific details
 
 **release skill**:
-- Can: Tag, push tags, trigger CI, wait for deployment, verify SERVICE_VERSION
+- Can: Tag, push tags, push to `main` (which deploys dev only, through CI), wait for the dev deployment, verify SERVICE_VERSION
 - Cannot: Deploy to prod (human does via promote.yml)
 - Cannot: Modify version in source files (pyproject.toml, package.json); documents that they're out of sync
 
@@ -95,7 +97,7 @@ Subagents run in fresh, isolated contexts with a specialized role.
 **Data access**:
 - Local demo account only (seeded via SEED_DEMO_DATA)
 - No access to user accounts or personal data
-- Can create test projects/interviews within the local session (expected to be ephemeral)
+- Can create test projects/notes within the local session (expected to be ephemeral)
 
 **Context isolation**:
 - Subagent starts with no knowledge of how the feature was built
@@ -142,8 +144,8 @@ Custom agents are run by people in response to external events, with a human app
 
 ### GitHub Actions
 
-**Agent-triggered workflows**:
-- `observability-alert-handler.yml`: On-call agent (manual workflow_dispatch)
+**Manual workflows**:
+- `observability-alert-handler.yml`: On-call agent, started by hand by the on-call person (workflow_dispatch)
 - `ci.yml`: Tests run automatically on PR/push (no agent involved)
 - `promote.yml`: Human-triggered promotion to prod
 
@@ -157,12 +159,12 @@ Custom agents are run by people in response to external events, with a human app
 **Dev deployment** (automatic on main push):
 - CI runs, tests pass
 - No agent approval needed
-- CI role has IAM permission to push images to ECR, apply Terraform
+- CI role has IAM permission to push images to ECR, apply OpenTofu
 
 **Prod promotion** (manual, human-triggered):
 - Human reviews CI results and on-call diagnostics
-- Human approves promote.yml workflow
-- GitHub environment approval gates the action
+- Human runs promote.yml and types "promote" to confirm
+- The workflow targets a GitHub `prod` environment, but that environment doesn't exist yet, so no reviewer approval gates promotion today. It will once the environment is created with required reviewers.
 
 ## Data and Privacy
 
@@ -173,7 +175,7 @@ Custom agents are run by people in response to external events, with a human app
 - Architecture and configuration (AGENTS.md, CLAUDE.md, OpenAPI)
 - Git history and commit messages
 - Test results and logs (local dev, CI logs)
-- Grafana metrics and CloudWatch logs (app-level, no PII)
+- Grafana metrics (dev only; app-level, no PII)
 - General documentation
 
 **Agents cannot read:**
@@ -186,9 +188,9 @@ Custom agents are run by people in response to external events, with a human app
 ### What agents output
 
 **Agent outputs are:**
-- Logged to GitHub Actions (searchable, auditable)
-- Stored in `.claude/` and `docs/` (version controlled)
-- Visible to anyone with repo access
+- Shown in the agent session for the human to review
+- Logged to GitHub Actions, for the on-call diagnostic (searchable, auditable)
+- Committed to the repo only when a human chooses to
 
 **Agents should NOT output:**
 - Credentials, API keys, or tokens
@@ -204,13 +206,13 @@ Custom agents are run by people in response to external events, with a human app
 
 ### Logging
 
-All agent actions are logged:
-- GitHub Actions logs (timestamped, accessible)
-- `.claude/` skill runs (in version control)
-- QA reports and findings (stored in repo)
-- Security scan reports (stored in repo)
+Where agent activity is recorded:
+- GitHub Actions logs, for workflow runs including the on-call diagnostic (timestamped, accessible)
+- Git history, for any changes a human commits
 
-**Retention**: Logs retained per GitHub Actions default (90 days) + any committed to repo (indefinite).
+Skill runs, QA reports, and security scan reports are not saved automatically; they exist only in the agent session unless a human saves them.
+
+**Retention**: GitHub Actions logs are kept per the GitHub default (90 days); anything committed to the repo is kept indefinitely.
 
 ### Review
 
@@ -227,10 +229,8 @@ All agent actions are logged:
 ### Audit trail
 
 To audit what an agent did:
-1. Check `.claude/skills/` for skill runs and outputs
-2. Check GitHub Actions logs for workflow runs
-3. Check git commit history for changes (all manual, reviewed)
-4. Check `docs/` for agent-generated reports
+1. Check GitHub Actions logs for workflow runs
+2. Check git commit history for changes (all manual, reviewed)
 
 ## Role-Based Access
 
@@ -270,9 +270,8 @@ To audit what an agent did:
 - Feature cannot be merged until issues are resolved or risk is accepted
 - Human decides: fix, document exception, or defer
 
-**For on-call diagnostic confidence:**
-- If agent diagnosis is low-confidence or issue is CRITICAL, on-call engineer verifies before acting
-- Agent notes confidence level in output
+**For on-call diagnoses:**
+- The diagnosis is a starting point; the on-call engineer verifies it before acting
 
 ## Future Enhancements
 

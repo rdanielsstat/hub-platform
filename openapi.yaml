@@ -4,13 +4,15 @@ info:
   description: >
     API contract for the Hub backend (FastAPI). Derived from the frontend's
     API client (frontend/src/services/api/) and the data model in
-    _docs/specs.md. The backend implements this contract;
+    docs/specs.md. The backend implements this contract;
     backend/tests/test_openapi_contract.py fails if the paths and methods
     here and in the FastAPI app drift apart.
   version: 0.1.0
 servers:
   - url: https://hub.dnls.dev/api
-    description: Production (CloudFront forwards /api/* to the API)
+    description: Production (not yet deployed; CloudFront forwards /api/* to the API)
+  - url: https://hub-dev.dnls.dev/api
+    description: Development (CloudFront forwards /api/* to the API)
   - url: http://localhost:8000
     description: Local development
 
@@ -341,8 +343,7 @@ components:
           type: string
           format: email
         displayName:
-          type: string
-          nullable: true
+          type: [string, "null"]
         createdAt:
           type: string
           format: date-time
@@ -360,8 +361,9 @@ components:
         password:
           type: string
           minLength: 8
+          maxLength: 256
         displayName:
-          type: string
+          type: [string, "null"]
 
     LoginForm:
       type: object
@@ -449,9 +451,8 @@ components:
           type: string
           description: The single next concrete step (GTD core).
         targetDate:
-          type: string
+          type: [string, "null"]
           format: date
-          nullable: true
         links:
           type: array
           items:
@@ -494,9 +495,8 @@ components:
         nextAction:
           type: string
         targetDate:
-          type: string
+          type: [string, "null"]
           format: date
-          nullable: true
         links:
           type: array
           items:
@@ -535,9 +535,8 @@ components:
         nextAction:
           type: string
         targetDate:
-          type: string
+          type: [string, "null"]
           format: date
-          nullable: true
         links:
           type: array
           items:
@@ -548,10 +547,13 @@ components:
       required: [url]
       properties:
         label:
-          type: string
+          type: [string, "null"]
+          description: Optional. Returned as null when not set.
         url:
           type: string
           format: uri
+          pattern: '^[Hh][Tt][Tt][Pp][Ss]?://'
+          description: Must start with http:// or https://.
 
     Note:
       type: object

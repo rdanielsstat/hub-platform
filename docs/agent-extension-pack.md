@@ -40,7 +40,7 @@ Skills are discoverable workflows that agents load automatically when they match
 
 **Purpose**: Tag a new semantic version, push to main, verify dev deployment, and document the release.
 
-**When to use**: When releasing a new version to production.
+**When to use**: When tagging a new version. It deploys to dev only (through CI); promoting to prod is a separate manual step.
 
 **Workflow**:
 1. Determine next semantic version
@@ -86,9 +86,9 @@ Skills are discoverable workflows that agents load automatically when they match
 5. Validate test fixtures (isolation, data setup, cleanup)
 6. Report results: pass/fail, timing, failures with evidence
 
-**Test scope**: Auth, project CRUD, interview workflow, search/filtering, navigation, accessibility, responsive design, edge cases.
+**Test scope**: Auth and sessions, dashboard states, project create/edit/delete, filtering, sorting and search, notes, error states, multiple tabs, rapid sequences, responsive layouts, and every API endpoint with its error cases and user isolation.
 
-**Key point**: Tests are currently planned; skill is template-ready for when Playwright is integrated.
+**Key point**: The suite is done: 187 Playwright tests in `frontend/tests/` cover all workflows, run against the real local backend. Not yet wired into CI.
 
 ### design-review
 
@@ -198,7 +198,7 @@ See `docs/permissions.md` for detailed permissions model.
 
 - **Skills and subagents**: Never commit code, never deploy, never modify .env, never destructive data changes
 - **Skills and subagents**: Can read code, run tests, generate reports, provide recommendations
-- **Custom agents**: Can query logs, analyze data, post findings; cannot access production data or make infrastructure changes
+- **Custom agents**: The on-call diagnostic makes one OpenAI call on the alert text it is given and writes the diagnosis to the run log; it has no access to data or infrastructure
 - **Human**: Reviews agent output, makes all decisions, commits and deploys manually
 
 ## Configuration and Environment
@@ -214,12 +214,12 @@ Project-level instructions that all agents read. Covers:
 
 ### CLAUDE.md
 
-(Optional; not used for Hub-Platform.) Claude Code-specific preferences if needed.
+`.claude/CLAUDE.md` exists but is empty; project instructions live in `AGENTS.md`. Use it for Claude Code-specific preferences if needed.
 
 ### Environment setup
 
 Agents expect:
-- Backend running locally on http://localhost:8000/api
+- Backend running locally on http://localhost:8000
 - Frontend running locally on http://localhost:5173
 - Demo data seeded: `SEED_DEMO_DATA=true uv run python -m app.db.init_local`
 - GitHub Actions configured with OIDC trust for deployment

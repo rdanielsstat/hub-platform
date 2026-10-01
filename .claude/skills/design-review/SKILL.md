@@ -33,7 +33,7 @@ Open the app and evaluate:
 - Do buttons and interactive elements stand out sufficiently?
 
 **Navigation:**
-- Is the information architecture intuitive? (sidebar, breadcrumbs, navigation flow)
+- Is the information architecture intuitive? (header, dashboard to project detail and back, navigation flow)
 - Can users easily get back (browser back, explicit back button)?
 - Are there any "lost" states where users don't know where they are?
 
@@ -59,7 +59,7 @@ Open the app and evaluate:
 - Does the layout work on mobile, tablet, and desktop?
 - Is text readable on small screens (font size, line length)?
 - Are touch targets >= 44x44 pixels on mobile?
-- Do modals/sidebars adapt to mobile (don't push content off-screen)?
+- Do dialogs adapt to mobile (don't push content off-screen)?
 
 Report findings in each area: ✓ (good), ⚠ (needs review), or ✗ (problem).
 
@@ -95,13 +95,13 @@ Report overall: Is the component library meeting the design needs, or are there 
 
 Evaluate how data is displayed:
 
-**Interview list / project list:**
+**Dashboard (project cards):**
 - Is the card layout efficient? (is space wasted, or too cramped?)
 - Are the most important fields visible at a glance?
 - Would a table view be better for certain contexts?
 - Are actions (edit, delete, etc.) easily discoverable?
 
-**Interview detail view:**
+**Project detail view:**
 - Is the information organized logically? (chronology, categories, priority?)
 - Is there too much information on one page, or should some be in tabs/collapsibles?
 - Are status transitions clear? (can users understand the triage flow?)
@@ -135,8 +135,8 @@ Evaluate alternatives to current stack:
 - Design tokens: Token.studio, Figma Tokens (to keep design in sync with code)
 
 **Rapid prototyping / low-code design:**
-- Loveable (current): is it still the best fit, or are alternatives worth trying?
-  - v0 by Vercel: React component generation from natural language
+- Current approach: the initial UI was scaffolded with v0 by Vercel, and is now built directly with Claude Code. Are other tools worth trying?
+  - Lovable (not currently used): app generation from natural language
   - Cursor with Claude: direct code generation
   - UI.joyride: web app builder
 - Pros/cons: speed vs. customization, cost, learning curve
@@ -165,14 +165,14 @@ Based on the audit, propose specific, actionable improvements:
 
 **Quick wins (low effort, high value):**
 - Missing affordances: (e.g., "add a 'copy' button on project ID", "add hover states to list items")
-- Layout tweaks: (e.g., "sidebar is too wide on mobile; collapse it by default")
+- Layout tweaks: (e.g., "the authenticated layout is wider than the screen on mobile")
 - Accessibility fixes: (e.g., "form labels need better association", "button contrast is below WCAG AA")
 - Performance: (e.g., "images should be lazy-loaded", "bundle size is large")
 
 **Medium efforts (worth planning):**
 - Component gaps: (e.g., "need a date picker for filtering", "need a multi-select for tagging")
-- Layout reorganization: (e.g., "move filters from sidebar to a dedicated panel", "use tabs for project views")
-- Data viz: (e.g., "add charts for project status trends", "visualize interview timeline")
+- Layout reorganization: (e.g., "move filters into a collapsible panel", "use tabs for project views")
+- Data viz: (e.g., "add charts for project status trends", "visualize notes over time")
 
 **Larger initiatives (future roadmap):**
 - Design system formalization (tokens, components, design doc)
@@ -191,11 +191,11 @@ Report each improvement with:
 
 If research identified better alternatives, propose swaps:
 
-**Example: Loveable → v0 or Claude Code**
-- Current: Loveable for rapid prototyping
-- Alternative: v0.dev (React components from text) or direct Claude Code (more control)
-- Pros: faster iteration, no vendor lock-in, better IDE integration, cheaper
-- Cons: less visual preview, more technical
+**Example: Claude Code → Lovable for prototyping**
+- Current: Claude Code (the initial UI was scaffolded with v0)
+- Alternative: Lovable (not currently used) for fast visual prototypes
+- Pros: visual preview, quick whole-screen drafts to compare layouts
+- Cons: vendor lock-in, less control over code structure, extra cost, output must be ported into the codebase
 - Recommendation: [worth trying | stick with current | needs more research]
 
 **Example: Tailwind → UnoCSS**
@@ -223,7 +223,7 @@ Current Stack:
   - Styling: Tailwind 4.3
   - Components: shadcn/ui (base-nova), @base-ui/react 1.5
   - Icons: lucide-react
-  - Prototyping: Loveable
+  - Prototyping: v0 (initial scaffold), Claude Code
 
 UI/UX Review:
   Visual hierarchy:  [✓ Good | ⚠ Needs work | ✗ Problem]
@@ -242,7 +242,7 @@ Component Library Assessment:
 Data Presentation Audit:
   Current views:
     - Project list: [card | table] - [efficient | needs redesign]
-    - Interview detail: [organized | overwhelming]
+    - Project detail: [organized | overwhelming]
     - Search/filters: [discoverable | needs improvement]
   Recommendation: [no changes | targeted tweaks | redesign area X]
 

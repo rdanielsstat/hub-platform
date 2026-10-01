@@ -1,5 +1,7 @@
 # hub-platform repo inventory
 
+> Historical snapshot, not a description of the current repo. Paths and details reflect `main` at the commit below (for example, `_docs/` was later renamed `docs/`).
+
 Snapshot of `main` at `d514520` (2026-09-29). Secret values are redacted throughout.
 
 ## 1. Tree (depth 3, generated/vendor dirs excluded)

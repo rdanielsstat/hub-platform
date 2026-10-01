@@ -16,7 +16,7 @@ OpenTelemetry Collector, Tempo (traces), Prometheus (metrics), Loki
 From `backend/`:
 
 ```
-docker-compose -f observability/docker-compose.yml up
+docker compose -f observability/docker-compose.yml up
 ```
 
 Add `-d` to run it in the background.
@@ -64,7 +64,7 @@ At startup the backend prints
 ## Stop
 
 ```
-docker-compose -f observability/docker-compose.yml down
+docker compose -f observability/docker-compose.yml down
 ```
 
 Add `-v` to also delete stored traces (the `tempo-data` volume).

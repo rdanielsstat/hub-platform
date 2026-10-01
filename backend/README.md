@@ -56,7 +56,7 @@ CORS allows `CORS_ORIGINS` (default: the Vite dev server at `http://localhost:51
 
 ## Config
 
-Everything in `app/core/config.py` — the single settings source, all
+Everything is in `app/core/config.py`, the single settings source, all
 read from environment variables with defaults safe for local dev. Copy
 `.env.example` to `.env` to override any of them; local dev needs none
 of it.
@@ -72,13 +72,15 @@ of it.
 | `OTEL_ENABLED` | off | No. On exports traces and metrics via OpenTelemetry (`observability/`). Set for the dev Lambda by OpenTofu, which exports to Grafana Cloud. Dev only: the prod Lambda leaves it off and emits no telemetry. See `observability/README.md` for local use. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | No. OTLP/HTTP base URL (Grafana Cloud's, in dev). Unset with `OTEL_ENABLED` on means a local collector at `http://localhost:4318`. Only read when `OTEL_ENABLED` is on. Set for the dev Lambda only, by OpenTofu. |
 | `OTEL_EXPORTER_OTLP_HEADERS` | unset | No. Comma-separated `key=value` pairs, values URL-encoded (carries the Grafana Cloud `Authorization` token). Only read when `OTEL_ENABLED` is on. Set for the dev Lambda only, by OpenTofu. |
+| `OTEL_SDK_DISABLED` | unset | No. `true` turns observability off entirely, even with `OTEL_ENABLED` on. |
 | `SERVICE_VERSION` | unset (falls back to `LAMBDA_IMAGE_TAG`, then `local-dev`) | No. The `service.version` on telemetry. Set by OpenTofu on the dev Lambda from git tags; see "Releases and SERVICE_VERSION". |
 | `API_BASE_PATH` | `/` | Lambda only (`app/lambda_handler.py`): the path prefix Mangum strips before routing. The deployment sets `/api`, since CloudFront forwards `/api/*` with the prefix intact. Unused by uvicorn. |
 | `CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | No. Comma-separated. Only matters locally; CloudFront makes the deployed site same-origin. |
-| `DB_URL_PARAM_NAME` | — | Only used when `USE_SSM` is on: the SSM parameter name holding the full database URL. |
-| `JWT_PARAM_NAME` | — | Only used when `USE_SSM` is on: the SSM parameter name holding the raw JWT secret. |
-| `DEMO_PASSWORD_PARAM_NAME` | — | Only read by the bootstrap, only in cloud mode: the SSM parameter holding this environment's demo account password. Absent means no demo account. See "Seeded demo account". |
-| `MASTER_DB_HOST` / `MASTER_DB_PORT` / `MASTER_DB_USER` / `MASTER_DB_PASSWORD` | — | Only used by the bootstrap command (below), only in local mode (`USE_SSM` off). Never read by the app itself. |
+| `DB_URL_PARAM_NAME` | unset | Only used when `USE_SSM` is on: the SSM parameter name holding the full database URL. |
+| `JWT_PARAM_NAME` | unset | Only used when `USE_SSM` is on: the SSM parameter name holding the raw JWT secret. |
+| `DEMO_PASSWORD_PARAM_NAME` | unset | Only read by the bootstrap, only in cloud mode: the SSM parameter holding this environment's demo account password. Absent means no demo account. See "Seeded demo account". |
+| `MASTER_DB_PARAM_NAME` | unset | Unused. `app/bootstrap_db.py` would read master credentials from this SSM parameter with `USE_SSM` on, but cloud mode never asks for master credentials (Neon provides the role and database), and nothing sets it. |
+| `MASTER_DB_HOST` / `MASTER_DB_PORT` / `MASTER_DB_USER` / `MASTER_DB_PASSWORD` | unset | Only used by the bootstrap command (below), only in local mode (`USE_SSM` off). Never read by the app itself. |
 
 ### JWT secret guard
 
@@ -87,7 +89,7 @@ of it.
 `get_jwt_secret()` resolved. Outside a local environment, or whenever
 `USE_SSM` is on (even if `ENVIRONMENT` says `local`), it raises
 `RuntimeError` and refuses to start if the secret is unset or still
-equal to the built-in dev default — it's impossible to accidentally run
+equal to the built-in dev default, so it's impossible to accidentally run
 in production on the insecure fallback. On a bare local run, an unset/
 default secret just prints a warning and the app starts anyway, so a
 fresh clone runs with zero setup. Generate a real one with:
@@ -247,7 +249,7 @@ uv run pytest
 ```
 
 Each test runs against its own fresh, isolated in-memory SQLite database
-(see `tests/conftest.py`) — never the dev `hub.db` file, never shared
+(see `tests/conftest.py`), never the dev `hub.db` file, never shared
 across tests, never a real database.
 
 ## Auth
@@ -258,5 +260,5 @@ tokens (via PyJWT), OAuth2 password flow. `POST /auth/login` takes
 `password`, matching openapi.yaml and FastAPI's built-in OAuth2 tooling.
 
 All of the JWT secret/algorithm/expiry live in `app/core/config.py` (see
-Config above) — nothing security-relevant is hardcoded in
+Config above); nothing security-relevant is hardcoded in
 `app/auth/security.py` itself.

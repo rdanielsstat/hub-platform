@@ -38,7 +38,7 @@ Verify the app is in a testable state:
 - Backend running: `uv run uvicorn app.main:app --reload` from `backend/`
 - Frontend dev server running: `pnpm dev` from `frontend/`
 - Demo account seeded: `SEED_DEMO_DATA=true uv run python -m app.db.init_local` (one-time)
-- Frontend environment configured: `VITE_API_BASE_URL` in `frontend/.env` points to backend
+- Frontend environment configured: `frontend/.env` copied from `.env.example`, so `VITE_API_BASE_URL=http://localhost:8000`
 
 If anything is missing, flag it and ask the human to set up before proceeding.
 
@@ -69,11 +69,11 @@ Test the feature under normal, expected conditions:
 
 **Example: Project creation**
 - Open the app and log in
-- Navigate to "Create Project"
-- Fill in required fields (title, description)
-- Submit the form
-- Verify the project appears in the project list
-- Verify project details are correct (title, description, timestamps)
+- Click "Quick capture" in the header
+- Fill in the name (required) and, optionally, the one-line pitch
+- Click "Capture"
+- Verify the project appears as a card on the dashboard
+- Open it and verify the details are correct (name, pitch, status)
 
 Test all stated acceptance criteria:
 - If criteria says "users can create projects", can you create one?
@@ -97,7 +97,7 @@ Test scenarios that might break or confuse users:
 
 **Empty/missing data:**
 - What if there are no projects? (Should show empty state with helpful message, not blank page)
-- What if a project has no interviews? (Should show empty state, not break layout)
+- What if a project has no notes? (Should show empty state, not break layout)
 - What if search returns no results? (Should say "no results found", not crash)
 
 **Navigation and flow:**
@@ -240,10 +240,10 @@ Acceptance criteria:
 The QA subagent should know the basic architecture to understand what it's testing:
 
 - **Frontend**: React 19, Vite 6, running on http://localhost:5173
-- **Backend**: FastAPI 0.141, running on http://localhost:8000/api
+- **Backend**: FastAPI 0.141, running on http://localhost:8000
 - **Database**: SQLite locally (seeded with demo account)
-- **Auth**: JWT token-based; demo account credentials are provided in SEED_DEMO_DATA
-- **Key flows**: Login → Projects list → Project detail → Interviews (capture, organize, triage)
+- **Auth**: JWT token-based; demo account `demo@hub.dev` / `demo1234` (created by `init_local` with `SEED_DEMO_DATA=true`)
+- **Key flows**: Login → Dashboard (filter, search, sort) → Project detail (edit fields, notes); Quick capture from the header
 
 For more details, see `AGENTS.md` in the repo root.
 
@@ -260,9 +260,9 @@ cd frontend && pnpm dev
 ```
 
 **Demo account not working:**
-Ask the human to reseed:
+`init_local` never re-seeds an existing database, so ask the human to delete the local database first, then re-run it:
 ```bash
-cd backend && SEED_DEMO_DATA=true uv run python -m app.db.init_local
+cd backend && rm hub.db && SEED_DEMO_DATA=true uv run python -m app.db.init_local
 ```
 
 **Unclear on acceptance criteria:**

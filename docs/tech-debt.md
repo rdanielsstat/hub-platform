@@ -13,7 +13,8 @@
   login does not, and argon2 is slow by design.
 - Decide what to do about the writable demo account. Retiring it means
   removing that environment's entry from `demo_passwords` and re-applying.
-- Wire up observability. Nothing reports errors, frontend or backend.
+- Observability: done for the backend. Metrics, traces and an alert exist in dev.
+  Frontend error reporting is still missing.
 
 ## Migrations
 
@@ -22,7 +23,8 @@
 
 ## Testing
 
-- End-to-end tests with Playwright, run against Docker Compose.
+- End-to-end tests with Playwright: done (`frontend/tests/`, run against the
+  local uvicorn backend). Still to do: run them against Docker Compose and in CI.
 - Integration tests that run against Docker Compose and real Postgres.
   Current backend tests use in-memory SQLite.
 - Makefile for the common commands.
@@ -48,8 +50,8 @@
 
 ## Project requirements
 
-- Root `README.md`.
-- `product-spec.md` at the repo root. Currently `docs/specs.md`.
+- Root `README.md`: done.
+- `product-spec.md` at the repo root. The spec currently lives at `docs/specs.md`.
 - Separate unit and integration tests with markers or subdirectories, and
   document the command for each.
 - `ops/` directory.
@@ -67,8 +69,3 @@
 - Promote to prod so `hub.dnls.dev` is live.
 - Make the repo public before peer review.
 - Do not destroy the stack until peer review is finished.
-
-## Housekeeping
-
-- `AGENTS.md` says storage "can move to Postgres later via DATABASE_URL".
-  Postgres is already in use, locally and deployed.

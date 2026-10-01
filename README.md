@@ -14,7 +14,7 @@ A personal idea management system for capturing, triaging, and tracking ideas fr
 
 **Live environments:**
 - Development: https://hub-dev.dnls.dev
-- Production: https://hub.dnls.dev
+- Production: https://hub.dnls.dev (not yet deployed)
 
 **Documentation:**
 - [AGENTS.md](AGENTS.md) - Project instructions for AI agents and developers
@@ -36,7 +36,7 @@ Hub-Platform is a personal hub for capturing ideas, scoring them, and tracking t
 - **Dashboard filtering**: Filter by status or tag, search by text, and sort by recently updated, scores, target date, or name
 - **Notes and links**: Add notes to ideas and link to external resources
 - **Personal workspace**: Individual signup and login; your ideas, your rules
-- **Deployed**: Runs on AWS in separate dev and prod environments, with OpenTelemetry tracing and metrics in dev and a manual AI-assisted alert diagnostic
+- **Deployed**: Runs on AWS, with separate dev and prod environments (dev is live; prod is not yet deployed), OpenTelemetry tracing and metrics in dev and a manual AI-assisted alert diagnostic
 - **AI-native development**: Built with Claude Code using spec-driven development, AI skills, and specialized subagents
 
 ### Typical workflow
@@ -354,7 +354,7 @@ Visual description: A developer pushes code to main. GitHub Actions runs the bac
 **Production**
 - Manual promotion from development
 - Tested release selected by release owner
-- Serves real users
+- Will serve real users once deployed (not yet deployed)
 
 ### Release Process
 
@@ -385,11 +385,10 @@ For detailed release workflow, see `.claude/skills/release/SKILL.md`.
 
 ### Scaling and Infrastructure
 
-The current setup deploys to a single Lambda with Neon Postgres. For production scale:
-- Lambda auto-scales concurrency
-- Neon auto-scales compute
+The current setup deploys to a single Lambda with Neon Postgres:
+- Lambda scales concurrency automatically
+- Neon scales compute automatically, but suspends after 5 minutes idle, so the first request after an idle period is slow
 - CloudFront caches static assets
-- No request queuing; scale up or down instantly
 
 ---
 
@@ -449,7 +448,7 @@ A Grafana Cloud alert rule, "Registration Error Rate > 10%", fires when more tha
 
 ## API
 
-The backend exposes a REST API. Locally it's at `http://localhost:8000` with no prefix. When deployed, the same routes are under `/api` on the site (for example `https://hub.dnls.dev/api/projects`), because CloudFront forwards `/api/*` to the backend.
+The backend exposes a REST API. Locally it's at `http://localhost:8000` with no prefix. When deployed, the same routes are under `/api` on the site (for example `https://hub-dev.dnls.dev/api/projects`), because CloudFront forwards `/api/*` to the backend.
 
 ### Interactive documentation
 
@@ -512,6 +511,41 @@ curl -X POST http://localhost:8000/auth/login \
 curl http://localhost:8000/projects \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
+
+### Field limits
+
+- **Password:** 8 to 256 characters, enforced by the API.
+- **Email:** must be a valid address.
+- **Text fields:** no length limits. Display names, project names, pitches, descriptions, next actions, tags, and notes accept any length. The API also accepts empty or whitespace-only project names and notes; the UI is what stops you from saving those.
+- **Scores** (`excitement`, `effort`, `potential`): whole numbers from 1 to 5.
+- **Links:** URLs must start with `http://` or `https://`.
+- **Rate limiting:** none yet.
+
+### Error responses
+
+Most errors return a single message in `detail`:
+
+```json
+{"detail": "Incorrect email or password"}
+```
+
+Validation errors (`422`) return `detail` as a list, one entry per invalid field, with its location and a message:
+
+```json
+{
+  "detail": [
+    {
+      "type": "string_too_short",
+      "loc": ["body", "password"],
+      "msg": "String should have at least 8 characters",
+      "input": "short",
+      "ctx": {"min_length": 8}
+    }
+  ]
+}
+```
+
+Status codes: `401` for a missing, invalid, or expired token (or a wrong login), `404` for a project or note that doesn't exist or belongs to another user (the two look the same on purpose), `409` for an email that's already registered, and `422` for invalid input.
 
 For the full API contract, see `openapi.yaml`. It's written by hand, and `backend/tests/test_openapi_contract.py` fails if its endpoints and the app's drift apart.
 
@@ -579,7 +613,7 @@ pnpm test src/pages/dashboard.test.tsx
 
 Hub-Platform has a full end-to-end test suite built with Playwright. These tests use the app the way a person would, and they talk to the real local backend rather than a stand-in, so a passing run means the whole system works together.
 
-The suite has 187 tests covering two areas:
+The suite covers two areas:
 
 - **The app in the browser:** signing up, logging in and out, the dashboard, creating and editing projects, filtering and sorting, adding and deleting notes, and deleting projects. It also checks how the app behaves on phones and tablets, and what users see when something goes wrong.
 - **The API on its own:** every sign-up, login and project endpoint, including what happens with missing or invalid input, expired or bad logins, and attempts to reach data that belongs to someone else.
@@ -592,6 +626,11 @@ To run them, start the backend (port 8000) and the frontend dev server (port 517
 cd frontend
 pnpm exec playwright test
 ```
+
+Two optional environment variables (read in `frontend/tests/helpers.ts`) point the tests elsewhere:
+
+- `E2E_API_URL`: the backend the tests call directly (default `http://localhost:8000`)
+- `E2E_JWT_SECRET`: the JWT secret the backend signs tokens with, used by the expired- and forged-token tests (default: the backend's built-in dev secret). If it doesn't match the server, those tests skip themselves.
 
 ---
 
@@ -696,10 +735,12 @@ Hub-Platform uses an AI-native development workflow with reusable skills and spe
 **Before implementing:**
 
 1. Create a GitHub issue or discussion with acceptance criteria
-2. Request QA subagent to groom the task (clarify requirements)
+2. Clarify requirements and acceptance criteria before starting
 3. Commit to the issue what needs to be done
 
 **During implementation:**
+
+The project owner pushes directly to `main`; contributors use a branch and pull request:
 
 1. Create a feature branch
 2. Implement the changes

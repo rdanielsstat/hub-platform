@@ -1,5 +1,7 @@
 # Results
 
+> Historical session log. Paths and details reflect the repo when each report was written (for example, `_docs/` was later renamed `docs/`), so some are now out of date.
+
 Final report for each Claude Code prompt, verbatim. Numbers match the Claude Code prompts in `prompts.md`. The v0 setup prompt produced the initial code rather than a report, so it has no entry here.
 
 ---
