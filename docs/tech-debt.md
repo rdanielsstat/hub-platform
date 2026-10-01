@@ -67,5 +67,5 @@
   `docs/permissions.md`. Needs a reusable workflow, a subagent, an MCP tool or
   server, and a hook or guardrail.
 - Promote to prod so `hub.dnls.dev` is live.
-- Make the repo public before peer review.
+- Make the repo public before peer review: done (https://github.com/rdanielsstat/hub-platform).
 - Do not destroy the stack until peer review is finished.
