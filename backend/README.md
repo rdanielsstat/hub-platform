@@ -1,16 +1,38 @@
 # Hub API
 
 FastAPI backend for Hub. Implements auth, project, and note endpoints
-against a real database (SQLite via SQLAlchemy, database-agnostic so
-Postgres can replace it at deploy time). Attachments aren't built yet.
-See `../_docs/specs.md` and `../openapi.yaml` for the full intended
-contract.
+against a real database via SQLAlchemy: it uses SQLite locally, Neon
+Postgres when deployed (database-agnostic, so the same code runs on
+both). Attachments aren't built yet. See `../docs/specs.md` and
+`../openapi.yaml` for the full intended contract.
 
 ## Setup
+
+Requires Python 3.12 (see `.python-version`) and
+[uv](https://docs.astral.sh/uv/getting-started/installation/), e.g.
+`brew install uv` or `curl -LsSf https://astral.sh/uv/install.sh | sh`.
+uv installs Python 3.12 for you if it's missing.
 
 ```
 uv sync
 ```
+
+For a local full-stack run (the Vite frontend against this API on port
+8000), also copy `frontend/.env.example` to `frontend/.env`. Without it
+the frontend calls same-origin `/api`, which only exists behind
+CloudFront, so every request fails locally.
+
+To run against real Postgres instead of SQLite (prod parity), use
+Docker Compose from the repo root instead of the `uv run` steps below:
+
+```
+docker compose up --build
+```
+
+See "Postgres and the database bootstrap" below for what it starts.
+
+For deploying to AWS (one-time OpenTofu state bucket, GitHub OIDC
+trust, Neon and Cloudflare setup), see `../infra/BOOTSTRAP.md`.
 
 ## Run the dev server
 
@@ -47,7 +69,11 @@ of it.
 | `HUB_JWT_SECRET` | a known dev-only string | **Yes, if `USE_SSM` is off.** See below. Ignored if `USE_SSM` is on. |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | No. |
 | `SEED_DEMO_DATA` | off | No. Local only: lets `python -m app.db.init_local` seed the demo account. Must be off with `USE_SSM` on; the app refuses to start otherwise. |
-| `OTEL_ENABLED` | off | No. On exports traces and metrics via OpenTelemetry (`observability/`). Set for the dev Lambda by OpenTofu; see `observability/README.md` for local use. |
+| `OTEL_ENABLED` | off | No. On exports traces and metrics via OpenTelemetry (`observability/`). Set for the dev Lambda by OpenTofu, which exports to Grafana Cloud. Dev only: the prod Lambda leaves it off and emits no telemetry. See `observability/README.md` for local use. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | No. OTLP/HTTP base URL (Grafana Cloud's, in dev). Unset with `OTEL_ENABLED` on means a local collector at `http://localhost:4318`. Only read when `OTEL_ENABLED` is on. Set for the dev Lambda only, by OpenTofu. |
+| `OTEL_EXPORTER_OTLP_HEADERS` | unset | No. Comma-separated `key=value` pairs, values URL-encoded (carries the Grafana Cloud `Authorization` token). Only read when `OTEL_ENABLED` is on. Set for the dev Lambda only, by OpenTofu. |
+| `SERVICE_VERSION` | unset (falls back to `LAMBDA_IMAGE_TAG`, then `local-dev`) | No. The `service.version` on telemetry. Set by OpenTofu on the dev Lambda from git tags; see "Releases and SERVICE_VERSION". |
+| `API_BASE_PATH` | `/` | Lambda only (`app/lambda_handler.py`): the path prefix Mangum strips before routing. The deployment sets `/api`, since CloudFront forwards `/api/*` with the prefix intact. Unused by uvicorn. |
 | `CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | No. Comma-separated. Only matters locally; CloudFront makes the deployed site same-origin. |
 | `DB_URL_PARAM_NAME` | — | Only used when `USE_SSM` is on: the SSM parameter name holding the full database URL. |
 | `JWT_PARAM_NAME` | — | Only used when `USE_SSM` is on: the SSM parameter name holding the raw JWT secret. |
@@ -97,14 +123,18 @@ known key. The database URL is resolved lazily, on first use.
 
 ## Database
 
-SQLite by default, via a local file (`hub.db`, gitignored). Accepts a
+Uses SQLite locally, Neon Postgres when deployed. Locally that's a
+SQLite file by default (`hub.db`, gitignored). Accepts a
 Postgres URL (e.g. `postgresql+psycopg://user:pass@host/db`) via
 `DATABASE_URL` with no code change, or from SSM when `USE_SSM` is on
 (see above). `psycopg[binary]` is already a dependency.
 
 Importing the app does no database work. Tables are created by a
-separate step: `python -m app.db.init_local` for plain local dev, or
-the bootstrap below for Compose and AWS. Both only create missing
+separate step: `init_local` (`python -m app.db.init_local`) locally, or
+`bootstrap_db.py` (`python -m app.bootstrap_db`, run as its own Lambda
+on every deploy) when deployed. Docker Compose runs both. Tests skip
+both and create tables on each test's in-memory database directly (see
+`tests/conftest.py`). All of these only create missing
 tables (`Base.metadata.create_all`); there's no Alembic yet, which is
 fine while the schema is still moving pre-launch. Once it stabilizes,
 that should become real Alembic migrations so future schema changes are
