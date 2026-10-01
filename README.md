@@ -20,23 +20,23 @@ A personal idea management system for capturing, triaging, and tracking ideas fr
 - [AGENTS.md](AGENTS.md) - Project instructions for AI agents and developers
 - [docs/agent-extension-pack.md](docs/agent-extension-pack.md) - AI skills and subagent workflows
 - [docs/permissions.md](docs/permissions.md) - Agent security boundaries and permissions
-- [openapi.yaml](openapi.yaml) - API contract (backend-generated)
+- [openapi.yaml](openapi.yaml) - API contract (hand-written; a backend test checks the app matches it)
 
 ---
 
 ## What is Hub-Platform?
 
-Hub-Platform is a personal hub for capturing ideas, scoring them, and tracking them through a lifecycle. Sign up, quickly capture an idea with a one-line pitch, brain-dump description, and scoring (excitement, potential, effort). Track ideas through statuses (inbox, exploring, active, parked, graduated, killed), add notes, set target dates, and filter your dashboard by tags, status, or score.
+Hub-Platform is a personal hub for capturing ideas, scoring them, and tracking them through a lifecycle. Sign up, quickly capture an idea with a one-line pitch, brain-dump description, and scoring (excitement, potential, effort). Track ideas through statuses (inbox, exploring, active, parked, graduated, killed), add notes, set target dates, and filter your dashboard by status, tag, or search text, sorted by score, date, or name.
 
 ### Key features
 
 - **Quick capture**: One-screen form to capture an idea with minimal friction
 - **Lifecycle tracking**: Move ideas from inbox through exploring, active, parked, graduated, or killed
 - **Scoring system**: Rate excitement, potential, and effort; opportunity score calculated automatically
-- **Dashboard filtering**: Filter by tags, status, and sort by recently updated, scores, target date, or name
+- **Dashboard filtering**: Filter by status or tag, search by text, and sort by recently updated, scores, target date, or name
 - **Notes and links**: Add notes to ideas and link to external resources
 - **Personal workspace**: Individual signup and login; your ideas, your rules
-- **Production-ready**: Deployed to AWS with full observability, alerting, and AI-assisted incident response
+- **Deployed**: Runs on AWS in separate dev and prod environments, with OpenTelemetry tracing and metrics in dev and a manual AI-assisted alert diagnostic
 - **AI-native development**: Built with Claude Code using spec-driven development, AI skills, and specialized subagents
 
 ### Typical workflow
@@ -48,7 +48,7 @@ Hub-Platform is a personal hub for capturing ideas, scoring them, and tracking t
 5. See the new idea tile on your dashboard immediately
 6. Click a tile to open the full project page
 7. Add notes, links, update target date, refine scores
-8. Filter dashboard by tags, status, or sort by recently updated, scores, target date, or name
+8. Filter the dashboard by status or tag, search it, or sort by recently updated, scores, target date, or name
 
 ---
 
@@ -56,53 +56,61 @@ Hub-Platform is a personal hub for capturing ideas, scoring them, and tracking t
 
 ### Prerequisites
 
-- Python 3.12 (via `uv`)
-- Node.js 22+ (via `pnpm`)
-- Docker and Docker Compose
+- [uv](https://docs.astral.sh/uv/) (installs and manages Python 3.12 for the backend)
+- Node.js 22 (install with a version manager such as nvm or fnm)
+- pnpm 12.3 (the version is pinned in `frontend/package.json`)
 - Git
+- Docker, only for the optional Postgres and observability stacks
 
 ### Run locally
 
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/hub-platform.git
-cd hub-platform
+Locally the backend uses a SQLite file (`backend/hub.db`), so no database server is needed.
 
-# Install backend dependencies
+**Terminal 1: backend**
+
+```bash
+git clone https://github.com/rdanielsstat/hub-platform.git
+cd hub-platform/backend
+
+# Install dependencies
 uv sync
 
-# Install frontend dependencies
-cd frontend
-pnpm install
-cd ..
-
-# Seed demo data and start the backend
+# Create the tables and the demo account (once)
 SEED_DEMO_DATA=true uv run python -m app.db.init_local
-uv run uvicorn app.main:app --reload --port 8000
-# Or if Makefile is available: make run
 
-# In a separate terminal, start the frontend
+# Start the API on http://localhost:8000
+uv run uvicorn app.main:app --reload
+```
+
+**Terminal 2: frontend** (from the `hub-platform` folder)
+
+```bash
 cd frontend
+
+# Point the frontend at the local backend (once)
+cp .env.example .env
+
+pnpm install
 pnpm dev
 ```
 
-Visit `http://localhost:5173` (frontend) and `http://localhost:8000/api/docs` (backend OpenAPI docs).
+Visit `http://localhost:5173` and log in as `demo@hub.dev` / `demo1234`, or sign up. Interactive API docs are at `http://localhost:8000/docs`.
 
-### Run with Docker Compose (production parity)
+### Run with Docker Compose (Postgres)
+
+To run the backend against Postgres 17 instead of SQLite, from the repo root:
 
 ```bash
-# Start all services (app, database, observability stack)
 docker compose up --build
-
-# Visit http://localhost:8100
 ```
 
 This starts:
-- FastAPI backend + React frontend (one container)
 - Postgres 17
-- OpenTelemetry Collector
-- Prometheus, Loki, Tempo
-- Grafana dashboards
+- `bootstrap`: creates the database and a least-privilege login role
+- `init_local`: creates the tables and seeds the demo account
+- `app`: the FastAPI backend on `http://localhost:8000`
+
+It doesn't include the frontend (run `pnpm dev` as above) or the observability stack, which is a separate compose file (see [Observability](#observability)).
 
 ---
 
@@ -112,7 +120,9 @@ This starts:
 
 [**ARCHITECTURE DIAGRAM PLACEHOLDER**]
 
-Visual description: A user accesses Hub-Platform through a web browser. The frontend (React) is compiled and served by the FastAPI backend. The backend is containerized and deployed to AWS Lambda via ECR. Lambda connects to Postgres on Neon for persistent storage. CloudFront caches the frontend and provides HTTPS. OpenTelemetry instruments the backend and exports metrics to Prometheus, logs to Loki, and traces to Tempo via an OTel Collector. Grafana displays dashboards and handles alerting.
+Visual description: A user opens Hub-Platform in a web browser at CloudFront (HTTPS). CloudFront serves the built React app from a private S3 bucket and forwards `/api/*` requests to an API Gateway HTTP API, so the frontend and API share one origin. API Gateway invokes the backend Lambda, a container image from ECR running FastAPI through Mangum, which strips the `/api` prefix. The Lambda stores data in Neon Postgres. A separate bootstrap Lambda creates the schema and seeds the demo account on every deploy. In the dev environment, OpenTelemetry sends traces and metrics from the backend to Grafana Cloud; production sends none.
+
+Locally, the frontend runs on the Vite dev server (`http://localhost:5173`) and calls the backend directly on `http://localhost:8000`, which uses SQLite.
 
 ### Component overview
 
@@ -137,11 +147,12 @@ Visual description: A user accesses Hub-Platform through a web browser. The fron
 **Database**
 - SQLite for local development and testing
 - Postgres 17 for production (via Neon)
-- SQLAlchemy 2.0 (no migrations; creates schema on startup)
+- SQLAlchemy 2.0, no migrations: tables are created by `init_local` locally and by the bootstrap Lambda on each deploy. The app itself does no database work at startup.
 - Schema: users, auth_identities (auth), projects (ideas), notes
 
 **Infrastructure**
 - AWS Lambda (compute)
+- API Gateway HTTP API (routes `/api/*` to Lambda)
 - AWS ECR (container registry)
 - Neon Postgres (managed database)
 - CloudFront (CDN + HTTPS)
@@ -150,12 +161,9 @@ Visual description: A user accesses Hub-Platform through a web browser. The fron
 - GitHub Actions (CI/CD)
 
 **Observability**
-- OpenTelemetry SDK (Python)
-- Prometheus (metrics)
-- Loki (logs)
-- Tempo (traces)
-- Grafana (dashboards and alerting)
-- Grafana Cloud (production observability)
+- OpenTelemetry SDK (Python): traces and metrics, with FastAPI and SQLAlchemy instrumentation
+- Grafana Cloud (dev environment only; production sends no telemetry)
+- Optional local stack: OTel Collector, Prometheus, Tempo, Loki, Grafana
 
 ---
 
@@ -200,6 +208,7 @@ pytest 9.1                      Testing
 
 ```
 AWS Lambda                      Compute
+AWS API Gateway (HTTP API)      Routes /api/* to Lambda
 AWS ECR                         Container registry
 AWS CloudFront                  CDN / HTTPS
 AWS S3                          Static asset storage
@@ -215,9 +224,11 @@ Docker                          Containerization
 
 ### Installation
 
-**Using `uv` for Python:**
+**Using `uv` for Python** (from `backend/`):
 
 ```bash
+cd backend
+
 # Install dependencies (creates virtual environment)
 uv sync
 
@@ -231,7 +242,7 @@ uv run python script.py
 uv run pytest
 ```
 
-**Using `pnpm` for Node:**
+**Using `pnpm` for Node** (from the repo root):
 
 ```bash
 cd frontend
@@ -254,20 +265,17 @@ pnpm build
 
 ### Development Server
 
-**Backend:**
+**Backend** (from `backend/`):
 
 ```bash
-make run
-# Or manually:
-uv run uvicorn app.main:app --reload --port 8000
+uv run uvicorn app.main:app --reload
 ```
 
-Visit `http://localhost:8000/api/docs` for interactive OpenAPI documentation.
+Visit `http://localhost:8000/docs` (Swagger UI) or `http://localhost:8000/redoc` for interactive API documentation.
 
-**Frontend:**
+**Frontend** (from `frontend/`, with `.env` copied from `.env.example`):
 
 ```bash
-cd frontend
 pnpm dev
 ```
 
@@ -276,50 +284,45 @@ Visit `http://localhost:5173`.
 ### Running Tests Locally
 
 ```bash
-# Backend tests (from project root)
+# Backend tests (from backend/)
 uv run pytest
 
-# Frontend tests
-cd frontend
+# Frontend tests, lint, typecheck and format (from frontend/)
 pnpm test
-
-# Lint and format
-cd frontend
 pnpm lint
-pnpm format
+pnpm build
+pnpm format:check
 ```
 
 ### Database Management
 
-**Seed demo data:**
+**Create tables and seed demo data** (from `backend/`):
 
 ```bash
 SEED_DEMO_DATA=true uv run python -m app.db.init_local
 ```
 
-This creates demo users and sample interview sessions.
+This creates the tables in the local SQLite file `backend/hub.db`, and, if the database has no users yet, one demo account (`demo@hub.dev` / `demo1234`) with ten sample projects and their notes. It's safe to run again: an existing database is never re-seeded.
 
-**Reset database:**
+**Reset the database:**
 
 ```bash
-rm data/sdip.db  # For SQLite
-# Or drop/recreate schema for Postgres
+# SQLite (from backend/), then run init_local again
+rm hub.db
+
+# Docker Compose Postgres (from the repo root): deletes the data volume
+docker compose down -v
 ```
 
 ### Local Docker Compose (Production Parity)
 
-To test the application exactly as it runs in production:
+To run the backend against Postgres, as it does when deployed (from the repo root):
 
 ```bash
 docker compose up --build
 ```
 
-This starts:
-- Containerized app + frontend (compiled)
-- Postgres 17 with persistent volume
-- Full observability stack (OTel Collector, Prometheus, Loki, Tempo, Grafana)
-
-Access the app at `http://localhost:8100` and Grafana at `http://localhost:3000`.
+This starts Postgres 17 (with a persistent volume), creates the database, role, tables and demo account, then serves the API on `http://localhost:8000`. The frontend isn't part of it: start it with `pnpm dev` from `frontend/` and open `http://localhost:5173`. Stop the API from Terminal 1 first if it's running, since both use port 8000.
 
 **Test the workflow:**
 1. Sign up with an email and password
@@ -339,7 +342,7 @@ Access the app at `http://localhost:8100` and Grafana at `http://localhost:3000`
 
 [**CI/CD DIAGRAM PLACEHOLDER**]
 
-Visual description: A developer pushes code to main. GitHub Actions runs backend and frontend tests in parallel. If tests pass, CI builds a Docker image, tags it with a timestamp and short SHA (e.g., 20261001-163457-83242da), and pushes it to AWS ECR. The deploy step pulls the image and deploys to the development Lambda. After testing in dev, a release owner manually triggers a prod release workflow, which promotes the same image from dev ECR to prod ECR (no rebuild) and deploys to production Lambda.
+Visual description: A developer pushes code to main. GitHub Actions runs the backend tests, then the frontend tests, in a single job (pull requests run only this step). If they pass, CI builds a Docker image, tags it with a timestamp and short SHA (e.g., 20261001-163457-83242da), and pushes it to the dev ECR repository. It then applies the dev infrastructure with OpenTofu, runs the bootstrap Lambda, builds the frontend and uploads it to S3, and smoke-tests `/api/health`. After testing in dev, a release owner manually runs the promote workflow, which copies the same image from dev ECR to prod ECR (no rebuild), deploys it to the production Lambda, and builds and uploads the frontend.
 
 ### Environments
 
@@ -347,13 +350,11 @@ Visual description: A developer pushes code to main. GitHub Actions runs backend
 - Automatic deployment on every push to main
 - Latest code always running
 - Internal testing and validation
-- Shorter retention (logs, backups)
 
 **Production**
 - Manual promotion from development
 - Tested release selected by release owner
 - Serves real users
-- Full retention and compliance
 
 ### Release Process
 
@@ -396,146 +397,125 @@ The current setup deploys to a single Lambda with Neon Postgres. For production 
 
 ### What we monitor
 
-Hub-Platform instruments application-level metrics relevant to the system design interview experience:
+The backend is instrumented with OpenTelemetry (`backend/observability/`):
 
-- **Interview sessions**: Rooms created, active rooms, active participants
-- **Canvas**: Elements created, total elements across all rooms
-- **Performance**: Change propagation latency (how long before candidate sees interviewer's update)
-- **Errors**: Component creation failures, connection failures
+- **Traces** for every API request (FastAPI) and database query (SQLAlchemy)
+- **Per-endpoint metrics**: request count, error count, and latency for each API route (for example `projects_create_total`, `projects_create_errors_total`, `projects_create_latency_ms`)
+- **Account and activity counters**: logins and signups (with their errors), accounts created, projects created, notes created
 
-### Observability Stack
+Every metric and trace is tagged with the deployed version (`SERVICE_VERSION`, from git tags).
 
-[**OBSERVABILITY DIAGRAM PLACEHOLDER**]
+### Where telemetry goes
 
-Visual description: The FastAPI backend instruments with OpenTelemetry SDK, exporting metrics, logs, and traces via OTLP protocol. An OpenTelemetry Collector receives all telemetry and routes it: metrics to Prometheus, logs to Loki, traces to Tempo. Grafana scrapes all three backends and displays dashboards, alerts, and trace analysis.
+- **Dev** (`hub-dev.dnls.dev`): the dev Lambda exports traces and metrics to Grafana Cloud over OTLP/HTTP.
+- **Production**: telemetry is deliberately off (`OTEL_ENABLED` is not set), so prod sends nothing.
+- **Local**: off by default. Turn it on to send to the optional local stack below.
 
-### Local Observability (Docker Compose)
+### Local Observability (optional)
 
-When you run `docker compose up`, you get:
+A separate stack, `backend/observability/docker-compose.yml`, runs an OpenTelemetry Collector, Prometheus, Tempo, Loki, and Grafana for checking instrumentation changes. From `backend/`:
 
-- **Prometheus**: Scrapes metrics from the app (port 9090)
-- **Loki**: Ingests logs from the app (port 3100)
-- **Tempo**: Ingests traces from the app (port 4317)
-- **Grafana**: Unified dashboards and alerts (port 3000, login: admin/admin)
+```bash
+# Start the stack
+docker compose -f observability/docker-compose.yml up -d
 
-**Access Grafana dashboards locally:**
+# Start the backend with telemetry on (sends to the local collector)
+OTEL_ENABLED=true uv run uvicorn app.main:app --reload
+```
 
-1. Open http://localhost:3000
-2. Navigate to Dashboards
-3. Select "Hub-Platform Metrics"
+| Service        | URL                     |
+| -------------- | ----------------------- |
+| Grafana        | http://localhost:3000 (login `admin` / `admin`) |
+| OTel Collector | http://localhost:4318 (OTLP/HTTP in) |
+| Prometheus     | http://localhost:9090   |
+| Tempo          | http://localhost:3200   |
+| Loki           | http://localhost:3100   |
 
-[**GRAFANA DASHBOARD SCREENSHOT PLACEHOLDER**]
-
-Visual: Shows panels for interview rooms created (time series), active participants (gauge), canvas elements (counter), component failures (bar chart), all filterable by environment and deployed version.
-
-### Production Observability (Grafana Cloud)
-
-Development and production both export telemetry to Grafana Cloud:
-
-- Metrics stored in Prometheus-compatible backend
-- Logs stored and indexed for fast search
-- Traces stored in Tempo for distributed tracing
-- Real-time dashboards and alerts
-- Data retention: 30 days for logs, 30 days for traces
+There are no prebuilt dashboards: use Grafana's **Explore** view to query metrics (Prometheus) and traces (Tempo, service name `hub-platform`). The backend doesn't export logs, so Loki stays empty. See `backend/observability/README.md` for details.
 
 ---
 
-## Production Alerting and On-Call Agents
+## On-Call Diagnostic
 
-### Alert workflow
+There are no Grafana alert rules or alert webhooks wired up yet. What exists is a manual diagnostic workflow, `.github/workflows/observability-alert-handler.yml`:
 
-When application metrics deviate from normal, Grafana fires an alert.
+1. Someone runs the workflow by hand in GitHub Actions, pasting in an alert summary.
+2. The job waits for a reviewer's approval (the `observability-oncall` environment).
+3. `backend/oncall/diagnose.py` estimates the monthly cost and skips the call, with a warning, if it would exceed $5/month.
+4. Otherwise it makes one OpenAI API call (GPT-4o-mini by default) for a short diagnosis of the alert text.
+5. The diagnosis is written to the run log and the job summary.
 
-[**ON-CALL AGENT DIAGRAM PLACEHOLDER**]
-
-Visual description: A Grafana alert fires and sends a notification to AWS SNS. SNS triggers an AWS Lambda. Lambda starts a container job running Claude (powered by OpenAI GPT-4o-mini). The agent has access to the GitHub repository code, CloudWatch logs, and Grafana metrics. The agent analyzes the logs, identifies the root cause, and either creates a fix (if it's a real bug) or explains why the alert is a false positive. The session log is saved after the run.
-
-### Current alerting
-
-Canvas component creation failures above 5% error rate for 5 minutes trigger an alert.
-
-### On-Call Agent
-
-The on-call diagnostic agent is an autonomous service that responds to production alerts without human intervention:
-
-1. Alert fires in Grafana
-2. SNS sends notification to Lambda
-3. Lambda starts a container with Claude (GPT-4o-mini)
-4. Agent receives alert details + code context
-5. Agent queries CloudWatch logs
-6. Agent analyzes error patterns
-7. Agent recommends action or creates fix
-8. Session log is saved
-
-**Agent access:**
-- GitHub repository (read-only)
-- CloudWatch logs (read-only, last 100 entries)
-- Grafana metrics (read-only)
-- Cannot deploy, modify code without human approval, or access production data
-
-For details, see `custom-agent/on-call-diagnostic/README.md`.
+It only sees the alert text you give it. It doesn't read logs, metrics, or code, and it doesn't change anything.
 
 ---
 
 ## API
 
-The backend exposes a RESTful API documented in OpenAPI format.
+The backend exposes a REST API. Locally it's at `http://localhost:8000` with no prefix. When deployed, the same routes are under `/api` on the site (for example `https://hub.dnls.dev/api/projects`), because CloudFront forwards `/api/*` to the backend.
 
 ### Interactive documentation
 
-Visit `http://localhost:8000/api/docs` (Swagger UI) or `http://localhost:8000/api/redoc` (ReDoc).
+Locally only: `http://localhost:8000/docs` (Swagger UI) or `http://localhost:8000/redoc` (ReDoc). The deployed API doesn't serve them.
 
 ### Main endpoints
 
+**Health:**
+```
+GET    /health                    Liveness check (no login needed)
+```
+
 **Authentication:**
 ```
-POST   /api/auth/register         Create a new account
-POST   /api/auth/login            Get JWT token
-POST   /api/auth/refresh          Refresh token
+POST   /auth/register             Create an account; returns a token
+POST   /auth/login                Log in (form fields); returns a token
+GET    /auth/me                   The logged-in user
 ```
+
+There's no logout endpoint. Logging out in the app just discards the token in the browser, and tokens expire on their own (after 60 minutes by default).
 
 **Projects (ideas):**
 ```
-GET    /api/projects              List all your projects
-POST   /api/projects              Create a new project
-GET    /api/projects/{id}         Get project details
-PUT    /api/projects/{id}         Update project (name, pitch, status, scores, etc.)
-DELETE /api/projects/{id}         Delete project
+GET    /projects                  List your projects
+POST   /projects                  Create a project
+GET    /projects/{id}             Get one project
+PATCH  /projects/{id}             Update some fields (name, pitch, status, scores, etc.)
+DELETE /projects/{id}             Delete a project and its notes
 ```
 
 **Notes:**
 ```
-GET    /api/projects/{id}/notes   List notes for a project
-POST   /api/projects/{id}/notes   Add a note
-PUT    /api/notes/{id}            Update note
-DELETE /api/notes/{id}            Delete note
+GET    /projects/{id}/notes       List a project's notes
+POST   /projects/{id}/notes       Add a note
+DELETE /notes/{id}                Delete a note
 ```
+
+Notes can be added and deleted, not edited.
 
 ### Authentication
 
-The API uses JWT bearer tokens. Endpoints requiring authentication:
+The API uses JWT bearer tokens. Every endpoint except `/health`, `/auth/register`, and `/auth/login` needs one.
 
 ```bash
-# Sign up
-curl -X POST http://localhost:8000/api/auth/register \
+# Sign up (JSON)
+curl -X POST http://localhost:8000/auth/register \
   -H "Content-Type: application/json" \
   -d '{
     "email": "user@example.com",
     "password": "secure-password",
-    "display_name": "Your Name"
+    "displayName": "Your Name"
   }'
 
-# Log in
-curl -X POST http://localhost:8000/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email": "user@example.com", "password": "secure-password"}'
+# Log in (form fields named username and password, not JSON)
+curl -X POST http://localhost:8000/auth/login \
+  -d "username=user@example.com" \
+  -d "password=secure-password"
 
-# Use token to list projects
-curl http://localhost:8000/api/projects \
+# Use the access_token from either response
+curl http://localhost:8000/projects \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
-For full API contract, see `openapi.yaml` (auto-generated from FastAPI).
+For the full API contract, see `openapi.yaml`. It's written by hand, and `backend/tests/test_openapi_contract.py` fails if its endpoints and the app's drift apart.
 
 ---
 
@@ -546,32 +526,37 @@ For full API contract, see `openapi.yaml` (auto-generated from FastAPI).
 ```
 backend/
   tests/
-    test_auth.py              Authentication, signup, login
-    test_projects.py          Project CRUD operations
-    test_notes.py             Note management
-    test_filtering.py         Dashboard filtering and sorting
+    test_auth.py              Signup, login, tokens
+    test_projects.py          Project CRUD, validation, per-user isolation
+    test_notes.py             Notes
+    test_openapi_contract.py  App and openapi.yaml declare the same endpoints
+    test_*.py                 Config, startup, database setup, observability,
+                              on-call agent, service versioning, and more
 
 frontend/
   src/
-    __tests__/
-      components/             Component unit tests (dashboard, forms, filters)
-      hooks/                  Custom hook tests
-      services/               API client tests
+    **/*.test.ts(x)           Unit and component tests, next to the code
+                              they cover (pages, components, store, API client)
+  tests/
+    app.spec.ts               Playwright: browser flows
+    api.spec.ts               Playwright: live API tests
+    helpers.ts                Shared setup for both
 ```
+
+Backend tests each get their own in-memory SQLite database, so they don't need a running server. The Playwright tests do (see below).
 
 ### Running tests
 
 **Backend:**
 
 ```bash
+cd backend
+
 # All tests
 uv run pytest
 
 # Specific test file
 uv run pytest tests/test_projects.py
-
-# With coverage
-uv run pytest --cov=app
 
 # Verbose output
 uv run pytest -v
@@ -582,28 +567,32 @@ uv run pytest -v
 ```bash
 cd frontend
 
-# All tests
+# All unit tests, once
 pnpm test
 
 # Watch mode
-pnpm test --watch
+pnpm exec vitest
 
-# Coverage
-pnpm test --coverage
+# One file
+pnpm test src/pages/dashboard.test.tsx
 ```
 
-### End-to-end tests (Playwright, planned)
+### End-to-end tests (Playwright)
 
-End-to-end tests with Playwright will verify the full application flow: sign up, create projects, filter, update scores. Implementation in progress.
+Hub-Platform has a full end-to-end test suite built with Playwright. These tests use the app the way a person would, and they talk to the real local backend rather than a stand-in, so a passing run means the whole system works together.
+
+The suite has 187 tests covering two areas:
+
+- **The app in the browser:** signing up, logging in and out, the dashboard, creating and editing projects, filtering and sorting, adding and deleting notes, and deleting projects. It also checks how the app behaves on phones and tablets, and what users see when something goes wrong.
+- **The API on its own:** every sign-up, login and project endpoint, including what happens with missing or invalid input, expired or bad logins, and attempts to reach data that belongs to someone else.
+
+Together they cover everyday use, error cases, unusual input such as very long text or emoji, and making sure each user only ever sees their own data.
+
+To run them, start the backend (port 8000) and the frontend dev server (port 5173) as described in Quick Start, then:
 
 ```bash
-# Run E2E tests (requires app + postgres running)
-make e2e
-
-# Or from project root
-docker compose up --build
-# In another terminal
-uv run pytest e2e/
+cd frontend
+pnpm exec playwright test
 ```
 
 ---
@@ -614,13 +603,13 @@ Hub-Platform was built using AI-native development practices: spec-driven develo
 
 ### How it was built
 
-1. **Specification**: Brainstormed with Claude to define the problem, users, features, and workflows (saved in `docs/spec.md`)
+1. **Specification**: Brainstormed with Claude to define the problem, users, features, and workflows (saved in `docs/specs.md`)
 2. **Frontend first**: Created a React prototype with mocked backend calls using Claude Code
 3. **API contract**: Defined OpenAPI specification for frontend-backend communication
 4. **Backend from spec**: Built FastAPI backend from the OpenAPI contract
 5. **Database**: Added Postgres persistence via SQLAlchemy
 6. **Deployment**: Containerized, deployed to AWS, and set up CI/CD
-7. **Observability**: Instrumented with OpenTelemetry and added alerting
+7. **Observability**: Instrumented with OpenTelemetry and added a manual on-call diagnostic workflow
 8. **Agent extension pack**: Created reusable skills and autonomous agents
 
 ### Reusable Skills
@@ -662,11 +651,11 @@ Subagents are AI agents in fresh contexts with specific roles:
 - Reports findings with severity levels
 - Outputs PASS or FAIL verdict
 
-**On-Call Agent** (custom-agent/on-call-diagnostic/)
-- Autonomous production alert responder
-- Queries logs and analyzes patterns
-- Recommends remediation
-- Can commit fixes for real bugs
+**On-Call Diagnostic** (.github/workflows/observability-alert-handler.yml)
+- Run by hand, with reviewer approval, for a given alert summary
+- Makes one OpenAI call (GPT-4o-mini) for a short diagnosis
+- Writes the result to the GitHub Actions run log; changes nothing
+- See [On-Call Diagnostic](#on-call-diagnostic)
 
 ### Example workflow
 
@@ -731,9 +720,7 @@ Hub-Platform uses an AI-native development workflow with reusable skills and spe
 ### Code style
 
 **Backend:**
-- Run `black` for formatting (included in `uv sync`)
-- Run `ruff` for linting
-- Type hints required
+- No formatter or linter is configured yet; match the style of the surrounding code
 
 **Frontend:**
 - Run `prettier` for formatting (`pnpm format`)
@@ -748,23 +735,23 @@ Hub-Platform uses an AI-native development workflow with reusable skills and spe
 
 If the frontend can't connect to the backend, check:
 
-1. Backend is running: `http://localhost:8000/api/health`
-2. CORS is configured (if on different host)
-3. Firewall allows HTTP (port 8000)
+1. Backend is running: `http://localhost:8000/health` should return `{"status":"ok"}`
+2. `frontend/.env` exists (copied from `.env.example`) so the frontend calls `http://localhost:8000`; restart `pnpm dev` after creating it
+3. CORS allows your frontend's origin: `http://localhost:5173` by default, or set `CORS_ORIGINS`
 
 ### Database connection issues
 
-**Local SQLite:**
+**Local SQLite** (from `backend/`):
 ```bash
 # Reinitialize database
-rm data/sdip.db
+rm hub.db
 SEED_DEMO_DATA=true uv run python -m app.db.init_local
 ```
 
-**Docker Compose Postgres:**
+**Docker Compose Postgres** (from the repo root):
 ```bash
 # Check logs
-docker compose logs db
+docker compose logs postgres
 
 # Restart services
 docker compose down
@@ -774,25 +761,16 @@ docker compose up --build
 ### Tests failing locally
 
 ```bash
-# Run with verbose output
+# From backend/: run with verbose output
 uv run pytest -vv
 
 # Run specific test
-uv run pytest tests/test_sessions.py::test_create_session -vv
-
-# Check for environment variables
-echo $DATABASE_URL
+uv run pytest tests/test_projects.py::test_patch_empty_body_is_a_no_op -vv
 ```
 
 ### Frontend build issues
 
-```bash
-# Clear cache and reinstall
-cd frontend
-rm -rf node_modules pnpm-lock.yaml .vite
-pnpm install
-pnpm dev
-```
+If issues persist, try `pnpm install` to reinstall from the locked versions.
 
 ---
 
