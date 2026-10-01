@@ -1,6 +1,6 @@
 # Agent Extension Pack
 
-This document describes the AI agent infrastructure for Hub-Platform: reusable skills, specialized subagents, custom autonomous agents, and how they orchestrate.
+This document describes the AI agent infrastructure for Hub-Platform: reusable skills, specialized subagents, custom agents, and how they orchestrate.
 
 ## Overview
 
@@ -8,7 +8,7 @@ The extension pack enables AI agents to assist with development workflows withou
 
 - **Skills**: Reusable, discoverable workflows for repeatable tasks (release, security scanning, E2E testing, design review)
 - **Subagents**: Specialized agents in fresh contexts for focused tasks (QA engineer for independent validation)
-- **Custom agents**: Autonomous agents that trigger on events without human interaction (on-call diagnostic for production alerts)
+- **Custom agents**: Agents a person runs in response to an event, with reviewer approval (on-call diagnostic for Grafana alerts in dev)
 - **Permissions & guardrails**: Clear boundaries on what agents can and cannot do
 
 ## Structure
@@ -25,15 +25,11 @@ The extension pack enables AI agents to assist with development workflows withou
 
 custom-agent/
   └── on-call-diagnostic/
-      ├── README.md
-      ├── diagnose.py
-      └── WORKFLOW.md
+      └── README.md
 
 docs/
   ├── agent-extension-pack.md (this file)
-  ├── permissions.md
-  └── ops/
-      └── on-call-alerting.md
+  └── permissions.md
 ```
 
 ## Reusable Skills
@@ -138,33 +134,32 @@ Subagents run in fresh contexts with specialized roles, preventing implementatio
 
 **Key point**: Fresh context prevents the "implementer bias" where the person who built something overlooks their own mistakes.
 
-## Custom Autonomous Agents
+## Custom Agents
 
-Custom agents run independently, triggered by external events, with no human in the loop.
+Custom agents are run by a person in response to an external event, with a reviewer approving each run.
 
 ### On-Call Diagnostic Agent
 
-**Purpose**: Automatically diagnose and respond to production alerts from Grafana without human intervention.
+**Purpose**: Give the on-call person a quick first diagnosis of a Grafana alert in the dev environment.
 
-**Trigger**: Grafana Cloud alert fired → webhook to GitHub Actions → `observability-alert-handler.yml` → on-call diagnostic agent runs
+**Trigger**: The Grafana Cloud alert rule "Registration Error Rate > 10%" fires when more than 10% of dev registration requests return an error (4xx or 5xx) for 5 minutes. Its webhook notifies the on-call person, who starts `observability-alert-handler.yml` by hand in GitHub Actions.
 
 **Technology**: Python + OpenAI GPT-4o-mini (no new dependencies; uses stdlib urllib)
 
 **Workflow**:
-1. Receive alert details (service, metric, threshold, current value)
-2. Query backend Lambda CloudWatch logs for context
-3. Analyze error patterns and symptom root cause
-4. Recommend remediation (code fix, infra change, monitoring adjustment)
-5. Output diagnosis to GitHub Actions log
-6. Post summary to GitHub issue (if applicable)
+1. The on-call person starts the workflow with two inputs: `alert_summary` (the alert text) and `runs_per_month` (for the cost estimate)
+2. The run waits for a reviewer's approval in the `observability-oncall` environment
+3. The script estimates the monthly cost and skips the call, with a warning, if it would exceed $5/month
+4. It makes one OpenAI API call for a 2-3 sentence diagnosis: likely causes and the first thing to check or fix
+5. The diagnosis and cost estimate are written to the GitHub Actions run log and job summary
 
-**Location**: `backend/oncall/diagnose.py`
+**Location**: `backend/oncall/diagnose.py` (see `custom-agent/on-call-diagnostic/README.md`)
 
-**Trigger mechanism**: `.github/workflows/observability-alert-handler.yml` (manual workflow_dispatch, but could be automated via Grafana webhook)
+**Trigger mechanism**: `.github/workflows/observability-alert-handler.yml` (manual `workflow_dispatch`, with reviewer approval)
 
-**Cost**: ~$0.000060-0.000198 per run (~$5/month budget for frequent alerts)
+**Cost**: one GPT-4o-mini call per approved run, kept under an estimated $5/month by the spend guard
 
-**Key point**: Autonomous, fire-and-forget. Reduces MTTR (mean time to recovery) for production issues by diagnosing while the human reads the alert.
+**Key point**: A read-only diagnostic aid. The on-call person reads the diagnosis and decides what to do.
 
 ## Orchestration and Workflow
 
@@ -180,7 +175,7 @@ Custom agents run independently, triggered by external events, with no human in 
 8. **Verify dev**: Check dev Lambda logs and dashboards
 9. **Release**: Use release skill to tag, push, verify dev deployment
 10. **Promote to prod**: Manual workflow_dispatch for promote.yml
-11. **Monitor**: On-call agent watches for issues
+11. **Respond to alerts**: When the Grafana alert notifies you, run the on-call diagnostic and review its output
 
 ### Parallel Workflow (Future, with git worktrees and multiple agents)
 

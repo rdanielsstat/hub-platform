@@ -1,10 +1,13 @@
-# On-call agent, stage 5: an alert comes in, OpenAI writes a short
-# diagnostic. For now it's triggered by hand (workflow_dispatch) to test
-# the flow; the Grafana alert webhook comes later.
+# On-call diagnostic: OpenAI writes a short diagnosis of an alert.
 #
-# Runs in the observability-oncall environment, which requires a
-# reviewer's approval before the job starts (and so before any OpenAI
-# spend). The diagnostic lands in the run log and the job summary.
+# Flow: the Grafana alert rule "Registration Error Rate > 10%" (dev
+# registration errors above 10% for 5 minutes) fires and its webhook
+# notifies the on-call person, who starts this workflow by hand
+# (workflow_dispatch) with the alert summary. The job runs in the
+# observability-oncall environment, so it waits for a reviewer's
+# approval before it starts (and so before any OpenAI spend). Once
+# approved, it makes one OpenAI call and writes the diagnosis to the
+# run log and the job summary.
 #
 # Spend guard: backend/oncall/diagnose.py estimates the monthly cost
 # (one call x runs_per_month) and skips the OpenAI call, with a warning,

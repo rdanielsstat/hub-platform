@@ -437,15 +437,13 @@ There are no prebuilt dashboards: use Grafana's **Explore** view to query metric
 
 ## On-Call Diagnostic
 
-There are no Grafana alert rules or alert webhooks wired up yet. What exists is a manual diagnostic workflow, `.github/workflows/observability-alert-handler.yml`:
+A Grafana Cloud alert rule, "Registration Error Rate > 10%", fires when more than 10% of registration requests in the dev environment return an error (4xx or 5xx) for 5 minutes. That includes 409 (email already registered) and 422 (invalid input), not only server errors. Its webhook notifies the on-call person, who then runs the diagnostic workflow, `.github/workflows/observability-alert-handler.yml`:
 
-1. Someone runs the workflow by hand in GitHub Actions, pasting in an alert summary.
+1. The on-call person starts the workflow by hand in GitHub Actions, pasting in the alert summary.
 2. The job waits for a reviewer's approval (the `observability-oncall` environment).
 3. `backend/oncall/diagnose.py` estimates the monthly cost and skips the call, with a warning, if it would exceed $5/month.
 4. Otherwise it makes one OpenAI API call (GPT-4o-mini by default) for a short diagnosis of the alert text.
 5. The diagnosis is written to the run log and the job summary.
-
-It only sees the alert text you give it. It doesn't read logs, metrics, or code, and it doesn't change anything.
 
 ---
 

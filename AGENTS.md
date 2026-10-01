@@ -27,7 +27,7 @@ here and don't let this file drift from it.
   prod-parity testing.
 - `backend/observability/`: OpenTelemetry setup, local Grafana/Tempo/Prometheus
   stack.
-- `backend/oncall/`: on-call agent (OpenAI diagnostic for production alerts).
+- `backend/oncall/`: on-call agent (OpenAI diagnostic for dev alerts).
 - `.claude/`: agent configuration, skills, and subagent definitions.
 
 ## Frontend
@@ -191,7 +191,7 @@ Read at startup with `USE_SSM=true` in Lambda, via boto3.
   smoke-test `/api/health`).
 - `promote.yml`: manual promotion of exact image tag from dev to prod (no rebuild).
 - `reset-demo.yml`: manual reset of demo account.
-- `observability-alert-handler.yml`: manual on-call diagnostic (fires Grafana alerts).
+- `observability-alert-handler.yml`: manual on-call diagnostic (started manually after a Grafana alert).
 
 **Observability**: Grafana Cloud over OTLP/HTTP (dev Lambda only). Traces and metrics
 exported via OpenTelemetry SDK + FastAPI and SQLAlchemy instrumentation. Prod Lambda

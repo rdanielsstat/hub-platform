@@ -78,7 +78,7 @@ If the run fails, report the failure and stop; the human needs to fix the issue 
 Once deploy-dev succeeds, the dev Lambda should report the new SERVICE_VERSION in its telemetry.
 
 Ask the human to verify one of:
-- Check the Grafana Cloud dashboard "Hub Platform Observability" (dev Lambda's `service.version` attribute)
+- Check the Grafana Cloud dashboard "Hub Platform" (dev Lambda's `service.version` attribute)
 - Or check the CloudWatch logs for the dev Lambda: look for `service_version` in any startup message
 - Or check `.github/workflows/ci.yml` output to see what `service-version.sh` computed
 

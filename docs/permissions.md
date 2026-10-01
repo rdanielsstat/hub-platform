@@ -40,7 +40,7 @@ Skills are workflows that agents execute at human request. The human invokes the
 - Modify `.env` files or any secrets
 - Delete data or reset databases
 - Modify architecture or make design decisions without asking
-- Access production databases or logs (except on-call agent; see below)
+- Access production databases or logs
 - Run destructive commands (force push, rebase main, etc.)
 
 ### Skill-specific details
@@ -102,42 +102,37 @@ Subagents run in fresh, isolated contexts with a specialized role.
 - This prevents "implementer bias" where builders overlook their own mistakes
 - QA report is independent and objective
 
-## Custom Autonomous Agents (custom-agent/)
+## Custom Agents (custom-agent/)
 
-Custom agents run independently in response to external events, with no human in the loop at execution time.
+Custom agents are run by people in response to external events, with a human approving each run.
 
 ### On-call diagnostic agent
 
-**Role**: Diagnose production alerts and recommend remediation.
+**Role**: Give a quick first diagnosis of a Grafana alert in the dev environment.
 
-**Trigger**: Grafana Cloud alert → GitHub Actions workflow → agent runs
+**Trigger**: The Grafana Cloud alert rule "Registration Error Rate > 10%" fires when more than 10% of dev registration requests return an error (4xx or 5xx) for 5 minutes. Its webhook notifies the on-call person, who starts `.github/workflows/observability-alert-handler.yml` by hand with the alert summary. The run waits for reviewer approval in the `observability-oncall` environment before it starts.
 
 **CAN do**:
-- Query CloudWatch logs (read-only, last 100 entries per run)
-- Analyze error patterns and root causes
-- Query Claude GPT-4o-mini for diagnosis
-- Output diagnosis to GitHub Actions logs
-- Post findings to GitHub issues (if configured)
-- Recommend actions to take
+- Read the workflow inputs: `alert_summary` (alert text) and `runs_per_month` (for the cost estimate)
+- Make one OpenAI GPT-4o-mini API call for a 2-3 sentence diagnosis
+- Write the diagnosis and cost estimate to the GitHub Actions run log and job summary
+- Recommend what to check or fix first
 
 **CANNOT do**:
-- Access production database (no credentials provided)
-- Access user data or PII
+- Run without a reviewer's approval
+- Access any database, logs, metrics, or user data
 - Modify configuration or environment variables
 - Restart services or trigger deployments
-- Make any changes to production state
-- Commit or push any code
-- Send emails or notifications without human review first
+- Make any changes to dev or production state
+- Open issues, commit, or push code
 
 **Data access**:
-- CloudWatch logs only (no sensitive user data in logs by design)
-- Log retention: 7 days (AWS default)
-- Logs are application/infrastructure logs, not user data
+- Only the alert text passed in as `alert_summary`
+- No AWS credentials; the job has OpenAI access only (`OPENAI_API_KEY`)
 
 **Cost controls**:
-- API calls are rate-limited to OpenAI's account limits
-- Budget: ~$5/month for on-call agent (est. 40 alerts/month)
-- High-cost operations are logged and reviewed
+- Reviewer approval before every run, and so before any OpenAI spend
+- Spend guard: the script estimates the monthly cost (one call x `runs_per_month`) and skips the call, with a warning, if it exceeds $5/month
 
 **Decision authority**:
 - Agent recommends actions; human reads diagnosis and decides
@@ -224,10 +219,10 @@ All agent actions are logged:
 - Human decides whether to follow, modify, or reject suggestions
 - Human commits code (agent provides summary + suggested message)
 
-**For autonomous agents**:
+**For the on-call agent**:
+- A reviewer approves every run before it starts
 - On-call agent output is visible in GitHub Actions logs
 - Human reads diagnosis and decides on remediation
-- High-severity issues trigger human review
 
 ### Audit trail
 
@@ -254,9 +249,9 @@ To audit what an agent did:
 ### Production (via GitHub Actions)
 
 **On-call agent:**
-- Reads CloudWatch logs (dev Lambda only, prod Lambda eventually)
-- Queries OpenAI API
-- Posts findings to GitHub
+- Started by hand by the on-call person after a Grafana alert on the dev environment
+- Waits for reviewer approval (`observability-oncall` environment)
+- Makes one OpenAI API call and writes the diagnosis to the run log
 - No deployment or state-change permissions
 
 **CI/CD workflows:**
