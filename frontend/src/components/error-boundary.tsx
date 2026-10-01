@@ -15,7 +15,7 @@ interface State {
  * Catches render-time errors anywhere below it so a crash shows this
  * fallback instead of a white screen. componentDidCatch is also the spot
  * to forward errors to real error tracking once that's wired up (see
- * _docs/tech-debt.md, Sentry is deferred to the deploy phase); for now
+ * docs/tech-debt.md, Sentry is deferred to the deploy phase); for now
  * console.error is the only record.
  */
 export class ErrorBoundary extends Component<Props, State> {
