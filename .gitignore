@@ -30,5 +30,7 @@ crash.log
 *.env
 .env
 
-tempplaywright-report/
+temp
+
+playwright-report/
 test-results/
