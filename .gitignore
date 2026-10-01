@@ -33,4 +33,5 @@ crash.log
 temp
 
 playwright-report/
+
 test-results/
