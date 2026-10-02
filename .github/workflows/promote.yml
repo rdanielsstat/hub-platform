@@ -30,6 +30,7 @@ jobs:
       TF_VAR_neon_urls: ${{ secrets.NEON_URLS }}
       TF_VAR_demo_passwords: ${{ secrets.DEMO_PASSWORDS }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       TF_VAR_otel_endpoint_prod: ${{ secrets.TF_VAR_OTEL_EXPORTER_OTLP_ENDPOINT_PROD }}
       TF_VAR_otel_headers_prod: ${{ secrets.TF_VAR_OTEL_EXPORTER_OTLP_HEADERS_PROD }}
     steps:
