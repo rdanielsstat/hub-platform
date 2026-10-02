@@ -14,7 +14,7 @@ A personal idea management system for capturing, triaging, and tracking ideas fr
 
 **Live environments:**
 - Development: https://hub-dev.dnls.dev
-- Production: https://hub.dnls.dev (not yet deployed)
+- Production: https://hub.dnls.dev
 
 **Documentation:**
 - [AGENTS.md](AGENTS.md) - Project instructions for AI agents and developers
@@ -36,7 +36,7 @@ Hub-Platform is a personal hub for capturing ideas, scoring them, and tracking t
 - **Dashboard filtering**: Filter by status or tag, search by text, and sort by recently updated, scores, target date, or name
 - **Notes and links**: Add notes to ideas and link to external resources
 - **Personal workspace**: Individual signup and login; your ideas, your rules
-- **Deployed**: Runs on AWS, with separate dev and prod environments (dev is live; prod is not yet deployed), OpenTelemetry tracing and metrics in dev and prod, and a manual AI-assisted alert diagnostic
+- **Deployed**: Runs on AWS, with separate dev and prod environments, both live, OpenTelemetry tracing and metrics in dev and prod, and a manual AI-assisted alert diagnostic
 - **AI-native development**: Built with Claude Code using spec-driven development, AI skills, and specialized subagents
 
 ### Typical workflow
@@ -354,7 +354,7 @@ Visual description: A developer pushes code to main. GitHub Actions runs the bac
 **Production**
 - Manual promotion from development
 - Tested release selected by release owner
-- Will serve real users once deployed (not yet deployed)
+- Live at https://hub.dnls.dev
 
 ### Release Process
 
