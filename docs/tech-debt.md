@@ -7,16 +7,22 @@
 
 ## Security
 
-- Rate limiting: done for login (5 attempts per minute per IP, plus API
-  Gateway stage throttling at 50 rps, burst 100). Signup is still unlimited
-  per IP, and the login limit is per Lambda container, not shared.
-- After the next deploy, verify that `CloudFront-Viewer-Address` reaches the
-  Lambda (now listed in the `/api/*` origin request policy), so the login rate
-  limit keys on the user's IP and not CloudFront's.
-- Block direct calls to the public `execute-api` endpoint: done (CloudFront
-  sends a secret `X-Origin-Verify` header; the backend answers 403 without
-  it). Verify after the next deploy that a direct `execute-api` call gets 403
-  and the site still works.
+- Rate limiting: done (2026-10-02). Login 5 and sign-up 3 attempts per minute
+  per IP, plus API Gateway stage throttling at 50 rps, burst 100. IPv6 is
+  handled (bare, bracketed and IPv4-mapped addresses; counted per /64). Still
+  open: the per-IP limits are per Lambda container, not shared.
+- Confirm from two different networks that the login rate limit is per user:
+  six bad logins from one, then one from another should give 401, not 429.
+  `CloudFront-Viewer-Address` is in the `/api/*` origin request policy
+  (deployed 2026-10-02), but a single network can't tell per-user from
+  per-edge.
+- Block direct calls to the public `execute-api` endpoint: done (2026-10-02).
+  CloudFront sends a secret `X-Origin-Verify` header and the backend answers
+  403 without it. Verified on dev and prod: direct calls get 403, the site
+  works.
+- Gitleaks in CI: done (2026-10-02). The `secrets-scan` job in `ci.yml` scans
+  the full history on every PR and push and gates the dev deploy; reviewed
+  false positives are in `.gitleaksignore`.
 - Account and project caps per user.
 - Cap password length on `/auth/login`. Registration caps at 256 characters,
   login does not, and argon2 is slow by design.

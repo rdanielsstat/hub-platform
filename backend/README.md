@@ -72,6 +72,7 @@ of it.
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | No. |
 | `AUTH_COOKIE_SECURE` | on when deployed (`is_deployed()`), off locally | No. Whether the `hub_token` session cookie gets the `Secure` flag (HTTPS only). Off locally because the dev servers are plain `http://localhost`. See "Auth". |
 | `LOGIN_RATE_LIMIT_PER_MINUTE` | `5` when deployed (`is_deployed()`, dev Lambda included), `0` (off) locally | No. Login attempts allowed per client IP per minute on `POST /auth/login`; `0` turns the limit off. Off locally because the Playwright suite logs in many times from 127.0.0.1. See "Rate limits". |
+| `REGISTER_RATE_LIMIT_PER_MINUTE` | `3` when deployed (`is_deployed()`), `0` (off) locally | No. Sign-up attempts allowed per client IP per minute on `POST /auth/register`, counted separately from logins; `0` turns the limit off. Off locally because the E2E suite registers a user per test. See "Rate limits". |
 | `CLIENT_IP_HEADER` | unset (use the TCP peer address) | No. Request header holding the real client IP, for the login rate limit. The Lambdas set `CloudFront-Viewer-Address`. Only set it when every request comes through the proxy that writes it, since a client can send any header. |
 | `SEED_DEMO_DATA` | off | No. Local only: lets `python -m app.db.init_local` seed the demo account. Must be off with `USE_SSM` on; the app refuses to start otherwise. |
 | `OTEL_ENABLED` | off | No. On exports traces and metrics via OpenTelemetry (`observability/`). Set for the dev and prod Lambdas by OpenTofu, which export to Grafana Cloud. Prod sends OTEL data to Grafana via OTLP endpoint. See `observability/README.md` for local use. |
@@ -215,14 +216,9 @@ creates the account only if it doesn't exist yet and otherwise leaves it
 exactly as it is, password included.
 
 It is a real, writable account: anyone with the password can edit or
-delete its projects, and those changes persist across deploys. To put it
-back to the seed data, run the **Reset demo data** workflow from the
-Actions tab, pick the environment, and type `reset` to confirm. That
-invokes the bootstrap with `{"reset_demo": true}`, which deletes the
-demo user and everything it owns (its notes, projects, and login), then
-seeds it again with the current SSM password. No other account's data
-is touched. In an environment without a demo account it refuses and
-deletes nothing.
+delete its projects, and those changes persist across deploys. There is
+no reset: the bootstrap never deletes or re-seeds an existing demo
+account, whatever event it's invoked with.
 
 ## Releases and SERVICE_VERSION
 
@@ -297,12 +293,24 @@ Two layers:
 | Layer | Threshold | Scope | Where |
 |---|---|---|---|
 | Login attempts | 5 per minute (sliding window) | Per client IP, `POST /auth/login` only, successful and failed attempts alike | `app/auth/rate_limit.py`, `LOGIN_RATE_LIMIT_PER_MINUTE` |
+| Sign-up attempts | 3 per minute (sliding window) | Per client IP, `POST /auth/register` only, counted separately from logins; successful, duplicate (409) and invalid (422) attempts alike | `app/auth/rate_limit.py`, `REGISTER_RATE_LIMIT_PER_MINUTE` |
 | API Gateway stage throttle | 50 requests/second steady, bursts up to 100 | All clients and routes together | `infra/hub/apigateway.tf` (`default_route_settings`) |
 
-Over either limit the response is `429 Too Many Requests`. The login
-limit adds a `Retry-After` header (seconds) and doesn't count the
+How the client is identified: the address in `CLIENT_IP_HEADER`
+(`CloudFront-Viewer-Address` when deployed), else the TCP peer. The
+header may be `ip:port` (CloudFront's form, IPv6 unbracketed), a bare
+address, or `[ipv6]:port`; a suffix only counts as a port if it's
+numeric and at most 65535. A malformed value falls back to the peer
+address instead of becoming a bucket of its own. IPv4-mapped IPv6
+(`::ffff:203.0.113.7`) counts as the IPv4 address, and IPv6 is counted
+per `/64` network, since one subscriber usually controls a whole `/64`
+and could otherwise rotate addresses to reset the count.
+
+Over any limit the response is `429 Too Many Requests`. The login and
+sign-up limits add a `Retry-After` header (seconds) and don't count the
 rejected attempt, so a client that keeps retrying is let back in once
-its oldest attempt is a minute old.
+its oldest attempt is a minute old. Both are off locally and on in dev
+and prod (`is_deployed()`).
 
 Known gaps:
 

@@ -50,6 +50,9 @@ paths:
     post:
       tags: [auth]
       summary: Self-register a new account
+      description: >
+        Limited to REGISTER_RATE_LIMIT_PER_MINUTE attempts per client IP per
+        minute (3 when deployed); over it, 429 with Retry-After.
       security: []
       requestBody:
         required: true
@@ -77,6 +80,17 @@ paths:
                 $ref: '#/components/schemas/HTTPError'
         '422':
           $ref: '#/components/responses/ValidationError'
+        '429':
+          description: Too many sign-up attempts from this client IP
+          headers:
+            Retry-After:
+              description: Seconds until another attempt is allowed
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPError'
 
   /auth/login:
     post:

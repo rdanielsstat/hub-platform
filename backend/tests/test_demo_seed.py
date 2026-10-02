@@ -1,6 +1,5 @@
 """Tests for the deployed demo account: cloud-mode seeding in
-app/bootstrap_db.py (DEMO_PASSWORD_PARAM_NAME) and the
-{"reset_demo": true} Lambda invocation.
+app/bootstrap_db.py (DEMO_PASSWORD_PARAM_NAME).
 
 A throwaway SQLite file stands in for Neon, and a dict stands in for
 SSM, so seeding and deletion really run and can be inspected row by row.
@@ -290,141 +289,17 @@ def test_seed_uses_a_given_password(store):
     assert not verify_password(SEED_USER_PASSWORD, user.password_hash)
 
 
-# ---- Change B: reset ----
-
-
-def test_reset_touches_no_other_account(demo_env):
-    """The one that matters most: every row belonging to any other
-    account, in every table, every column, is identical afterwards."""
-    bootstrap()
-    other_ids = _other_users(demo_env["db_file"])
-    _edit_demo(demo_env["db_file"])
-    with open_store(demo_env["db_file"]) as store:
-        demo_id = store.get_user_by_email(SEED_USER_EMAIL).id
-    before = _rows(demo_env["db_file"])
-
-    lambda_handler({"reset_demo": True}, None)
-
-    after = _rows(demo_env["db_file"])
-    # The re-seeded demo user is a new row with a new id, so each
-    # snapshot is filtered by the demo id it actually holds.
-    with open_store(demo_env["db_file"]) as store:
-        new_demo_id = store.get_user_by_email(SEED_USER_EMAIL).id
-    assert new_demo_id != demo_id
-    assert _not_owned_by(before, demo_id) == _not_owned_by(after, new_demo_id)
-    # Nothing of the old demo user is left anywhere.
-    assert _not_owned_by(after, demo_id) == after
-    # And the fixture really did create data to protect.
-    kept = _not_owned_by(after, new_demo_id)
-    assert len(kept["users"]) == 2
-    assert len(kept["auth_identities"]) == 2
-    assert len(kept["projects"]) == 4
-    assert len(kept["notes"]) == 8
-    assert {r[0] for r in kept["users"]} == set(other_ids.values())
-
-
-def _not_owned_by(rows: dict[str, set[tuple]], user_id: str) -> dict[str, set[tuple]]:
-    """Every row in a _rows() snapshot that doesn't belong to user_id.
-    Columns follow app/db/orm.py: users.id, auth_identities.user_id and
-    projects.owner_id carry the owner directly; a note belongs to
-    whoever owns its project in the same snapshot."""
-    project_owner = {r[0]: r[1] for r in rows["projects"]}
-    return {
-        "users": {r for r in rows["users"] if r[0] != user_id},
-        "auth_identities": {r for r in rows["auth_identities"] if r[1] != user_id},
-        "projects": {r for r in rows["projects"] if r[1] != user_id},
-        "notes": {r for r in rows["notes"] if project_owner[r[1]] != user_id},
-    }
-
-
-def test_reset_restores_edited_demo_data(demo_env, local_seed_content):
-    bootstrap()
-    _edit_demo(demo_env["db_file"])
-
-    result = lambda_handler({"reset_demo": True}, None)
-
-    assert result["status"] == "ok"
-    assert "reset" in result["message"].lower()
-    with open_store(demo_env["db_file"]) as store:
-        assert _demo_content(store) == local_seed_content
-        user = store.get_user_by_email(SEED_USER_EMAIL)
-    assert verify_password(DEMO_PASSWORD, user.password_hash)
-    rows = _rows(demo_env["db_file"])
-    assert len(rows["users"]) == 1
-    assert len(rows["auth_identities"]) == 1
-
-
-def test_reset_uses_the_current_ssm_password(demo_env):
-    bootstrap()
-    demo_env["params"][DEMO_PARAM] = "a-rotated-password"
-
-    lambda_handler({"reset_demo": True}, None)
-
-    with open_store(demo_env["db_file"]) as store:
-        user = store.get_user_by_email(SEED_USER_EMAIL)
-    assert verify_password("a-rotated-password", user.password_hash)
-    assert not verify_password(SEED_USER_PASSWORD, user.password_hash)
-
-
-def test_reset_seeds_when_no_demo_user_exists_yet(demo_env, local_seed_content):
-    bootstrap()
-    with open_store(demo_env["db_file"]) as store:
-        user = store.get_user_by_email(SEED_USER_EMAIL)
-        store.delete_user_and_owned_data(user.id)
-
-    lambda_handler({"reset_demo": True}, None)
-
-    with open_store(demo_env["db_file"]) as store:
-        assert _demo_content(store) == local_seed_content
-
-
-def test_reset_without_demo_param_refuses_and_deletes_nothing(demo_env, monkeypatch):
-    bootstrap()
-    _other_users(demo_env["db_file"])
-    _edit_demo(demo_env["db_file"])
-    before = _rows(demo_env["db_file"])
-    monkeypatch.delenv("DEMO_PASSWORD_PARAM_NAME")
-
-    with pytest.raises(RuntimeError, match="DEMO_PASSWORD_PARAM_NAME"):
-        lambda_handler({"reset_demo": True}, None)
-
-    assert _rows(demo_env["db_file"]) == before
-
-
-def test_reset_with_empty_demo_password_refuses_and_deletes_nothing(demo_env):
-    bootstrap()
-    _edit_demo(demo_env["db_file"])
-    before = _rows(demo_env["db_file"])
-    demo_env["params"][DEMO_PARAM] = ""
-
-    with pytest.raises(RuntimeError, match=DEMO_PARAM):
-        lambda_handler({"reset_demo": True}, None)
-
-    assert _rows(demo_env["db_file"]) == before
-
-
-def test_reset_refuses_outside_cloud_mode(monkeypatch):
-    monkeypatch.setattr(config, "USE_SSM", False)
-    monkeypatch.setenv("DEMO_PASSWORD_PARAM_NAME", DEMO_PARAM)
-
-    def no_ssm(name: str) -> str:
-        raise AssertionError("must refuse before reading anything")
-
-    def no_connection(**kwargs: object) -> None:
-        raise AssertionError("must refuse before connecting")
-
-    monkeypatch.setattr(config, "_fetch_ssm_parameter", no_ssm)
-    monkeypatch.setattr("app.bootstrap_db._connect", no_connection)
-
-    with pytest.raises(RuntimeError, match="USE_SSM"):
-        lambda_handler({"reset_demo": True}, None)
+# ---- no reset path: every invocation is a plain bootstrap ----
 
 
 @pytest.mark.parametrize(
     "event",
-    [{}, None, {"reset_demo": False}, {"reset_demo": "true"}, {"reset_demo": 1}],
+    [{}, None, {"reset_demo": True}, {"reset_demo": False}, {"anything": 1}],
 )
-def test_only_reset_demo_true_resets(demo_env, event):
+def test_every_invocation_is_a_plain_bootstrap_that_deletes_nothing(demo_env, event):
+    """The demo reset was removed. An old {"reset_demo": true} payload, or
+    any other event, must run the normal idempotent bootstrap and leave
+    edited demo data exactly as it is."""
     bootstrap()
     _edit_demo(demo_env["db_file"])
     edited = _rows(demo_env["db_file"])

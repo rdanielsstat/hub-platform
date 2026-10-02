@@ -21,7 +21,7 @@ here and don't let this file drift from it.
   built against.
 - `infra/`: OpenTofu infrastructure as code (bootstrap and hub workspaces for
   dev and prod). See `infra/BOOTSTRAP.md` for deployment setup.
-- `.github/workflows/`: CI/CD pipelines (ci, promote, reset-demo, observability
+- `.github/workflows/`: CI/CD pipelines (ci, promote, observability
   alert handling).
 - `docker-compose.yml` (repo root): local Postgres 17, bootstrap, and app for
   prod-parity testing.
@@ -74,7 +74,8 @@ uv run pytest                        # run the test suite
 - Auth: argon2-cffi (password hashing) + PyJWT (HS256), OAuth2 password flow.
   The web app's session is the JWT in an httpOnly, SameSite=Strict `hub_token`
   cookie; the API also accepts `Authorization: Bearer`, so the same API serves
-  future iOS apps and agents. `/auth/login` is rate limited per client IP.
+  future iOS apps and agents. `/auth/login` (5/min) and `/auth/register`
+  (3/min) are rate limited per client IP when deployed.
 - Deployed vs local: `is_deployed()` in `app/core/config.py` (true when `USE_SSM`
   is on or `ENVIRONMENT` isn't local/development/dev, so the dev Lambda counts)
   switches on the Secure cookie, the login rate limit, and hidden API docs. Use
@@ -107,7 +108,7 @@ October 2026.
 - `base-ui`'s Dialog keeps its content mounted (hidden) while closed; scope
   queries to a landmark rather than the whole document to avoid matching hidden content.
 
-Backend: pytest 9.1. `uv run pytest` (from inside `backend/`), 317 tests in 21
+Backend: pytest 9.1. `uv run pytest` (from inside `backend/`), 332 tests in 21
 files as of October 2026. Each test gets its own in-memory SQLite database.
 `tests/test_startup.py` imports the app in a subprocess to check startup
 behaviour (secret guards, deployed defaults, origin verification).
@@ -126,9 +127,11 @@ local backend, so origin verification and the login rate limit are off.
 - TypeScript build must be clean (`pnpm build` from `frontend/`)
 - Format must pass (`pnpm format:check` from `frontend/`)
 
-Note: CI runs only tests on every push. Lint, format, and build checks are
-enforced locally before committing; they do not run in the GitHub Actions
-workflow on PRs.
+Note: CI runs the unit tests and a gitleaks secret scan of the full git
+history on every PR and push. Lint, format, and build checks are enforced
+locally before committing; they do not run in the GitHub Actions workflow on
+PRs. Reviewed gitleaks false positives go in `.gitleaksignore` (by
+fingerprint); never add a real secret there.
 
 ## Working Conventions
 
@@ -211,11 +214,11 @@ GitHub secrets to the dev and prod Lambdas' environments (`TF_VAR_otel_headers_d
 in `ci.yml`, `TF_VAR_otel_headers_prod` in `promote.yml`); they are not stored in SSM.
 
 **CI/CD** (`.github/workflows/`):
-- `ci.yml`: on PR, run tests; on push to main, run tests, deploy to dev (build
+- `ci.yml`: on PR, run tests and the gitleaks history scan; on push to main,
+  run both, then (only if both pass) deploy to dev (build
   image, apply infra, bootstrap, build frontend, sync to S3, invalidate CloudFront,
   smoke-test `/api/health`).
 - `promote.yml`: manual promotion of exact image tag from dev to prod (no rebuild).
-- `reset-demo.yml`: manual reset of demo account.
 - `observability-alert-handler.yml`: manual on-call diagnostic (started manually after a Grafana alert).
 
 **Observability**: Grafana Cloud over OTLP/HTTP (dev and prod Lambdas). Traces and
@@ -231,6 +234,7 @@ Local dev: off by default; optional local Grafana/Tempo/Prometheus/Loki stack in
 
 **Per-commit CI/CD (runs on every push to main):**
 - Unit tests (frontend + backend; lint, format, and build are enforced locally, not in CI)
+- Gitleaks scan of the full history (`secrets-scan` job; deploy waits on it)
 - Build and push backend image to dev ECR (timestamp-sha tag, e.g., 20260930-123456-abc123)
 - Deploy to dev Lambda (applies infra, bootstraps, rebuilds frontend, smoke-tests /api/health)
 

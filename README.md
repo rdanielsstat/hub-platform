@@ -31,7 +31,7 @@ Reviewers can explore the live app without signing up:
    - Email: `demo@hub.dev`
    - Password: `demo-hub-2026`
 
-The account comes with seeded sample ideas and notes to explore. It is read/write and shared by all reviewers, so its data may change during the review, and it may be reset to the original sample data at any time. It is temporary and valid through the end of the review period. Login is limited to 5 attempts per minute per IP; if you see "Too many login attempts", wait a minute and try again. To keep your own data private, sign up with any email instead.
+The account comes with seeded sample ideas and notes to explore. It is read/write and shared by all reviewers, so its data may change during the review. It is temporary and valid through the end of the review period. Login is limited to 5 attempts per minute per IP; if you see "Too many login attempts", wait a minute and try again. To keep your own data private, sign up with any email instead.
 
 ---
 
@@ -173,11 +173,11 @@ Locally, the frontend runs on the Vite dev server (`http://localhost:5173`) and 
 
 **Security controls (deployed)**
 - Session cookie `hub_token`: HttpOnly, SameSite=Strict, Secure
-- Login rate limit: 5 attempts per minute per client IP (429 over it); API Gateway throttles at 50 rps, burst 100
+- Rate limits per client IP: login 5 attempts per minute, sign-up 3 per minute (429 over either); API Gateway throttles at 50 rps, burst 100
 - CloudFront forwards the viewer's IP (`CloudFront-Viewer-Address`) through a custom origin request policy, so the login limit is per user, not per CloudFront edge
 - Origin verification: CloudFront adds a per-environment secret `X-Origin-Verify` header; the API answers 403 without it, so the public `execute-api` URL can't bypass CloudFront
 - Dev and prod both count as deployed (`USE_SSM` on), so both get these controls and hide the API docs
-- Gitleaks pre-commit hook; GitHub secret scanning with push protection
+- Gitleaks secret scanning: a pre-commit hook locally, and a full-history scan in CI that blocks the dev deploy; plus GitHub secret scanning with push protection
 - Details: `backend/README.md` ("Auth", "Rate limits", "Origin verification")
 
 **Observability**
@@ -483,12 +483,13 @@ GET    /health                    Liveness check (no login needed)
 
 **Authentication:**
 ```
-POST   /auth/register             Create an account; returns a token
-POST   /auth/login                Log in (form fields); returns a token
+POST   /auth/register             Create an account; returns a token and sets the session cookie
+POST   /auth/login                Log in (form fields); returns a token and sets the session cookie
+POST   /auth/logout               Clear the session cookie (no login needed)
 GET    /auth/me                   The logged-in user
 ```
 
-There's no logout endpoint. Logging out in the app just discards the token in the browser, and tokens expire on their own (after 60 minutes by default).
+Logging out clears the browser's `hub_token` cookie. Tokens are stateless JWTs, so a token kept elsewhere stays valid until it expires (60 minutes by default).
 
 **Projects (ideas):**
 ```
@@ -510,7 +511,7 @@ Notes can be added and deleted, not edited.
 
 ### Authentication
 
-The API uses JWT bearer tokens. Every endpoint except `/health`, `/auth/register`, and `/auth/login` needs one.
+Every endpoint except `/health`, `/auth/register`, `/auth/login`, and `/auth/logout` needs a JWT. The web app sends it as the httpOnly `hub_token` cookie that register and login set (`HttpOnly`, `SameSite=Strict`, and `Secure` when deployed); API clients send it as an `Authorization: Bearer` header. If both are present, the header wins.
 
 ```bash
 # Sign up (JSON)
@@ -539,7 +540,7 @@ curl http://localhost:8000/projects \
 - **Text fields:** no length limits. Display names, project names, pitches, descriptions, next actions, tags, and notes accept any length. The API also accepts empty or whitespace-only project names and notes; the UI is what stops you from saving those.
 - **Scores** (`excitement`, `effort`, `potential`): whole numbers from 1 to 5.
 - **Links:** URLs must start with `http://` or `https://`.
-- **Rate limiting:** none yet.
+- **Rate limiting (deployed only):** per client IP, 5 login attempts and 3 sign-ups per minute; over that, `429` with a `Retry-After` header. API Gateway also caps the whole API at 50 requests/second (bursts to 100). Off for local runs.
 
 ### Error responses
 
@@ -565,7 +566,7 @@ Validation errors (`422`) return `detail` as a list, one entry per invalid field
 }
 ```
 
-Status codes: `401` for a missing, invalid, or expired token (or a wrong login), `404` for a project or note that doesn't exist or belongs to another user (the two look the same on purpose), `409` for an email that's already registered, and `422` for invalid input.
+Status codes: `401` for a missing, invalid, or expired token (or a wrong login), `404` for a project or note that doesn't exist or belongs to another user (the two look the same on purpose), `409` for an email that's already registered, `422` for invalid input, and `429` when a rate limit is hit. Deployed, a request sent straight to the API Gateway URL instead of through the site gets `403` (origin verification; see `backend/README.md`).
 
 For the full API contract, see `openapi.yaml`. It's written by hand, and `backend/tests/test_openapi_contract.py` fails if its endpoints and the app's drift apart.
 

@@ -1,0 +1,9 @@
+# Reviewed gitleaks false positives, by fingerprint (commit:file:rule:line).
+# Each entry silences only that one finding, so a real secret anywhere
+# else, including the same file in a later commit, is still reported.
+# Add an entry only after checking the value is not a credential.
+
+# Test fixture password for the duplicate-email E2E case ('other-pass-123').
+7bbf23d31962072674e665d0191fbbbe8717d8f0:frontend/tests/api.spec.ts:generic-api-key:90
+# README curl example with a placeholder password, since rewritten.
+de9737e5f443826e43fd3aafdf724d4128d63b04:README.md:curl-auth-header:529

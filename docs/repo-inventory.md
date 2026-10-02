@@ -11,7 +11,7 @@ Snapshot of `main` at `6bd192a` (2026-10-02), plus the commit that adds this ver
                               .gitignore .prettierignore .pre-commit-config.yaml
 .claude/                CLAUDE.md, launch.json, agents/qa-engineer.md,
                         skills/{design-review,e2e-testing,release,security-scanning}/SKILL.md
-.github/                workflows/{ci,promote,reset-demo,observability-alert-handler}.yml
+.github/                workflows/{ci,promote,observability-alert-handler}.yml
                         scripts/service-version.sh
 docs/                   8 files: agent-extension-pack permissions design-notes prompts
                         repo-inventory results specs tech-debt (.md)
@@ -73,7 +73,7 @@ Dependencies (source of truth `backend/uv.lock`): argon2-cffi 25.1.0, boto3 1.43
 - Transactions: each `Store` write method commits itself. Note add/delete then calls `update_project` in a separate commit (two transactions per request); if the project vanishes in between, the route returns 404.
 - Migrations: none. No Alembic. `Base.metadata.create_all` from `init_local` (local) or the bootstrap Lambda (deployed), never at app import.
 - Schema: `String(36)` IDs with Python-side `uuid4`; `tags` and `links` as `sqlalchemy.JSON`; `status` as `SAEnum`; `DateTime(timezone=True)`; FKs with `ondelete="CASCADE"`; unique index on `users.email`, lookups via `func.lower`.
-- `bootstrap_db.py`: CLI `python -m app.bootstrap_db` and Lambda `app.bootstrap_db.lambda_handler`, run by CI on every deploy. Cloud mode (`USE_SSM`): creates missing tables using the direct (non-pooled) Neon URL and seeds the demo account from SSM if absent; `{"reset_demo": true}` deletes and reseeds it (`reset-demo.yml`). Local mode: also creates the database and a least-privilege login role using `MASTER_DB_*` (identifiers validated and quoted).
+- `bootstrap_db.py`: CLI `python -m app.bootstrap_db` and Lambda `app.bootstrap_db.lambda_handler`, run by CI on every deploy. Cloud mode (`USE_SSM`): creates missing tables using the direct (non-pooled) Neon URL and seeds the demo account from SSM if absent, never modifying an existing one. Local mode: also creates the database and a least-privilege login role using `MASTER_DB_*` (identifiers validated and quoted).
 - Hosting: Neon Postgres for dev and prod, reached over the public internet with TLS (no VPC). The app uses the pooled URL, the bootstrap the direct URL. Local: SQLite, or Postgres 17 via Docker Compose.
 
 ## 4. API contract
@@ -96,12 +96,12 @@ Dependencies (source of truth `backend/uv.lock`): argon2-cffi 25.1.0, boto3 1.43
 
 | Suite | Runner | Count | Command |
 |---|---|---|---|
-| Backend unit/integration | pytest 9.1.1 | 317 tests, 21 files | `cd backend && uv run pytest` |
+| Backend unit/integration | pytest 9.1.1 | 332 tests, 21 files | `cd backend && uv run pytest` |
 | Frontend unit | Vitest 5.0.1 + RTL 16 + jsdom | 173 tests, 20 files | `cd frontend && pnpm test` |
 | E2E | Playwright 1.63.0 (Chromium) | 189 tests: `api.spec.ts` 100, `app.spec.ts` 89 | `cd frontend && pnpm exec playwright test` with uvicorn on :8000 and Vite on :5173 |
 
-- Backend per file: test_auth 12, test_auth_cookie 8, test_bootstrap_db 28, test_config 54, test_cors 7, test_demo_seed 25, test_init_local 9, test_lambda_handler 2, test_notes 12, test_observability 20, test_observability_config 6, test_observability_stack 20, test_oncall 12, test_openapi_contract 2, test_origin_verify 10, test_password_hashing 24, test_projects 22, test_rate_limit 12, test_service_version 8, test_session 2, test_startup 22.
-- Backend count history on 2026-10-02: 283 at the snapshot commit, 299 after the dev-vs-deployed fix (`is_deployed()`, 16 tests), 317 after origin verification (18 tests).
+- Backend per file: test_auth 12, test_auth_cookie 8, test_bootstrap_db 28, test_config 54, test_cors 7, test_demo_seed 18, test_init_local 9, test_lambda_handler 2, test_notes 12, test_observability 20, test_observability_config 6, test_observability_stack 20, test_oncall 12, test_openapi_contract 2, test_origin_verify 10, test_password_hashing 24, test_projects 22, test_rate_limit 34, test_service_version 8, test_session 2, test_startup 22.
+- Backend count history on 2026-10-02: 283 at the snapshot commit, 299 after the dev-vs-deployed fix (`is_deployed()`, 16 tests), 317 after origin verification (18 tests), 339 after the sign-up rate limit and IPv6 client-IP handling (22 tests), 332 after removing the demo reset (its 12 tests replaced by 5 no-reset safety cases).
 - Backend API tests go through `TestClient`, so they are integration tests in practice. No markers or subdirectories separate unit from integration.
 - Real DB: backend tests use in-memory SQLite (`conftest.py` forces `DATABASE_URL=sqlite:///:memory:`, per-test `StaticPool` engine). `test_bootstrap_db.py` uses a fake psycopg connection. Nothing touches Postgres. E2E runs against the local SQLite `hub.db`.
 - CI runs the backend and frontend unit suites on every PR and push to main. E2E, lint, format, and build are run locally, not in CI.
@@ -111,7 +111,7 @@ Last lines of the backend run (re-run after the post-snapshot fixes below):
 .venv/.../fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
 .venv/.../starlette/testclient.py:53: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
 .venv/.../mangum/adapter.py:65: DeprecationWarning: There is no current event loop
-317 passed, 3 warnings in 18.22s
+332 passed, 3 warnings in 17.21s
 ```
 Frontend: `Test Files 20 passed (20)`, `Tests 173 passed (173)`. Playwright: `189 passed (24.4s)`.
 
@@ -132,7 +132,6 @@ Frontend: `Test Files 20 passed (20)`, `Tests 173 passed (173)`. Playwright: `18
 - Workflows (`.github/workflows/`):
   - `ci.yml`: on PR, run tests; on push to main, run tests then deploy dev (build and push the image with a timestamp-sha tag, `tofu apply`, run the bootstrap Lambda, build the frontend, sync to S3, invalidate CloudFront, smoke-test `/api/health`).
   - `promote.yml`: manual (type "promote"); copies the dev image to prod ECR without rebuilding, applies prod, rebuilds and deploys the frontend, smoke-tests prod.
-  - `reset-demo.yml`: manual reset of the demo account in dev or prod.
   - `observability-alert-handler.yml`: manual on-call diagnostic after a Grafana alert.
 - Secrets reach OpenTofu as `TF_VAR_*` from GitHub Environment secrets (`NEON_URLS`, `DEMO_PASSWORDS`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID`, OTEL headers). AWS auth is GitHub OIDC, no static keys.
 - Versioning: `.github/scripts/service-version.sh` derives `SERVICE_VERSION` from git tags for both Lambdas.
@@ -152,17 +151,26 @@ Frontend: `Test Files 20 passed (20)`, `Tests 173 passed (173)`. Playwright: `18
 
 ## Changes since the snapshot
 
-Uncommitted security fixes on top of `6bd192a` and the commit that adds this file, from the follow-up scan on 2026-10-02. Test counts in section 6 include them; the rest of this file still describes `6bd192a`.
+Security work on top of `6bd192a`, from the follow-up scans on 2026-10-02. Test counts in section 6 include all of it; the rest of this file still describes `6bd192a`.
+
+Committed in `9af9e53`, deployed to dev and promoted to prod, and verified live on both (health 200, `/api/docs` 404, direct `execute-api` 403 with or without a guessed header, `Secure` session cookie, dev login limit returning 429 on the 6th attempt):
 
 - Client IP for the login rate limit: `/api/*` uses a custom origin request policy (`<env>-forward-viewer-address`, `infra/hub/frontend.tf`) that forwards an allowlist of headers plus `CloudFront-Viewer-Address`, replacing the managed `AllViewerExceptHostHeader`, which didn't forward it.
-- Dev vs deployed: `is_deployed()` (`USE_SSM` on, or a non-local `ENVIRONMENT`) now drives the Secure cookie, the login rate limit, and the API docs gate. Before, the dev Lambda (`ENVIRONMENT=dev`) got local defaults: no rate limit, no Secure flag, public `/docs`.
-- Origin verification: a per-environment `random_password` in SSM, sent by CloudFront as `X-Origin-Verify` (origin `custom_header`); `app/auth/origin_verify.py` answers 403 without it when `USE_SSM` is on. The Lambda updates after the distribution and redeploys when the secret rotates.
-- Infra per workspace once applied: 3 more managed resources (origin request policy, `random_password.origin_verify`, its SSM parameter), so 37.
+- Dev vs deployed: `is_deployed()` (`USE_SSM` on, or a non-local `ENVIRONMENT`) drives the Secure cookie, the rate limits, and the API docs gate. Before, the dev Lambda (`ENVIRONMENT=dev`) got local defaults: no rate limit, no Secure flag, public `/docs`.
+- Origin verification: a per-environment `random_password` in SSM, sent by CloudFront as `X-Origin-Verify` (origin `custom_header`); `app/auth/origin_verify.py` answers 403 without it when `USE_SSM` is on.
+- Infra: 37 managed resources per workspace in OpenTofu state (was 34): the origin request policy, `random_password.origin_verify`, and its SSM parameter.
+
+After `9af9e53` (backlog remediation):
+
+- Sign-up rate limit: 3 per minute per client IP on `POST /auth/register` when deployed (`REGISTER_RATE_LIMIT_PER_MINUTE`), counted separately from logins.
+- Client IP parsing: bare, bracketed and IPv4-mapped IPv6 handled; malformed headers fall back to the peer address; IPv6 counted per `/64`.
+- Demo reset removed: `reset-demo.yml`, the bootstrap's `{"reset_demo": true}` path, and `Store.delete_user_and_owned_data` are gone. The demo account stays as seeded for the review period; the bootstrap never deletes or re-seeds it.
+- CI: `secrets-scan` job runs gitleaks over the full history on every PR and push and gates the dev deploy; reviewed false positives in `.gitleaksignore`.
 
 ## Risks
 
 - `infra/hub/tfplan` and `infra/hub/tfplan-prod`, committed in `8ebc8ae` and removed in `1f59439`, contained Neon connection strings and other sensitive values and remain in public history. Credentials in them must be treated as exposed until rotated; `tfplan*` is now gitignored. The JWT secret was rotated in `ad2c8d9`.
-- The login rate limit is per Lambda container, and relies on CloudFront forwarding `CloudFront-Viewer-Address` (added to a custom `/api/*` origin request policy after this snapshot; verify once deployed). The API Gateway default endpoint is public and bypasses CloudFront (origin verification added after this snapshot rejects such calls with 403).
+- The login rate limit is per Lambda container, and relies on CloudFront forwarding `CloudFront-Viewer-Address` (in a custom `/api/*` origin request policy since `9af9e53`; per-user behaviour still to confirm from two networks). The API Gateway default endpoint is public and bypasses CloudFront (origin verification since `9af9e53` rejects such calls with 403, verified on dev and prod).
 - A writable demo account with a known local password (`app/db/seed.py`) exists locally; deployed environments seed it from SSM.
 - `docker-compose.yml` commits local-only Postgres credentials.
 - No migrations tool: schema changes beyond new tables need manual handling.

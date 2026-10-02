@@ -6,9 +6,8 @@
 # explicitly, and it fails loudly.
 #
 # It also seeds the demo account, when this environment has one. The demo
-# password comes from SSM, never from app/db/seed.py's local demo1234. Invoked
-# with {"reset_demo": true} it wipes the demo user's data and re-seeds it,
-# touching no other account.
+# password comes from SSM, never from app/db/seed.py's local demo1234. An
+# existing demo account is never modified or re-seeded.
 #
 # SECURITY BOUNDARY: this is a separate function with its own role. Only this
 # role can read the DIRECT connection string and the demo password. The app

@@ -39,8 +39,8 @@ variable "neon_urls" {
 # same value as the local demo1234.
 #
 # This is a real, writable, publicly advertised account. Treat its data as
-# disposable: anyone with the credentials can edit or delete it. That is what
-# the "Reset demo data" workflow is for.
+# disposable: anyone with the credentials can edit or delete it, and the
+# changes persist (deploys never reset it).
 variable "demo_passwords" {
   description = "Per-environment demo account password. Omit an environment to skip seeding it."
   type        = map(string)

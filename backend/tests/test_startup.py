@@ -31,6 +31,7 @@ _SETTINGS_VARS = {
     "CORS_ORIGINS",
     "AUTH_COOKIE_SECURE",
     "LOGIN_RATE_LIMIT_PER_MINUTE",
+    "REGISTER_RATE_LIMIT_PER_MINUTE",
     "CLIENT_IP_HEADER",
     "ORIGIN_VERIFY_PARAM_NAME",
 }
@@ -257,13 +258,14 @@ def test_deployment_defaults_follow_is_deployed(
         import app.main
         from app.core import config
         print(config.is_deployed(), config.AUTH_COOKIE_SECURE,
-              config.LOGIN_RATE_LIMIT_PER_MINUTE, app.main.app.docs_url)
+              config.LOGIN_RATE_LIMIT_PER_MINUTE,
+              config.REGISTER_RATE_LIMIT_PER_MINUTE, app.main.app.docs_url)
         """,
         env,
     )
 
     assert result.returncode == 0, result.stderr
-    expected = "True True 5 None" if deployed else "False False 0 /docs"
+    expected = "True True 5 3 None" if deployed else "False False 0 0 /docs"
     assert result.stdout.strip().splitlines()[-1] == expected
 
 
@@ -271,19 +273,21 @@ def test_explicit_settings_override_the_deployment_defaults(tmp_path):
     result = _run(
         """
         from app.core import config
-        print(config.AUTH_COOKIE_SECURE, config.LOGIN_RATE_LIMIT_PER_MINUTE)
+        print(config.AUTH_COOKIE_SECURE, config.LOGIN_RATE_LIMIT_PER_MINUTE,
+              config.REGISTER_RATE_LIMIT_PER_MINUTE)
         """,
         {
             "ENVIRONMENT": "prod",
             "HUB_JWT_SECRET": _STRONG_SECRET,
             "AUTH_COOKIE_SECURE": "false",
             "LOGIN_RATE_LIMIT_PER_MINUTE": "20",
+            "REGISTER_RATE_LIMIT_PER_MINUTE": "0",
             "DATABASE_URL": f"sqlite:///{tmp_path / 'hub.db'}",
         },
     )
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "False 20"
+    assert result.stdout.strip() == "False 20 0"
 
 
 # ---- origin verification: requests must come through CloudFront ----

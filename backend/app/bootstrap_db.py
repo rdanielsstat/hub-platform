@@ -40,10 +40,6 @@ Set: the demo user (app/db/seed.py's email, projects and notes) is
 created with that password if it doesn't exist yet; an existing demo
 user is left exactly as it is. Set but the parameter is missing or
 empty: raise. The local seed's hardcoded password is never used here.
-
-Invoked with {"reset_demo": true} (and only exactly that), the Lambda
-instead deletes the demo user and everything it owns, then seeds it
-again. See reset_demo().
 """
 
 import json
@@ -253,40 +249,6 @@ def _seed_demo_account(database_url: str) -> None:
     print(f"Seeded demo account {SEED_USER_EMAIL!r}.")
 
 
-def reset_demo() -> dict[str, str]:
-    """Delete the demo user and everything it owns, then seed it again
-    with the current password from SSM. Touches only rows owned by the
-    demo user (see Store.delete_user_and_owned_data). Refuses, before
-    deleting anything, outside cloud mode or when this environment has
-    no usable demo password."""
-    if not config.USE_SSM:
-        raise RuntimeError(
-            "reset_demo only runs in a deployed environment (USE_SSM on). "
-            "Nothing was deleted."
-        )
-    param_name = _demo_password_param_name()
-    if param_name is None:
-        raise RuntimeError(
-            "DEMO_PASSWORD_PARAM_NAME is not set: this environment has no "
-            "demo account. Refusing to reset. Nothing was deleted."
-        )
-    password = _read_demo_password(param_name)
-
-    database_url = config.get_database_url()
-    _create_tables(database_url)
-    with _store(database_url) as store:
-        existing = store.get_user_by_email(SEED_USER_EMAIL)
-        if existing is not None:
-            store.delete_user_and_owned_data(existing.id)
-            print(f"Deleted demo account {SEED_USER_EMAIL!r} and everything it owned.")
-        seed(store, password=password)
-    print(f"Seeded demo account {SEED_USER_EMAIL!r}.")
-    return {
-        "status": "ok",
-        "message": f"Demo account {SEED_USER_EMAIL} reset to the seed data.",
-    }
-
-
 def bootstrap() -> None:
     if config.USE_SSM:
         database_url = config.get_database_url()
@@ -342,13 +304,10 @@ def lambda_handler(event: object, context: object) -> dict[str, str]:
 
     Unlike main() below, this does not catch exceptions: a failed
     bootstrap must propagate and show up as a failed Lambda invocation,
-    not a quietly-successful one. `context` is unused. `event` matters
-    only when it is exactly {"reset_demo": true}, which runs
-    reset_demo() instead; any other event (none, {}, "reset_demo":
-    false, a truthy non-boolean) is a normal bootstrap.
+    not a quietly-successful one. `event` and `context` are unused: every
+    invocation is the same idempotent bootstrap, which never deletes or
+    changes existing data.
     """
-    if isinstance(event, dict) and event.get("reset_demo") is True:
-        return reset_demo()
     bootstrap()
     return {"status": "ok", "message": "Bootstrap complete."}
 

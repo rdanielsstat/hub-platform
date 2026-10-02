@@ -129,6 +129,15 @@ LOGIN_RATE_LIMIT_PER_MINUTE = int(
     or ("5" if is_deployed() else "0")
 )
 
+# Same for POST /auth/register, per client IP per minute: 3 when deployed,
+# off locally (the E2E suite registers a fresh user per test). Keeps one
+# client from mass-creating accounts or burning Lambda CPU on argon2
+# hashing. Successful and rejected (409, 422) attempts all count.
+REGISTER_RATE_LIMIT_PER_MINUTE = int(
+    os.environ.get("REGISTER_RATE_LIMIT_PER_MINUTE", "").strip()
+    or ("3" if is_deployed() else "0")
+)
+
 # Request header that carries the real client IP, set by a proxy in front
 # of the app (in AWS: CloudFront-Viewer-Address, "ip:port"). Unset means
 # use the TCP peer address. Only set this when every request comes

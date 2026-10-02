@@ -41,8 +41,37 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm test -- --run
 
+  # Scan the whole git history for committed secrets on every PR and push.
+  # The pre-commit hook only runs where someone installed it; this can't be
+  # skipped. Reviewed false positives live in .gitleaksignore. Full history
+  # rather than just the new commits: it takes seconds, and also catches a
+  # secret that arrives through a rewritten or force-pushed history.
+  secrets-scan:
+    runs-on: ubuntu-latest
+    env:
+      GITLEAKS_VERSION: 8.30.1
+      # sha256 of gitleaks_8.30.1_linux_x64.tar.gz, from the release's
+      # checksums file. Bump both together (match .pre-commit-config.yaml).
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        run: |
+          curl -sSfL -o gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks
+          sudo mv gitleaks /usr/local/bin/
+
+      - name: Scan history
+        # --redact: findings print without the secret value.
+        run: gitleaks git --redact --no-banner --verbose .
+
   deploy-dev:
-    needs: test
+    needs: [test, secrets-scan]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: dev

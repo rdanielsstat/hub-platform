@@ -9,9 +9,7 @@ overwritten:
     publicly-known SEED_USER_PASSWORD.
   - Deployed: app/bootstrap_db.py, only when the environment sets
     DEMO_PASSWORD_PARAM_NAME, always passing the password it read from
-    SSM. It never falls back to SEED_USER_PASSWORD. Its explicit
-    {"reset_demo": true} invocation deletes the demo account first and
-    then seeds again.
+    SSM. It never falls back to SEED_USER_PASSWORD.
 """
 
 from datetime import date, datetime, timedelta, timezone

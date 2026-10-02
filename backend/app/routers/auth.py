@@ -3,7 +3,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 
 from app.auth.cookies import clear_auth_cookie, set_auth_cookie
 from app.auth.dependencies import get_current_user
-from app.auth.rate_limit import limit_login_attempts
+from app.auth.rate_limit import limit_login_attempts, limit_register_attempts
 from app.auth.security import (
     DUMMY_PASSWORD_HASH,
     create_access_token,
@@ -26,7 +26,10 @@ def _start_session(response: Response, user_id: str) -> TokenResponse:
 
 
 @router.post(
-    "/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED
+    "/register",
+    response_model=TokenResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(limit_register_attempts)],
 )
 def register(
     body: RegisterInput, response: Response, store: Store = Depends(get_store)
