@@ -1,42 +1,44 @@
 import { httpRequest } from './http'
-import { clearToken, setToken } from './token'
 import type { RegisterInput, User } from './types'
-
-interface TokenResponse {
-  access_token: string
-  token_type: string
-}
 
 /**
  * Auth always hits the real backend; there is no mock variant (the
  * frontend never had auth before this).
+ *
+ * Register and login set the session as an httpOnly cookie, which the
+ * browser stores and sends on its own. Their responses also carry the
+ * token in the body for non-browser API clients; the web app ignores it
+ * and never stores it.
  */
 export const authApi = {
   async register(input: RegisterInput): Promise<User> {
-    const token = await httpRequest<TokenResponse>('/auth/register', {
+    await httpRequest('/auth/register', {
       method: 'POST',
       body: input,
-      skipAuth: true,
+      ignoreUnauthorized: true,
     })
-    setToken(token.access_token)
     return authApi.getCurrentUser()
   },
 
   async login(email: string, password: string): Promise<User> {
-    const token = await httpRequest<TokenResponse>('/auth/login', {
+    await httpRequest('/auth/login', {
       method: 'POST',
       form: { username: email, password },
-      skipAuth: true,
+      ignoreUnauthorized: true,
     })
-    setToken(token.access_token)
     return authApi.getCurrentUser()
   },
 
+  /** Rejects with a 401 HttpError when there's no valid session. */
   async getCurrentUser(): Promise<User> {
-    return httpRequest<User>('/auth/me')
+    return httpRequest<User>('/auth/me', { ignoreUnauthorized: true })
   },
 
-  logout(): void {
-    clearToken()
+  /** Asks the server to clear the cookie (JavaScript can't touch it). */
+  async logout(): Promise<void> {
+    await httpRequest('/auth/logout', {
+      method: 'POST',
+      ignoreUnauthorized: true,
+    })
   },
 }

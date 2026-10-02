@@ -190,3 +190,42 @@ def test_deleting_a_nonexistent_note_and_someone_elses_note_are_indistinguishabl
 
     assert missing_res.status_code == others_res.status_code == 404
     assert missing_res.json() == others_res.json()
+
+
+def test_adding_a_note_404s_if_the_project_is_deleted_mid_request(
+    client, register_and_login, store, monkeypatch
+):
+    headers = register_and_login("note-add-race@example.com")
+    project_id = client.post("/projects", json={"name": "Idea"}, headers=headers).json()[
+        "id"
+    ]
+    monkeypatch.setattr(store, "update_project", lambda *args, **kwargs: None)
+
+    res = client.post(
+        f"/projects/{project_id}/notes", json={"body": "Hi"}, headers=headers
+    )
+
+    assert res.status_code == 404
+    assert res.json() == {
+        "detail": "Project not found: it was deleted while the note was being added"
+    }
+
+
+def test_deleting_a_note_404s_if_the_project_is_deleted_mid_request(
+    client, register_and_login, store, monkeypatch
+):
+    headers = register_and_login("note-delete-race@example.com")
+    project_id = client.post("/projects", json={"name": "Idea"}, headers=headers).json()[
+        "id"
+    ]
+    note_id = client.post(
+        f"/projects/{project_id}/notes", json={"body": "Hi"}, headers=headers
+    ).json()["note"]["id"]
+    monkeypatch.setattr(store, "update_project", lambda *args, **kwargs: None)
+
+    res = client.delete(f"/notes/{note_id}", headers=headers)
+
+    assert res.status_code == 404
+    assert res.json() == {
+        "detail": "Project not found: it was deleted while the note was being removed"
+    }

@@ -8,8 +8,9 @@ import { AppHeader } from './app-header'
 const mockAuthApi = vi.hoisted(() => ({
   register: vi.fn(),
   login: vi.fn(),
-  getCurrentUser: vi.fn(),
-  logout: vi.fn(),
+  // No session unless a test says otherwise.
+  getCurrentUser: vi.fn().mockRejectedValue(new Error('Not authenticated')),
+  logout: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('@/services/api', async (importOriginal) => {
@@ -29,7 +30,6 @@ function renderHeader(onCapture = vi.fn()) {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  localStorage.setItem('hub.token', 'valid-token')
   document.documentElement.classList.remove('dark')
 })
 

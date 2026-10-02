@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 
+from app.auth.cookies import clear_auth_cookie, set_auth_cookie
 from app.auth.dependencies import get_current_user
+from app.auth.rate_limit import limit_login_attempts
 from app.auth.security import (
     DUMMY_PASSWORD_HASH,
     create_access_token,
@@ -14,11 +16,20 @@ from app.models.user import RegisterInput, TokenResponse, User
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+def _start_session(response: Response, user_id: str) -> TokenResponse:
+    """Issue a token, both as the httpOnly session cookie (the web app
+    uses only this) and in the body (for API clients that send it back as
+    an Authorization: Bearer header)."""
+    token = create_access_token(user_id)
+    set_auth_cookie(response, token)
+    return TokenResponse(access_token=token)
+
+
 @router.post(
     "/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED
 )
 def register(
-    body: RegisterInput, store: Store = Depends(get_store)
+    body: RegisterInput, response: Response, store: Store = Depends(get_store)
 ) -> TokenResponse:
     if store.get_user_by_email(body.email) is not None:
         raise HTTPException(
@@ -34,11 +45,16 @@ def register(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Email already registered"
         )
-    return TokenResponse(access_token=create_access_token(user.id))
+    return _start_session(response, user.id)
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post(
+    "/login",
+    response_model=TokenResponse,
+    dependencies=[Depends(limit_login_attempts)],
+)
 def login(
+    response: Response,
     form_data: OAuth2PasswordRequestForm = Depends(),
     store: Store = Depends(get_store),
 ) -> TokenResponse:
@@ -54,7 +70,15 @@ def login(
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    return TokenResponse(access_token=create_access_token(user.id))
+    return _start_session(response, user.id)
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(response: Response) -> None:
+    """Clear the session cookie. Needs no credentials: it only tells
+    the browser to drop its own cookie. JWTs are stateless, so a token
+    already copied elsewhere stays valid until it expires."""
+    clear_auth_cookie(response)
 
 
 @router.get("/me", response_model=User)

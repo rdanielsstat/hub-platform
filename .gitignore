@@ -25,6 +25,9 @@ __v0_jsx-dev-runtime.ts
 *.tfvars
 !*.tfvars.example
 crash.log
+tfplan*
+*.tfplan
+plan.out
 
 # local secrets
 *.env

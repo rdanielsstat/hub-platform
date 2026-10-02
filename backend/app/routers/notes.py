@@ -57,7 +57,13 @@ def add_note(
     _get_owned_project_or_404(project_id, current_user.id, store)
     note = store.create_note(project_id=project_id, body=payload.body)
     project = store.update_project(project_id, current_user.id)
-    assert project is not None  # ownership just confirmed above
+    if project is None:
+        # Ownership was confirmed above, so the project was deleted
+        # between that check and this update.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found: it was deleted while the note was being added",
+        )
     return AddNoteResponse(note=_to_note(note), project=_to_project(project))
 
 
@@ -77,5 +83,11 @@ def delete_note(
         )
     store.delete_note(note_id)
     project = store.update_project(note.project_id, current_user.id)
-    assert project is not None
+    if project is None:
+        # Ownership was confirmed above, so the parent project was deleted
+        # between that check and this update.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found: it was deleted while the note was being removed",
+        )
     return _to_project(project)

@@ -27,6 +27,16 @@ resource "aws_apigatewayv2_stage" "backend" {
   api_id      = aws_apigatewayv2_api.backend.id
   name        = "$default"
   auto_deploy = true
+
+  # Stage-wide throttle across all clients and routes: a steady 50 requests
+  # per second with bursts up to 100; over it, API Gateway answers 429
+  # without invoking the Lambda. The global backstop for the per-IP login
+  # limit in the app (app/auth/rate_limit.py), which each Lambda container
+  # counts on its own. Thresholds are documented in backend/README.md.
+  default_route_settings {
+    throttling_burst_limit = 100
+    throttling_rate_limit  = 50
+  }
 }
 
 resource "aws_lambda_permission" "apigw" {

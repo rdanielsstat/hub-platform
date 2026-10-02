@@ -9,8 +9,9 @@ import { LoginPage } from './login'
 const mockAuthApi = vi.hoisted(() => ({
   register: vi.fn(),
   login: vi.fn(),
-  getCurrentUser: vi.fn(),
-  logout: vi.fn(),
+  // No session unless a test says otherwise.
+  getCurrentUser: vi.fn().mockRejectedValue(new Error('Not authenticated')),
+  logout: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('@/services/api', async (importOriginal) => {

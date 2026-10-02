@@ -246,18 +246,40 @@ export async function holdRequests(
   return { release, held }
 }
 
+/** Name of the httpOnly session cookie the API sets on login/register. */
+export const SESSION_COOKIE = 'hub_token'
+
 /**
- * Sign the browser in without going through the login form: the app
- * reads its bearer token from localStorage['hub.token'] on boot. An init
- * script runs before any page script on every navigation (and in every
- * page of the context), so the token is in place before AuthProvider
- * checks for it. Don't use it in tests that sign out: it would put the
- * token back on the next navigation.
+ * Sign the browser in without going through the login form, by putting
+ * the user's token in the session cookie the API would have set. Cookies
+ * ignore ports, so a cookie for localhost reaches uvicorn on :8000 from
+ * the app on :5173. It goes on the whole context, so every page in it is
+ * signed in, like real tabs.
  */
 export async function signInAs(page: Page, user: TestUser): Promise<void> {
-  await page.context().addInitScript((token) => {
-    localStorage.setItem('hub.token', token)
-  }, user.token)
+  await setSessionCookie(page, user.token)
+}
+
+/** Put any value in the session cookie, e.g. a garbage or expired token. */
+export async function setSessionCookie(
+  page: Page,
+  value: string,
+): Promise<void> {
+  await page.context().addCookies([
+    {
+      name: SESSION_COOKIE,
+      value,
+      domain: 'localhost',
+      path: '/',
+      httpOnly: true,
+      sameSite: 'Strict',
+    },
+  ])
+}
+
+/** The session cookie as the browser holds it, or undefined. */
+export async function sessionCookie(page: Page) {
+  return (await page.context().cookies()).find((c) => c.name === SESSION_COOKIE)
 }
 
 /**

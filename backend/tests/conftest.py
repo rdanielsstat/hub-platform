@@ -76,6 +76,10 @@ def register_and_login(client: TestClient):
             "/auth/login", data={"username": email, "password": TEST_PASSWORD}
         )
         token = res.json()["access_token"]
+        # Login also set the session cookie, which TestClient would send on
+        # every later request. Drop it so each test authenticates only with
+        # the headers it passes, and "no headers" really means anonymous.
+        client.cookies.clear()
         return {"Authorization": f"Bearer {token}"}
 
     return _do

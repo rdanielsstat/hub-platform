@@ -5,6 +5,7 @@ import {
   formatDate,
   formatRelative,
   isQuickWin,
+  isSafeLinkUrl,
   isStale,
   opportunityScore,
 } from './project-utils'
@@ -219,5 +220,30 @@ describe('formatDate', () => {
 
   it('formats a full ISO timestamp as an absolute instant', () => {
     expect(formatDate('2026-09-01T00:00:00Z')).toBe('Sep 1, 2026')
+  })
+})
+
+describe('isSafeLinkUrl', () => {
+  it.each([
+    'https://example.com',
+    'http://example.com/a?b=c',
+    'HTTPS://EXAMPLE.COM',
+  ])('allows %s', (url) => {
+    expect(isSafeLinkUrl(url)).toBe(true)
+  })
+
+  it.each([
+    'javascript:alert(1)',
+    'JavaScript:alert(1)',
+    ' javascript:alert(1)',
+    'javascript://example.com/%0Aalert(1)',
+    'data:text/html,<script>alert(1)</script>',
+    'file:///etc/passwd',
+    'ftp://example.com',
+    '//example.com',
+    'example.com',
+    '',
+  ])('rejects %s', (url) => {
+    expect(isSafeLinkUrl(url)).toBe(false)
   })
 })

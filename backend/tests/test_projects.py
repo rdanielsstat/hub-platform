@@ -190,3 +190,19 @@ def test_patch_empty_body_is_a_no_op(client, register_and_login):
     assert {k: v for k, v in body.items() if k != "updatedAt"} == {
         k: v for k, v in created.items() if k != "updatedAt"
     }
+
+
+def test_patch_404s_if_the_project_is_deleted_mid_request(
+    client, register_and_login, store, monkeypatch
+):
+    headers = register_and_login("patch-race@example.com")
+    project_id = client.post("/projects", json={"name": "Idea"}, headers=headers).json()[
+        "id"
+    ]
+    # Ownership check passes, then the row is gone by the time of the update.
+    monkeypatch.setattr(store, "update_project", lambda *args, **kwargs: None)
+
+    res = client.patch(f"/projects/{project_id}", json={"name": "New"}, headers=headers)
+
+    assert res.status_code == 404
+    assert res.json() == {"detail": "Project not found: it was deleted while being updated"}

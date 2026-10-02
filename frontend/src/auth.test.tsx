@@ -7,22 +7,15 @@ import { act, flush, renderHook } from '@/lib/render-hook'
 const mockAuthApi = vi.hoisted(() => ({
   register: vi.fn(),
   login: vi.fn(),
-  getCurrentUser: vi.fn(),
-  logout: vi.fn(),
-}))
-
-const mockToken = vi.hoisted(() => ({
-  getToken: vi.fn(),
-  setToken: vi.fn(),
-  clearToken: vi.fn(),
+  // No session unless a test says otherwise.
+  getCurrentUser: vi.fn().mockRejectedValue(new Error('Not authenticated')),
+  logout: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('@/services/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/services/api')>()
   return { ...actual, authApi: mockAuthApi }
 })
-
-vi.mock('@/services/api/token', () => mockToken)
 
 function user(overrides: Partial<User> = {}): User {
   return {
@@ -41,23 +34,18 @@ function setup() {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mockToken.getToken.mockReturnValue(null)
 })
 
-describe('on-mount token check', () => {
-  it('starts unauthenticated with no stored token, and does not call getCurrentUser', async () => {
-    mockToken.getToken.mockReturnValue(null)
-
+describe('on-mount session check', () => {
+  it('starts loading and asks the server, since the cookie is unreadable', async () => {
     const hook = setup()
-    await flush()
+    expect(hook.result.status).toBe('loading')
 
-    expect(hook.result.status).toBe('unauthenticated')
-    expect(hook.result.user).toBeNull()
-    expect(mockAuthApi.getCurrentUser).not.toHaveBeenCalled()
+    await flush()
+    expect(mockAuthApi.getCurrentUser).toHaveBeenCalledTimes(1)
   })
 
-  it('ends authenticated when the stored token validates', async () => {
-    mockToken.getToken.mockReturnValue('valid-token')
+  it('ends authenticated when the session cookie validates', async () => {
     const current = user()
     mockAuthApi.getCurrentUser.mockResolvedValueOnce(current)
 
@@ -66,19 +54,16 @@ describe('on-mount token check', () => {
 
     expect(hook.result.status).toBe('authenticated')
     expect(hook.result.user).toEqual(current)
-    expect(mockToken.clearToken).not.toHaveBeenCalled()
   })
 
-  it('ends unauthenticated and clears the token when it fails validation', async () => {
-    mockToken.getToken.mockReturnValue('stale-token')
-    mockAuthApi.getCurrentUser.mockRejectedValueOnce(new Error('401'))
-
+  it('ends unauthenticated when there is no valid session', async () => {
     const hook = setup()
     await flush()
 
     expect(hook.result.status).toBe('unauthenticated')
     expect(hook.result.user).toBeNull()
-    expect(mockToken.clearToken).toHaveBeenCalledTimes(1)
+    // The 401 isn't a mid-session expiry, so no logout request either.
+    expect(mockAuthApi.logout).not.toHaveBeenCalled()
   })
 })
 
@@ -159,8 +144,7 @@ describe('register', () => {
 })
 
 describe('logout', () => {
-  it('clears the token and resets to unauthenticated', async () => {
-    mockToken.getToken.mockReturnValue('valid-token')
+  it('asks the server to clear the cookie and resets to unauthenticated', async () => {
     mockAuthApi.getCurrentUser.mockResolvedValueOnce(user())
     const hook = setup()
     await flush()
@@ -171,6 +155,21 @@ describe('logout', () => {
     })
 
     expect(mockAuthApi.logout).toHaveBeenCalledTimes(1)
+    expect(hook.result.status).toBe('unauthenticated')
+    expect(hook.result.user).toBeNull()
+  })
+
+  it('still signs out locally when the logout request fails', async () => {
+    mockAuthApi.getCurrentUser.mockResolvedValueOnce(user())
+    mockAuthApi.logout.mockRejectedValueOnce(new Error('offline'))
+    const hook = setup()
+    await flush()
+
+    act(() => {
+      hook.result.logout()
+    })
+    await flush()
+
     expect(hook.result.status).toBe('unauthenticated')
     expect(hook.result.user).toBeNull()
   })

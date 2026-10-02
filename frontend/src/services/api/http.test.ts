@@ -1,8 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const mockToken = vi.hoisted(() => ({ getToken: vi.fn() }))
-vi.mock('./token', () => mockToken)
-
 const { HttpError, httpRequest, setUnauthorizedHandler } =
   await import('./http')
 
@@ -15,13 +12,11 @@ function jsonResponse(status: number, body: unknown): Response {
 
 beforeEach(() => {
   vi.restoreAllMocks()
-  mockToken.getToken.mockReturnValue(null)
   setUnauthorizedHandler(null)
 })
 
-describe('bearer token', () => {
-  it('attaches the token when present', async () => {
-    mockToken.getToken.mockReturnValue('secret-token')
+describe('session cookie', () => {
+  it('sends credentials so the browser attaches the httpOnly cookie', async () => {
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(jsonResponse(200, { ok: true }))
@@ -29,32 +24,15 @@ describe('bearer token', () => {
     await httpRequest('/projects')
 
     const [, init] = fetchSpy.mock.calls[0]
-    expect((init?.headers as Record<string, string>)['Authorization']).toBe(
-      'Bearer secret-token',
-    )
+    expect(init?.credentials).toBe('include')
   })
 
-  it('omits the header when there is no token', async () => {
-    mockToken.getToken.mockReturnValue(null)
+  it('never sets an Authorization header itself', async () => {
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(jsonResponse(200, { ok: true }))
 
     await httpRequest('/projects')
-
-    const [, init] = fetchSpy.mock.calls[0]
-    expect(init?.headers as Record<string, string>).not.toHaveProperty(
-      'Authorization',
-    )
-  })
-
-  it('omits the header when skipAuth is set, even with a stored token', async () => {
-    mockToken.getToken.mockReturnValue('secret-token')
-    const fetchSpy = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(jsonResponse(200, { ok: true }))
-
-    await httpRequest('/auth/login', { skipAuth: true })
 
     const [, init] = fetchSpy.mock.calls[0]
     expect(init?.headers as Record<string, string>).not.toHaveProperty(
@@ -103,8 +81,7 @@ describe('error parsing', () => {
 })
 
 describe('unauthorized handler', () => {
-  it('fires on a 401 when a token was attached', async () => {
-    mockToken.getToken.mockReturnValue('expired-token')
+  it('fires on a 401 (expired or invalid session)', async () => {
     const handler = vi.fn()
     setUnauthorizedHandler(handler)
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
@@ -115,8 +92,7 @@ describe('unauthorized handler', () => {
     expect(handler).toHaveBeenCalledTimes(1)
   })
 
-  it('does not fire on a 401 with no token attached (e.g. bad login)', async () => {
-    mockToken.getToken.mockReturnValue(null)
+  it('does not fire on a 401 with ignoreUnauthorized set (e.g. bad login)', async () => {
     const handler = vi.fn()
     setUnauthorizedHandler(handler)
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
@@ -124,13 +100,12 @@ describe('unauthorized handler', () => {
     )
 
     await expect(
-      httpRequest('/auth/login', { skipAuth: true }),
+      httpRequest('/auth/login', { ignoreUnauthorized: true }),
     ).rejects.toBeInstanceOf(HttpError)
     expect(handler).not.toHaveBeenCalled()
   })
 
   it('does not fire on other failures', async () => {
-    mockToken.getToken.mockReturnValue('secret-token')
     const handler = vi.fn()
     setUnauthorizedHandler(handler)
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(

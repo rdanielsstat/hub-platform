@@ -16,6 +16,8 @@ import {
   openDashboard,
   openProject,
   registerViaApi,
+  sessionCookie,
+  setSessionCookie,
   signInAs,
   statusPill,
   toast,
@@ -285,9 +287,18 @@ test.describe('auth: login', () => {
     await expect(page.getByRole('heading', { name: 'Ideas' })).toBeVisible()
     // No display name was set, so the header falls back to the email.
     await expect(page.getByRole('banner').getByText(user.email)).toBeVisible()
+    // The session is an httpOnly, SameSite=Strict cookie, out of reach of
+    // page scripts, and nothing is left in localStorage.
+    const cookie = await sessionCookie(page)
+    expect(cookie?.value).toBeTruthy()
+    expect(cookie?.httpOnly).toBe(true)
+    expect(cookie?.sameSite).toBe('Strict')
+    expect(await page.evaluate(() => document.cookie)).not.toContain(
+      'hub_token',
+    )
     expect(
-      await page.evaluate(() => localStorage.getItem('hub.token')),
-    ).toBeTruthy()
+      await page.evaluate(() => Object.values(localStorage)),
+    ).not.toContain(cookie?.value)
   })
 
   test('rejects a wrong password with an inline error', async ({
@@ -309,10 +320,8 @@ test.describe('auth: login', () => {
     )
     await expect(page).toHaveURL('/login')
     // A failed login must not trigger the "session expired" logout path
-    // or leave a token behind.
-    expect(
-      await page.evaluate(() => localStorage.getItem('hub.token')),
-    ).toBeNull()
+    // or leave a session cookie behind.
+    expect(await sessionCookie(page)).toBeUndefined()
 
     // Retrying with the right password clears the error and logs in.
     await page.locator('#login-password').fill(PASSWORD)
@@ -370,16 +379,15 @@ test.describe('auth: session', () => {
     request,
   }) => {
     const user = await registerViaApi(request)
-    // Not signInAs(): its init script would re-insert the token on the
-    // next navigation and undo the sign-out. Log in through the form.
+    // Through the form rather than signInAs(), so this covers the cookie
+    // the API sets as well as the one it clears.
     await logInViaForm(page, user)
 
     await page.getByRole('button', { name: 'Sign out' }).click()
 
     await expect(page.locator('#login-email')).toBeVisible()
-    expect(
-      await page.evaluate(() => localStorage.getItem('hub.token')),
-    ).toBeNull()
+    // Page scripts can't delete an httpOnly cookie; POST /auth/logout did.
+    await expect.poll(() => sessionCookie(page)).toBeUndefined()
 
     // And stays signed out across a reload.
     await page.reload()
@@ -424,20 +432,19 @@ test.describe('auth: session', () => {
     await expect(page).toHaveURL('/')
   })
 
-  test('an invalid stored token is cleared and shows login', async ({
+  test('an invalid session cookie is cleared and shows login', async ({
     page,
   }) => {
     await page.goto('/login')
-    await page.evaluate(() => localStorage.setItem('hub.token', 'garbage'))
+    await setSessionCookie(page, 'garbage')
 
     const me = waitForApi(page, 'GET', '/auth/me')
     await page.reload()
     expect((await me).status()).toBe(401)
 
     await expect(page.locator('#login-email')).toBeVisible()
-    expect(
-      await page.evaluate(() => localStorage.getItem('hub.token')),
-    ).toBeNull()
+    // The 401 that rejected it also expired it.
+    expect(await sessionCookie(page)).toBeUndefined()
   })
 
   test('a 401 mid-session logs the user out without an error toast', async ({
@@ -447,8 +454,8 @@ test.describe('auth: session', () => {
     const user = await registerViaApi(request)
     await logInViaForm(page, user)
 
-    // Simulate the token expiring while the app is open.
-    await page.evaluate(() => localStorage.setItem('hub.token', 'expired'))
+    // Simulate the session expiring while the app is open.
+    await setSessionCookie(page, 'expired')
     await headerCapture(page).click()
     await captureDialog(page).locator('#qc-name').fill('Never saved')
     const created = waitForApi(page, 'POST', '/projects')
@@ -1796,8 +1803,8 @@ test.describe('multiple tabs', () => {
       name: `Shared ${uid()}`,
       pitch: 'Shared pitch',
     })
-    // signInAs() registers the token on the whole context, so the second
-    // tab is signed in too (they share localStorage, like real tabs).
+    // signInAs() sets the cookie on the whole context, so the second tab
+    // is signed in too (they share cookies, like real tabs).
     await signInAs(page, user)
     const tabA = page
     const tabB = await page.context().newPage()

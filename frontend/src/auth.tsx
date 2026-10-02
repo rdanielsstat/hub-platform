@@ -6,31 +6,31 @@ import {
   type ReactNode,
 } from 'react'
 import { authApi, type RegisterInput, type User } from '@/services/api'
-import { clearToken, getToken } from '@/services/api/token'
 import { setUnauthorizedHandler } from '@/services/api/http'
 import { AuthContext, type AuthStatus, type AuthValue } from '@/auth-context'
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
-  const [status, setStatus] = useState<AuthStatus>(() =>
-    getToken() ? 'loading' : 'unauthenticated',
-  )
+  // The session cookie is httpOnly, so there's no way to tell from here
+  // whether one exists: always start loading and ask the server.
+  const [status, setStatus] = useState<AuthStatus>('loading')
 
   const logout = useCallback(() => {
-    authApi.logout()
+    // Signed out locally right away; the request only clears the cookie.
+    // If it fails, the cookie still expires on its own.
+    authApi.logout().catch(() => {})
     setUser(null)
     setStatus('unauthenticated')
   }, [])
 
   // Registered once so a 401 from any authenticated request (expired or
-  // invalid token) logs the user out instead of leaving the app stuck.
+  // invalid session) logs the user out instead of leaving the app stuck.
   useEffect(() => {
     setUnauthorizedHandler(logout)
     return () => setUnauthorizedHandler(null)
   }, [logout])
 
   useEffect(() => {
-    if (!getToken()) return
     authApi
       .getCurrentUser()
       .then((current) => {
@@ -38,7 +38,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setStatus('authenticated')
       })
       .catch(() => {
-        clearToken()
+        // No session, or an expired/invalid one (which the server clears
+        // in the same 401 response).
         setStatus('unauthenticated')
       })
   }, [])

@@ -79,6 +79,12 @@ resource "aws_lambda_function" "backend" {
 
       # Same-origin in AWS, so this is belt-and-braces rather than required.
       CORS_ORIGINS = "https://${local.subdomain}"
+
+      # The real viewer IP for the per-IP login rate limit. API Gateway only
+      # sees CloudFront's address; CloudFront passes the viewer's along in
+      # this header ("ip:port"). Without it the app falls back to the peer
+      # address, which would make the limit per CloudFront edge, not per user.
+      CLIENT_IP_HEADER = "CloudFront-Viewer-Address"
     }, local.otel_env)
   }
 }

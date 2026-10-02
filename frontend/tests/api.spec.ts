@@ -459,16 +459,59 @@ test.describe('GET /auth/me', () => {
 
 // --- logout ----------------------------------------------------------------
 
-test.describe('logout', () => {
-  test('there is no server-side logout endpoint', async ({ request }) => {
-    // Logout is client-side only: the frontend drops the token from
-    // localStorage (services/api/auth.ts). Tokens are stateless JWTs and
-    // stay valid until they expire (ACCESS_TOKEN_EXPIRE_MINUTES).
+test.describe('session cookie and logout', () => {
+  function sessionSetCookie(
+    res: Awaited<ReturnType<APIRequestContext['post']>>,
+  ) {
+    return res
+      .headersArray()
+      .filter((h) => h.name.toLowerCase() === 'set-cookie')
+      .map((h) => h.value)
+      .find((v) => v.startsWith('hub_token='))
+  }
+
+  test('login sets the token as an httpOnly, SameSite=Strict cookie', async ({
+    request,
+  }) => {
     const user = await registerViaApi(request)
-    const res = await request.post(url('/auth/logout'), {
-      headers: bearer(user.token),
-    })
-    expect(res.status()).toBe(404)
+    const res = await login(request, user.email, PASSWORD)
+    expect(res.status()).toBe(200)
+
+    const cookie = sessionSetCookie(res)
+    const { access_token: token } = (await res.json()) as {
+      access_token: string
+    }
+    expect(cookie).toBeDefined()
+    expect(cookie).toContain(`hub_token=${token}`)
+    expect(cookie).toMatch(/;\s*HttpOnly/i)
+    expect(cookie).toMatch(/;\s*SameSite=strict/i)
+    expect(cookie).toMatch(/;\s*Path=\//i)
+  })
+
+  test('the cookie alone authenticates', async ({ request }) => {
+    const user = await registerViaApi(request)
+    // The request fixture keeps cookies, like a browser.
+    await login(request, user.email, PASSWORD)
+
+    const me = await request.get(url('/auth/me'))
+    expect(me.status()).toBe(200)
+    expect(await me.json()).toMatchObject({ email: user.email })
+  })
+
+  test('logout clears the cookie; the JWT itself stays valid until it expires', async ({
+    request,
+  }) => {
+    // Tokens are stateless JWTs: logout only clears the browser's cookie.
+    // A copy held elsewhere (here, as a bearer token) works until
+    // ACCESS_TOKEN_EXPIRE_MINUTES.
+    const user = await registerViaApi(request)
+    await login(request, user.email, PASSWORD)
+
+    const res = await request.post(url('/auth/logout'))
+    expect(res.status()).toBe(204)
+    expect(sessionSetCookie(res)).toMatch(/Max-Age=0/i)
+
+    expect((await request.get(url('/auth/me'))).status()).toBe(401)
     expect(
       (
         await request.get(url('/auth/me'), { headers: bearer(user.token) })

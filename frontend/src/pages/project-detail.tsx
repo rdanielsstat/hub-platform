@@ -24,7 +24,7 @@ import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
-import { formatDate, formatRelative } from '@/lib/project-utils'
+import { formatDate, formatRelative, isSafeLinkUrl } from '@/lib/project-utils'
 
 export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -388,15 +388,27 @@ export function ProjectDetailPage() {
                     key={link.url}
                     className="group flex items-center justify-between gap-2 rounded-md px-1.5 py-1 text-sm hover:bg-muted"
                   >
-                    <a
-                      href={link.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex min-w-0 items-center gap-1.5 truncate text-primary"
-                    >
-                      <ArrowUpRight className="size-3.5 shrink-0" />
-                      <span className="truncate">{link.label || link.url}</span>
-                    </a>
+                    {isSafeLinkUrl(link.url) ? (
+                      <a
+                        href={link.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex min-w-0 items-center gap-1.5 truncate text-primary"
+                      >
+                        <ArrowUpRight className="size-3.5 shrink-0" />
+                        <span className="truncate">
+                          {link.label || link.url}
+                        </span>
+                      </a>
+                    ) : (
+                      // Not http(s): shown as plain text, never a link.
+                      <span
+                        title="Not an http(s) link, so it isn't clickable"
+                        className="min-w-0 truncate text-muted-foreground"
+                      >
+                        {link.label || link.url}
+                      </span>
+                    )}
                     <button
                       type="button"
                       aria-label={`Remove link ${link.label || link.url}`}

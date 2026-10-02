@@ -85,6 +85,38 @@ def is_local_environment(environment: str = ENVIRONMENT) -> bool:
     return environment.lower() in _LOCAL_ENVIRONMENTS
 
 
+# The browser session: /auth/login and /auth/register set the JWT in this
+# httpOnly cookie (JavaScript can't read it, so an XSS bug can't steal
+# it), SameSite=Strict (never sent on a cross-site request, which is the
+# CSRF defence). Non-browser clients keep using the Authorization header.
+AUTH_COOKIE_NAME = "hub_token"
+
+# Secure (HTTPS-only) everywhere but a local run, where the Vite dev
+# server and uvicorn are plain http://localhost. AUTH_COOKIE_SECURE
+# overrides it either way.
+AUTH_COOKIE_SECURE = (
+    env_flag("AUTH_COOKIE_SECURE")
+    if os.environ.get("AUTH_COOKIE_SECURE", "").strip()
+    else not is_local_environment()
+)
+
+# Failed-or-not login attempts allowed per client IP per minute on
+# /auth/login; over it, 429. 0 turns the limit off. Defaults to 5 when
+# deployed and off locally, where the Playwright suite logs in far more
+# often than that from 127.0.0.1. See app/auth/rate_limit.py.
+LOGIN_RATE_LIMIT_PER_MINUTE = int(
+    os.environ.get(
+        "LOGIN_RATE_LIMIT_PER_MINUTE", "0" if is_local_environment() else "5"
+    )
+)
+
+# Request header that carries the real client IP, set by a proxy in front
+# of the app (in AWS: CloudFront-Viewer-Address, "ip:port"). Unset means
+# use the TCP peer address. Only set this when every request comes
+# through that proxy: a client can send any header it likes.
+CLIENT_IP_HEADER = os.environ.get("CLIENT_IP_HEADER", "").strip()
+
+
 def _get_ssm_client() -> Any:
     """Built on first use only. A local/Compose run never calls this
     (USE_SSM is off), so it needs no AWS credentials, network access,

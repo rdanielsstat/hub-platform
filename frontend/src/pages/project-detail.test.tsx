@@ -326,6 +326,36 @@ describe('ProjectDetailPage tags and links', () => {
 
     expect(mockApi.updateProject).toHaveBeenCalledWith('p1', { links: [] })
   })
+
+  it('renders an http(s) link as a link', async () => {
+    mockApi.listProjects.mockResolvedValueOnce([
+      project({ links: [{ label: 'Docs', url: 'https://example.com' }] }),
+    ])
+    renderDetail()
+
+    expect(await screen.findByRole('link', { name: 'Docs' })).toHaveAttribute(
+      'href',
+      'https://example.com',
+    )
+  })
+
+  it.each(['javascript:alert(1)', 'file:///etc/passwd', 'data:text/html,hi'])(
+    'renders a stored %s link as plain text, never an href',
+    async (url) => {
+      mockApi.listProjects.mockResolvedValueOnce([
+        project({ links: [{ label: 'Sketchy', url }] }),
+      ])
+      renderDetail()
+
+      expect(await screen.findByText('Sketchy')).toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: 'Sketchy' })).toBeNull()
+      expect(document.querySelector(`a[href="${url}"]`)).toBeNull()
+      // Still removable.
+      expect(
+        screen.getByRole('button', { name: 'Remove link Sketchy' }),
+      ).toBeInTheDocument()
+    },
+  )
 })
 
 describe('ProjectDetailPage delete', () => {

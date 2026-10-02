@@ -9,8 +9,9 @@ import { App } from './App'
 const mockAuthApi = vi.hoisted(() => ({
   register: vi.fn(),
   login: vi.fn(),
-  getCurrentUser: vi.fn(),
-  logout: vi.fn(),
+  // No session unless a test says otherwise.
+  getCurrentUser: vi.fn().mockRejectedValue(new Error('Not authenticated')),
+  logout: vi.fn().mockResolvedValue(undefined),
 }))
 
 const mockApi = vi.hoisted(() => ({
@@ -102,7 +103,6 @@ describe('Capture, see it, edit it flow', () => {
       createdAt: 'now',
       updatedAt: 'now',
     })
-    localStorage.setItem('hub.token', 'valid-token')
     mockApi.listProjects.mockResolvedValueOnce([])
 
     const created = project({ id: 'new-1', name: 'Garden tracker', pitch: '' })

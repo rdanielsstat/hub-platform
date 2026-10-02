@@ -24,6 +24,7 @@ tags:
 
 security:
   - bearerAuth: []
+  - cookieAuth: []
 
 paths:
   /health:
@@ -58,7 +59,12 @@ paths:
               $ref: '#/components/schemas/RegisterInput'
       responses:
         '201':
-          description: Account created and logged in
+          description: >
+            Account created and logged in. The token is in the body and also
+            set as the httpOnly `hub_token` session cookie.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SessionCookie'
           content:
             application/json:
               schema:
@@ -79,7 +85,8 @@ paths:
       description: >
         Standard OAuth2 password grant so FastAPI's built-in OAuth2PasswordBearer
         / Swagger "Authorize" tooling works out of the box. The email goes in the
-        `username` field.
+        `username` field. Limited to LOGIN_RATE_LIMIT_PER_MINUTE attempts per
+        client IP per minute (5 when deployed); over it, 429 with Retry-After.
       security: []
       requestBody:
         required: true
@@ -89,7 +96,12 @@ paths:
               $ref: '#/components/schemas/LoginForm'
       responses:
         '200':
-          description: Authenticated
+          description: >
+            Authenticated. The token is in the body and also set as the
+            httpOnly `hub_token` session cookie.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SessionCookie'
           content:
             application/json:
               schema:
@@ -102,6 +114,33 @@ paths:
                 $ref: '#/components/schemas/HTTPError'
         '422':
           $ref: '#/components/responses/ValidationError'
+        '429':
+          description: Too many login attempts from this client IP
+          headers:
+            Retry-After:
+              description: Seconds until another attempt is allowed
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPError'
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: Clear the session cookie
+      description: >
+        Expires the `hub_token` cookie. Needs no credentials. Tokens are
+        stateless JWTs, so a token held elsewhere (e.g. a bearer token an API
+        client kept) stays valid until it expires.
+      security: []
+      responses:
+        '204':
+          description: Cookie cleared
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SessionCookie'
 
   /auth/me:
     get:
@@ -287,6 +326,22 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: hub_token
+      description: >
+        The web app's session: the same JWT, in an httpOnly, SameSite=Strict
+        cookie (Secure when deployed) set by /auth/login and /auth/register.
+        When a request sends both, the Authorization header wins.
+
+  headers:
+    SessionCookie:
+      description: >
+        `hub_token=<JWT>; HttpOnly; SameSite=Strict; Path=/; Secure` (Secure
+        when deployed), or an expired `hub_token` to clear it.
+      schema:
+        type: string
 
   parameters:
     ProjectId:

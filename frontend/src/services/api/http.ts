@@ -1,5 +1,4 @@
 import { API_BASE_URL } from '@/lib/config'
-import { getToken } from './token'
 
 export class HttpError extends Error {
   status: number
@@ -14,11 +13,10 @@ export class HttpError extends Error {
 type UnauthorizedHandler = () => void
 
 /**
- * Fires when an authenticated request comes back 401 (expired/invalid
- * token) — the app uses this to log the user out and bounce them to
- * login, rather than leaving the UI stuck on a failed request. Not fired
- * for a plain wrong-password 401 from /auth/login itself, since that
- * request never carries a token.
+ * Fires when a request comes back 401 (the session cookie expired or is
+ * invalid) — the app uses this to log the user out and bounce them to
+ * login, rather than leaving the UI stuck on a failed request. Requests
+ * made with ignoreUnauthorized never fire it.
  */
 let onUnauthorized: UnauthorizedHandler | null = null
 
@@ -33,8 +31,12 @@ interface RequestOptions {
   body?: unknown
   /** application/x-www-form-urlencoded body, for the OAuth2 login endpoint */
   form?: Record<string, string>
-  /** skip attaching the stored bearer token (register/login themselves) */
-  skipAuth?: boolean
+  /**
+   * A 401 from this request isn't an expired session: a wrong password
+   * on login, or the on-load "am I signed in?" check. Don't fire the
+   * unauthorized handler for it.
+   */
+  ignoreUnauthorized?: boolean
 }
 
 export async function httpRequest<T>(
@@ -52,18 +54,18 @@ export async function httpRequest<T>(
     requestBody = JSON.stringify(options.body)
   }
 
-  if (!options.skipAuth) {
-    const token = getToken()
-    if (token) headers['Authorization'] = `Bearer ${token}`
-  }
-
+  // The session is the httpOnly hub_token cookie, which the browser
+  // attaches on its own; this code never sees the token. 'include' (not
+  // the default 'same-origin') so it's also sent locally, where the API is
+  // on another port. Deployed, CloudFront serves both from one origin.
   const res = await fetch(`${API_BASE_URL}${path}`, {
     method: options.method ?? 'GET',
     headers,
     body: requestBody,
+    credentials: 'include',
   })
 
-  if (res.status === 401 && headers['Authorization']) {
+  if (res.status === 401 && !options.ignoreUnauthorized) {
     onUnauthorized?.()
   }
 

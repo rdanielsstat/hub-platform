@@ -78,3 +78,13 @@ export function isStale(p: Project, now: Date = new Date()): boolean {
   const ageDays = (now.getTime() - new Date(p.updatedAt).getTime()) / 86400000
   return ageDays >= STALE_THRESHOLD_DAYS
 }
+
+/**
+ * Whether a link URL is safe to render as an <a href>: only http(s).
+ * The backend already rejects anything else on write; this is the second
+ * line, so a javascript:, data: or file: URL that got into the database
+ * some other way still never becomes a clickable link.
+ */
+export function isSafeLinkUrl(url: string): boolean {
+  return /^https?:\/\//i.test(url)
+}

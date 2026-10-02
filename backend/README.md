@@ -68,6 +68,9 @@ of it.
 | `DATABASE_URL` | `sqlite:///./hub.db` | No if `USE_SSM` is off, but you'll want a real database URL outside dev. Ignored if `USE_SSM` is on. |
 | `HUB_JWT_SECRET` | a known dev-only string | **Yes, if `USE_SSM` is off.** See below. Ignored if `USE_SSM` is on. |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | No. |
+| `AUTH_COOKIE_SECURE` | off when `ENVIRONMENT` is local, on otherwise | No. Whether the `hub_token` session cookie gets the `Secure` flag (HTTPS only). Off locally because the dev servers are plain `http://localhost`. See "Auth". |
+| `LOGIN_RATE_LIMIT_PER_MINUTE` | `5` when deployed, `0` (off) locally | No. Login attempts allowed per client IP per minute on `POST /auth/login`; `0` turns the limit off. Off locally because the Playwright suite logs in many times from 127.0.0.1. See "Rate limits". |
+| `CLIENT_IP_HEADER` | unset (use the TCP peer address) | No. Request header holding the real client IP, for the login rate limit. The Lambdas set `CloudFront-Viewer-Address`. Only set it when every request comes through the proxy that writes it, since a client can send any header. |
 | `SEED_DEMO_DATA` | off | No. Local only: lets `python -m app.db.init_local` seed the demo account. Must be off with `USE_SSM` on; the app refuses to start otherwise. |
 | `OTEL_ENABLED` | off | No. On exports traces and metrics via OpenTelemetry (`observability/`). Set for the dev and prod Lambdas by OpenTofu, which export to Grafana Cloud. Prod sends OTEL data to Grafana via OTLP endpoint. See `observability/README.md` for local use. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | No. OTLP/HTTP base URL (Grafana Cloud's, in dev and prod). Unset with `OTEL_ENABLED` on means a local collector at `http://localhost:4318`. Only read when `OTEL_ENABLED` is on. Set for the dev and prod Lambdas by OpenTofu. |
@@ -263,3 +266,53 @@ tokens (via PyJWT), OAuth2 password flow. `POST /auth/login` takes
 All of the JWT secret/algorithm/expiry live in `app/core/config.py` (see
 Config above); nothing security-relevant is hardcoded in
 `app/auth/security.py` itself.
+
+The web app never sees the token. `POST /auth/login` and
+`POST /auth/register` return it in the body (for API clients such as a
+future iOS app or scripts, which send it back as
+`Authorization: Bearer <token>`) and also set it as the `hub_token`
+cookie: `HttpOnly` (JavaScript can't read it, so an XSS bug can't steal
+it), `SameSite=Strict` (the browser never sends it on a cross-site
+request, which is the CSRF defence), `Path=/`, `Max-Age` matching
+`ACCESS_TOKEN_EXPIRE_MINUTES`, and `Secure` unless running locally.
+Protected routes accept either; the header wins when both are sent
+(`app/auth/dependencies.py`). `POST /auth/logout` clears the cookie, and
+a cookie that fails validation is cleared on the 401 that rejects it.
+Tokens are still stateless JWTs: logout doesn't revoke a copy held
+elsewhere, it expires on its own.
+
+Locally the frontend (`:5173`) and API (`:8000`) are different origins
+but the same site, so the cookie still flows; the frontend sends
+`credentials: 'include'` and CORS allows credentials for
+`CORS_ORIGINS`.
+
+## Rate limits
+
+Two layers:
+
+| Layer | Threshold | Scope | Where |
+|---|---|---|---|
+| Login attempts | 5 per minute (sliding window) | Per client IP, `POST /auth/login` only, successful and failed attempts alike | `app/auth/rate_limit.py`, `LOGIN_RATE_LIMIT_PER_MINUTE` |
+| API Gateway stage throttle | 50 requests/second steady, bursts up to 100 | All clients and routes together | `infra/hub/apigateway.tf` (`default_route_settings`) |
+
+Over either limit the response is `429 Too Many Requests`. The login
+limit adds a `Retry-After` header (seconds) and doesn't count the
+rejected attempt, so a client that keeps retrying is let back in once
+its oldest attempt is a minute old.
+
+Known gaps:
+
+- The login limit is in-memory per process. Each warm Lambda container
+  counts separately, so with several running a client can get a few
+  times the limit through. The API Gateway throttle is the global
+  backstop. A shared counter (e.g. a database table) would close this
+  if it ever matters.
+- Behind CloudFront the client IP comes from `CloudFront-Viewer-Address`
+  (`CLIENT_IP_HEADER`). If that header is absent the app falls back to
+  the peer address, which is CloudFront's, so the limit would apply per
+  CloudFront edge instead of per user. Check after deploying that the
+  header arrives (the `AllViewerExceptHostHeader` origin request policy
+  should forward it).
+- API Gateway's default `execute-api` endpoint is public, and a request
+  sent there directly can set `CloudFront-Viewer-Address` to anything.
+  The stage throttle still applies.

@@ -60,7 +60,13 @@ def update_project(
     _get_owned_or_404(project_id, current_user.id, store)
     patch = body.model_dump(exclude_unset=True)
     record = store.update_project(project_id, current_user.id, **patch)
-    assert record is not None  # just confirmed ownership above
+    if record is None:
+        # Ownership was confirmed above, so the project was deleted
+        # between that check and this update.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found: it was deleted while being updated",
+        )
     return _to_project(record)
 
 

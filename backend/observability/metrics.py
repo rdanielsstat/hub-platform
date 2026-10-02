@@ -21,6 +21,7 @@ ENDPOINT_METRICS: dict[tuple[str, str], str] = {
     ("GET", "/health"): "health_get",
     ("POST", "/auth/register"): "auth_register_post",
     ("POST", "/auth/login"): "auth_login_post",
+    ("POST", "/auth/logout"): "auth_logout_post",
     ("GET", "/auth/me"): "auth_me_get",
     ("GET", "/projects"): "projects_list",
     ("POST", "/projects"): "projects_create",
