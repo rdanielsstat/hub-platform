@@ -99,6 +99,12 @@ variable "otel_headers_prod" {
   sensitive   = true
 }
 
+variable "cloudflare_api_token" {
+  description = "Cloudflare API token for DNS management."
+  type        = string
+  sensitive   = true
+}
+
 # The workspace name IS the environment: `prod` or `dev`.
 # Everything below derives from it, so switching workspace switches all names
 # and the subdomain with no other edits.
