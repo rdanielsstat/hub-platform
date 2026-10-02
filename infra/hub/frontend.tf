@@ -53,6 +53,51 @@ resource "aws_cloudfront_function" "spa_router" {
   JS
 }
 
+# Origin request policy for /api/*: which viewer headers reach API Gateway.
+#
+# Replaces the managed AllViewerExceptHostHeader policy, which does not
+# forward CloudFront-Viewer-Address. The backend's per-IP login rate limit
+# (backend/app/auth/rate_limit.py, CLIENT_IP_HEADER in lambda.tf) needs that
+# header: API Gateway only sees CloudFront's address, so without it every
+# user behind the same CloudFront edge shares one rate-limit bucket, and five
+# attempts from any of them lock the rest out for a minute.
+#
+# An allowlist because no header behaviour both drops Host and adds
+# CloudFront headers: "allViewerAndWhitelistCloudFront" forwards the viewer's
+# Host, and API Gateway answers a foreign Host with 403. Listed here are the
+# request headers the API reads. Cookies (the hub_token session) and query
+# strings are forwarded in full; the body and its length always are.
+# A header the API starts depending on must be added here, or it is dropped.
+#
+# Names are account-wide and dev and prod share an account, so the name
+# carries the environment.
+resource "aws_cloudfront_origin_request_policy" "api" {
+  name    = "${local.name}-forward-viewer-address"
+  comment = "API origin: allowlisted viewer headers plus CloudFront-Viewer-Address for per-IP rate limiting"
+
+  headers_config {
+    header_behavior = "whitelist"
+    headers {
+      items = [
+        "Accept",
+        "Authorization",
+        "CloudFront-Viewer-Address",
+        "Content-Type",
+        "Origin",
+        "User-Agent",
+      ]
+    }
+  }
+
+  cookies_config {
+    cookie_behavior = "all"
+  }
+
+  query_strings_config {
+    query_string_behavior = "all"
+  }
+}
+
 resource "aws_cloudfront_distribution" "frontend" {
   enabled             = true
   default_root_object = "index.html"
@@ -67,6 +112,16 @@ resource "aws_cloudfront_distribution" "frontend" {
   origin {
     domain_name = replace(aws_apigatewayv2_api.backend.api_endpoint, "https://", "")
     origin_id   = "apigw-backend"
+
+    # Proves a request came through CloudFront: the backend rejects anything
+    # without this header (see aws_ssm_parameter.origin_verify, database.tf).
+    # Set here on the origin, not in the origin request policy, which can only
+    # pick viewer headers to forward, never add a fixed one. CloudFront
+    # overwrites any X-Origin-Verify a viewer sends.
+    custom_header {
+      name  = "X-Origin-Verify"
+      value = random_password.origin_verify.result
+    }
 
     custom_origin_config {
       http_port              = 80
@@ -99,10 +154,11 @@ resource "aws_cloudfront_distribution" "frontend" {
     # CachingDisabled: API responses are per-user and must never be cached.
     cache_policy_id = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
 
-    # AllViewerExceptHostHeader: forwards the Authorization header and body,
-    # but sends API Gateway its OWN host name. Forwarding the CloudFront alias
-    # as Host makes API Gateway reject the request with 403.
-    origin_request_policy_id = "b689b0a8-53d0-40ab-baf2-68738e2966ac"
+    # Allowlisted headers plus CloudFront-Viewer-Address, and never the
+    # viewer's Host: CloudFront sends API Gateway its own host name, since
+    # forwarding the CloudFront alias as Host makes API Gateway answer 403.
+    # See aws_cloudfront_origin_request_policy.api above.
+    origin_request_policy_id = aws_cloudfront_origin_request_policy.api.id
   }
 
   restrictions {

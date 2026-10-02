@@ -337,3 +337,71 @@ def test_env_flag_falsy_values(monkeypatch, value):
     monkeypatch.setenv("SEED_DEMO_DATA", value)
 
     assert config.env_flag("SEED_DEMO_DATA") is False
+
+
+@pytest.mark.parametrize(
+    ("environment", "use_ssm", "expected"),
+    [
+        ("local", False, False),
+        ("development", False, False),
+        ("dev", False, False),
+        ("DEV", False, False),
+        ("dev", True, True),  # deployed dev Lambda: USE_SSM wins over the label
+        ("local", True, True),
+        ("prod", False, True),
+        ("staging", False, True),
+        ("prod", True, True),
+    ],
+)
+def test_is_deployed(environment, use_ssm, expected):
+    assert config.is_deployed(environment=environment, use_ssm=use_ssm) is expected
+
+
+# ---- get_origin_verify_secret() ----
+
+
+def test_origin_verify_secret_is_none_and_never_hits_ssm_when_use_ssm_is_off(
+    monkeypatch,
+):
+    monkeypatch.setattr(config, "USE_SSM", False)
+    monkeypatch.setattr(config, "_origin_verify_secret", None)
+
+    def _boom():
+        raise AssertionError("SSM client should not be built when USE_SSM is off")
+
+    monkeypatch.setattr(config, "_get_ssm_client", _boom)
+
+    assert config.get_origin_verify_secret() is None
+
+
+def test_origin_verify_secret_is_read_from_ssm_and_cached(monkeypatch):
+    monkeypatch.setattr(config, "USE_SSM", True)
+    monkeypatch.setattr(config, "_origin_verify_secret", None)
+    monkeypatch.setenv("ORIGIN_VERIFY_PARAM_NAME", "/hub-prod/origin-verify-secret")
+    fake_client = _FakeSSMClient({"/hub-prod/origin-verify-secret": "s3cret"})
+    monkeypatch.setattr(config, "_get_ssm_client", lambda: fake_client)
+
+    assert config.get_origin_verify_secret() == "s3cret"
+    assert config.get_origin_verify_secret() == "s3cret"
+    assert fake_client.calls == ["/hub-prod/origin-verify-secret"]
+
+
+def test_origin_verify_secret_requires_the_param_name_with_use_ssm(monkeypatch):
+    monkeypatch.setattr(config, "USE_SSM", True)
+    monkeypatch.setattr(config, "_origin_verify_secret", None)
+    monkeypatch.delenv("ORIGIN_VERIFY_PARAM_NAME", raising=False)
+
+    with pytest.raises(RuntimeError, match="ORIGIN_VERIFY_PARAM_NAME is not set"):
+        config.get_origin_verify_secret()
+
+
+def test_origin_verify_secret_rejects_an_empty_value(monkeypatch):
+    monkeypatch.setattr(config, "USE_SSM", True)
+    monkeypatch.setattr(config, "_origin_verify_secret", None)
+    monkeypatch.setenv("ORIGIN_VERIFY_PARAM_NAME", "/hub-prod/origin-verify-secret")
+    fake_client = _FakeSSMClient({"/hub-prod/origin-verify-secret": "   "})
+    monkeypatch.setattr(config, "_get_ssm_client", lambda: fake_client)
+
+    with pytest.raises(RuntimeError, match="is empty"):
+        config.get_origin_verify_secret()
+

@@ -29,6 +29,10 @@ _SETTINGS_VARS = {
     "JWT_PARAM_NAME",
     "SEED_DEMO_DATA",
     "CORS_ORIGINS",
+    "AUTH_COOKIE_SECURE",
+    "LOGIN_RATE_LIMIT_PER_MINUTE",
+    "CLIENT_IP_HEADER",
+    "ORIGIN_VERIFY_PARAM_NAME",
 }
 
 # Replaces boto3 inside the subprocess: `client("ssm")` returns a fake
@@ -153,12 +157,21 @@ def test_dev_default_jwt_secret_with_use_ssm_refuses_to_start():
     assert "Refusing to start" in result.stderr
 
 
+# Origin-verify parameter every USE_SSM run needs (see the last section).
+_ORIGIN_VERIFY_SECRET = "test-origin-verify-secret"
+_ORIGIN_VERIFY_ENV = {
+    "ORIGIN_VERIFY_PARAM_NAME": "/hub-test/origin-verify-secret",
+    "FAKE_SSM_hub_test_origin_verify_secret": _ORIGIN_VERIFY_SECRET,
+}
+
+
 def test_real_jwt_secret_with_use_ssm_starts(tmp_path):
     result = _import_app(
         {
             "USE_SSM": "true",
             "JWT_PARAM_NAME": "/hub-prod/jwt-secret",
             "FAKE_SSM_hub_prod_jwt_secret": "a-real-looking-unique-secret",
+            **_ORIGIN_VERIFY_ENV,
         }
     )
 
@@ -200,3 +213,155 @@ def test_cors_origins_env_var_configures_the_app(tmp_path, origin, allowed):
     assert result.returncode == 0, result.stderr
     expected = f"ALLOW={origin}" if allowed else "ALLOW=None"
     assert expected in result.stdout
+
+
+# ---- deployment-only defaults follow is_deployed() ----
+
+_STRONG_SECRET = "a-strong-test-secret-that-is-not-the-dev-default"
+
+
+@pytest.mark.parametrize(
+    ("environment", "use_ssm", "deployed"),
+    [
+        ("local", False, False),  # bare laptop run
+        ("dev", False, False),  # laptop run labelled dev
+        ("dev", True, True),  # the deployed dev Lambda
+        ("local", True, True),  # SSM always means deployed
+        ("prod", False, True),  # non-local label
+        ("prod", True, True),  # the deployed prod Lambda
+    ],
+)
+def test_deployment_defaults_follow_is_deployed(
+    tmp_path, environment, use_ssm, deployed
+):
+    """Secure cookie, login rate limit and hidden API docs come on exactly
+    when is_deployed(): any USE_SSM run, or a non-local ENVIRONMENT. The
+    deployed dev Lambda (ENVIRONMENT=dev, USE_SSM=true) is the case the
+    ENVIRONMENT label alone used to get wrong."""
+    env = {
+        "ENVIRONMENT": environment,
+        "DATABASE_URL": f"sqlite:///{tmp_path / 'hub.db'}",
+    }
+    if use_ssm:
+        env |= {
+            "USE_SSM": "true",
+            "JWT_PARAM_NAME": "/hub-test/jwt-secret",
+            "FAKE_SSM_hub_test_jwt_secret": _STRONG_SECRET,
+            **_ORIGIN_VERIFY_ENV,
+        }
+    else:
+        env["HUB_JWT_SECRET"] = _STRONG_SECRET
+
+    result = _run(
+        """
+        import app.main
+        from app.core import config
+        print(config.is_deployed(), config.AUTH_COOKIE_SECURE,
+              config.LOGIN_RATE_LIMIT_PER_MINUTE, app.main.app.docs_url)
+        """,
+        env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    expected = "True True 5 None" if deployed else "False False 0 /docs"
+    assert result.stdout.strip().splitlines()[-1] == expected
+
+
+def test_explicit_settings_override_the_deployment_defaults(tmp_path):
+    result = _run(
+        """
+        from app.core import config
+        print(config.AUTH_COOKIE_SECURE, config.LOGIN_RATE_LIMIT_PER_MINUTE)
+        """,
+        {
+            "ENVIRONMENT": "prod",
+            "HUB_JWT_SECRET": _STRONG_SECRET,
+            "AUTH_COOKIE_SECURE": "false",
+            "LOGIN_RATE_LIMIT_PER_MINUTE": "20",
+            "DATABASE_URL": f"sqlite:///{tmp_path / 'hub.db'}",
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "False 20"
+
+
+# ---- origin verification: requests must come through CloudFront ----
+
+_SSM_ENV = {
+    "USE_SSM": "true",
+    "JWT_PARAM_NAME": "/hub-test/jwt-secret",
+    "FAKE_SSM_hub_test_jwt_secret": _STRONG_SECRET,
+}
+
+_PROBE_HEALTH = """
+    from fastapi.testclient import TestClient
+    import app.main
+
+    client = TestClient(app.main.app)
+    for headers in ({}, {"X-Origin-Verify": "wrong"},
+                    {"X-Origin-Verify": "test-origin-verify-secret"}):
+        print("status", client.get("/health", headers=headers).status_code)
+    """
+
+
+def _statuses(stdout: str) -> list[str]:
+    # Only the probe's lines: startup can print to stdout too.
+    lines = stdout.splitlines()
+    return [line.split()[1] for line in lines if line.startswith("status ")]
+
+
+def test_deployed_app_rejects_requests_without_the_origin_verify_header(tmp_path):
+    """USE_SSM on: a direct execute-api call (no header, or a wrong one)
+    gets 403; a request through CloudFront, which adds the right value,
+    gets through."""
+    result = _run(
+        _PROBE_HEALTH,
+        {
+            **_SSM_ENV,
+            **_ORIGIN_VERIFY_ENV,
+            "DATABASE_URL": f"sqlite:///{tmp_path / 'hub.db'}",
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert _statuses(result.stdout) == ["403", "403", "200"]
+    assert "origin_verify_rejected" in result.stderr
+    assert _ORIGIN_VERIFY_SECRET not in result.stderr
+
+
+def test_local_run_skips_the_origin_verify_check(tmp_path):
+    """USE_SSM off (laptop, Docker Compose): no CloudFront in front, so
+    every request gets through with or without the header."""
+    result = _run(
+        _PROBE_HEALTH,
+        {
+            "ENVIRONMENT": "prod",
+            "HUB_JWT_SECRET": _STRONG_SECRET,
+            "DATABASE_URL": f"sqlite:///{tmp_path / 'hub.db'}",
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert _statuses(result.stdout) == ["200", "200", "200"]
+
+
+def test_missing_origin_verify_param_with_use_ssm_refuses_to_start():
+    result = _import_app(_SSM_ENV)
+
+    assert result.returncode != 0
+    assert "ORIGIN_VERIFY_PARAM_NAME is not set" in result.stderr
+
+
+def test_empty_origin_verify_secret_with_use_ssm_refuses_to_start():
+    result = _import_app(
+        {
+            **_SSM_ENV,
+            **_ORIGIN_VERIFY_ENV,
+            "FAKE_SSM_hub_test_origin_verify_secret": "  ",
+        }
+    )
+
+    assert result.returncode != 0
+    assert "is empty" in result.stderr
+

@@ -43,7 +43,7 @@ custom-agent/           on-call-diagnostic/README.md
 - FastAPI 0.141.1 on Python 3.12 (`.python-version`; `requires-python >=3.12`). App object: `app` in `backend/app/main.py`.
 - Local: `uv run uvicorn app.main:app --reload`, after `python -m app.db.init_local` once. Lambda: `app/lambda_handler.py` wraps the app in Mangum with `api_gateway_base_path` from `API_BASE_PATH` (`/api` when deployed). Prod image CMD is `app.lambda_handler.handler`.
 - Import does no database work. At import `app.main` resolves the JWT secret and runs `require_safe_jwt_secret()` (refuses to start with a missing or dev-default secret outside a local run, or whenever `USE_SSM` is on) and `require_safe_seed_setting()`. Tables come from `init_local` locally and the bootstrap Lambda when deployed.
-- CORS origins from `CORS_ORIGINS` (default the Vite dev server); deployed, CloudFront makes the site same-origin. `/docs`, `/redoc`, `/openapi.json` are served only when `ENVIRONMENT` is local/development/dev.
+- CORS origins from `CORS_ORIGINS` (default the Vite dev server); deployed, CloudFront makes the site same-origin. `/docs`, `/redoc`, `/openapi.json` are served only for a local run (not `is_deployed()`: `USE_SSM` off and `ENVIRONMENT` local/development/dev). At the snapshot commit they keyed on `ENVIRONMENT` alone, which left them public on the dev Lambda; fixed since.
 
 Modules:
 - `core/config.py`: the single settings source; env + SSM resolution, JWT secret and seed guards, cookie and rate-limit settings.
@@ -96,21 +96,22 @@ Dependencies (source of truth `backend/uv.lock`): argon2-cffi 25.1.0, boto3 1.43
 
 | Suite | Runner | Count | Command |
 |---|---|---|---|
-| Backend unit/integration | pytest 9.1.1 | 283 tests, 20 files | `cd backend && uv run pytest` |
+| Backend unit/integration | pytest 9.1.1 | 317 tests, 21 files | `cd backend && uv run pytest` |
 | Frontend unit | Vitest 5.0.1 + RTL 16 + jsdom | 173 tests, 20 files | `cd frontend && pnpm test` |
 | E2E | Playwright 1.63.0 (Chromium) | 189 tests: `api.spec.ts` 100, `app.spec.ts` 89 | `cd frontend && pnpm exec playwright test` with uvicorn on :8000 and Vite on :5173 |
 
-- Backend per file: test_auth 12, test_auth_cookie 8, test_bootstrap_db 28, test_config 41, test_cors 7, test_demo_seed 25, test_init_local 9, test_lambda_handler 2, test_notes 12, test_observability 20, test_observability_config 6, test_observability_stack 20, test_oncall 12, test_openapi_contract 2, test_password_hashing 24, test_projects 22, test_rate_limit 12, test_service_version 8, test_session 2, test_startup 11.
+- Backend per file: test_auth 12, test_auth_cookie 8, test_bootstrap_db 28, test_config 54, test_cors 7, test_demo_seed 25, test_init_local 9, test_lambda_handler 2, test_notes 12, test_observability 20, test_observability_config 6, test_observability_stack 20, test_oncall 12, test_openapi_contract 2, test_origin_verify 10, test_password_hashing 24, test_projects 22, test_rate_limit 12, test_service_version 8, test_session 2, test_startup 22.
+- Backend count history on 2026-10-02: 283 at the snapshot commit, 299 after the dev-vs-deployed fix (`is_deployed()`, 16 tests), 317 after origin verification (18 tests).
 - Backend API tests go through `TestClient`, so they are integration tests in practice. No markers or subdirectories separate unit from integration.
 - Real DB: backend tests use in-memory SQLite (`conftest.py` forces `DATABASE_URL=sqlite:///:memory:`, per-test `StaticPool` engine). `test_bootstrap_db.py` uses a fake psycopg connection. Nothing touches Postgres. E2E runs against the local SQLite `hub.db`.
 - CI runs the backend and frontend unit suites on every PR and push to main. E2E, lint, format, and build are run locally, not in CI.
 
-Last lines of the backend run on the snapshot date:
+Last lines of the backend run (re-run after the post-snapshot fixes below):
 ```
 .venv/.../fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
 .venv/.../starlette/testclient.py:53: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
 .venv/.../mangum/adapter.py:65: DeprecationWarning: There is no current event loop
-283 passed, 3 warnings in 14.51s
+317 passed, 3 warnings in 18.22s
 ```
 Frontend: `Test Files 20 passed (20)`, `Tests 173 passed (173)`. Playwright: `189 passed (24.4s)`.
 
@@ -149,10 +150,19 @@ Frontend: `Test Files 20 passed (20)`, `Tests 173 passed (173)`. Playwright: `18
 - Branch `main`, HEAD `6bd192a`, remote `origin` (GitHub `rdanielsstat/hub-platform`, public), tracking `origin/main`. No stashes. Other branches, local and on origin: `observability-oncall-agent`, `otel-enabled-dev-lambda`, `semver-service-version`, `service-version-dev-lambda`.
 - Recent: 6bd192a security improvements (gitleaks hook, dependency bumps, login rate limit, API Gateway throttling, link URL check, cookie sessions); 1afb349 Cloudflare token for prod deploy; ad2c8d9 JWT secret rotation; 8ebc8ae prod OTel and promote workflow.
 
+## Changes since the snapshot
+
+Uncommitted security fixes on top of `6bd192a` and the commit that adds this file, from the follow-up scan on 2026-10-02. Test counts in section 6 include them; the rest of this file still describes `6bd192a`.
+
+- Client IP for the login rate limit: `/api/*` uses a custom origin request policy (`<env>-forward-viewer-address`, `infra/hub/frontend.tf`) that forwards an allowlist of headers plus `CloudFront-Viewer-Address`, replacing the managed `AllViewerExceptHostHeader`, which didn't forward it.
+- Dev vs deployed: `is_deployed()` (`USE_SSM` on, or a non-local `ENVIRONMENT`) now drives the Secure cookie, the login rate limit, and the API docs gate. Before, the dev Lambda (`ENVIRONMENT=dev`) got local defaults: no rate limit, no Secure flag, public `/docs`.
+- Origin verification: a per-environment `random_password` in SSM, sent by CloudFront as `X-Origin-Verify` (origin `custom_header`); `app/auth/origin_verify.py` answers 403 without it when `USE_SSM` is on. The Lambda updates after the distribution and redeploys when the secret rotates.
+- Infra per workspace once applied: 3 more managed resources (origin request policy, `random_password.origin_verify`, its SSM parameter), so 37.
+
 ## Risks
 
 - `infra/hub/tfplan` and `infra/hub/tfplan-prod`, committed in `8ebc8ae` and removed in `1f59439`, contained Neon connection strings and other sensitive values and remain in public history. Credentials in them must be treated as exposed until rotated; `tfplan*` is now gitignored. The JWT secret was rotated in `ad2c8d9`.
-- The login rate limit is per Lambda container, and relies on CloudFront forwarding `CloudFront-Viewer-Address`; not yet verified in a deployed environment. The API Gateway default endpoint is public and bypasses CloudFront.
+- The login rate limit is per Lambda container, and relies on CloudFront forwarding `CloudFront-Viewer-Address` (added to a custom `/api/*` origin request policy after this snapshot; verify once deployed). The API Gateway default endpoint is public and bypasses CloudFront (origin verification added after this snapshot rejects such calls with 403).
 - A writable demo account with a known local password (`app/db/seed.py`) exists locally; deployed environments seed it from SSM.
 - `docker-compose.yml` commits local-only Postgres credentials.
 - No migrations tool: schema changes beyond new tables need manual handling.

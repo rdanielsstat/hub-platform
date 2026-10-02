@@ -1,11 +1,13 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.auth.origin_verify import OriginVerifyMiddleware
 from app.core.config import (
     CORS_ORIGINS,
     OTEL_ENABLED,
     get_jwt_secret,
-    is_local_environment,
+    get_origin_verify_secret,
+    is_deployed,
     require_safe_jwt_secret,
     require_safe_seed_setting,
 )
@@ -19,6 +21,9 @@ from observability import initialize_observability
 # tokens with a known key or failing every request.
 require_safe_jwt_secret(secret=get_jwt_secret())
 require_safe_seed_setting()
+# Same rule for the CloudFront origin-verify secret: with USE_SSM on, not
+# being able to load it is fatal (None locally, where the check is off).
+_origin_verify_secret = get_origin_verify_secret()
 
 # No database work here. Importing the app (a Lambda cold start, or
 # uvicorn locally) never creates tables or seeds: that's the job of a
@@ -26,10 +31,11 @@ require_safe_seed_setting()
 # in AWS), so a broken database fails that step loudly instead of
 # producing an app that starts and then fails every request.
 
-# /docs, /redoc, and the raw schema are only served locally: outside
-# local/dev they'd hand an anonymous visitor a full map of the API
-# surface for no benefit, since nothing consumes them once deployed.
-_docs_enabled = is_local_environment()
+# /docs, /redoc, and the raw schema are only served locally: once
+# deployed (is_deployed(), so the dev Lambda too, not just prod) they'd
+# hand an anonymous visitor a full map of the API surface for no
+# benefit, since nothing consumes them there.
+_docs_enabled = not is_deployed()
 
 app = FastAPI(
     title="Hub API",
@@ -50,6 +56,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Added last, so it's the outermost layer and runs first: a request that
+# didn't come through CloudFront is refused before CORS, routing, auth or
+# the login rate limit see it. A no-op when the secret is None (local).
+app.add_middleware(OriginVerifyMiddleware, secret=_origin_verify_secret)
 
 app.include_router(health.router)
 app.include_router(auth.router)

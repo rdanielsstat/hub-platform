@@ -31,6 +31,7 @@ data "aws_iam_policy_document" "lambda_ssm" {
     resources = [
       aws_ssm_parameter.db_url.arn,
       aws_ssm_parameter.jwt.arn,
+      aws_ssm_parameter.origin_verify.arn,
     ]
   }
 }
@@ -58,7 +59,15 @@ resource "aws_lambda_function" "backend" {
   timeout     = 30
   memory_size = 512
 
-  depends_on = [aws_cloudwatch_log_group.backend]
+  # The distribution first: the app rejects requests without X-Origin-Verify,
+  # so CloudFront must already be sending it before a Lambda that checks for
+  # it goes live. The AWS provider waits for the distribution to finish
+  # deploying, so this ordering closes that window on a rotation or the
+  # first rollout.
+  depends_on = [
+    aws_cloudwatch_log_group.backend,
+    aws_cloudfront_distribution.frontend,
+  ]
 
   environment {
     # local.otel_env (main.tf) adds the OTel settings in dev and prod.
@@ -73,6 +82,17 @@ resource "aws_lambda_function" "backend" {
       DB_URL_PARAM_NAME = aws_ssm_parameter.db_url.name
       JWT_PARAM_NAME    = aws_ssm_parameter.jwt.name
 
+      # Origin verification: the app loads the secret CloudFront sends as
+      # X-Origin-Verify (database.tf, frontend.tf) from this SSM parameter at
+      # startup, and answers 403 to any request without it, i.e. anything
+      # sent straight to the public execute-api URL instead of via CloudFront.
+      ORIGIN_VERIFY_PARAM_NAME = aws_ssm_parameter.origin_verify.name
+      # Not read by the app. Changes when the secret is rotated, which
+      # updates the function and so replaces warm containers still holding
+      # the old value (it's cached per process), after CloudFront (see
+      # depends_on below) has switched to the new one.
+      ORIGIN_VERIFY_VERSION = tostring(aws_ssm_parameter.origin_verify.version)
+
       # CloudFront serves the API at <subdomain>/api/*, so Mangum strips this
       # prefix before FastAPI sees the path. Routes stay at /projects etc.
       API_BASE_PATH = "/api"
@@ -81,9 +101,10 @@ resource "aws_lambda_function" "backend" {
       CORS_ORIGINS = "https://${local.subdomain}"
 
       # The real viewer IP for the per-IP login rate limit. API Gateway only
-      # sees CloudFront's address; CloudFront passes the viewer's along in
-      # this header ("ip:port"). Without it the app falls back to the peer
-      # address, which would make the limit per CloudFront edge, not per user.
+      # sees CloudFront's address; CloudFront adds the viewer's in this header
+      # ("ip:port"), forwarded by aws_cloudfront_origin_request_policy.api
+      # (frontend.tf). Without it the app falls back to the peer address,
+      # which would make the limit per CloudFront edge, not per user.
       CLIENT_IP_HEADER = "CloudFront-Viewer-Address"
     }, local.otel_env)
   }

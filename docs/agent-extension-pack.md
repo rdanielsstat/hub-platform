@@ -88,7 +88,7 @@ Skills are discoverable workflows that agents load automatically when they match
 
 **Test scope**: Auth and sessions, dashboard states, project create/edit/delete, filtering, sorting and search, notes, error states, multiple tabs, rapid sequences, responsive layouts, and every API endpoint with its error cases and user isolation.
 
-**Key point**: The suite is done: 187 Playwright tests in `frontend/tests/` cover all workflows, run against the real local backend. Not yet wired into CI.
+**Key point**: The suite is done: 189 Playwright tests in `frontend/tests/` cover all workflows, run against the real local backend. Not yet wired into CI.
 
 ### design-review
 

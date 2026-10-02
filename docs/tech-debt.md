@@ -10,8 +10,13 @@
 - Rate limiting: done for login (5 attempts per minute per IP, plus API
   Gateway stage throttling at 50 rps, burst 100). Signup is still unlimited
   per IP, and the login limit is per Lambda container, not shared.
-- Verify in a deployed environment that CloudFront forwards
-  `CloudFront-Viewer-Address`, which the login rate limit uses as the client IP.
+- After the next deploy, verify that `CloudFront-Viewer-Address` reaches the
+  Lambda (now listed in the `/api/*` origin request policy), so the login rate
+  limit keys on the user's IP and not CloudFront's.
+- Block direct calls to the public `execute-api` endpoint: done (CloudFront
+  sends a secret `X-Origin-Verify` header; the backend answers 403 without
+  it). Verify after the next deploy that a direct `execute-api` call gets 403
+  and the site still works.
 - Account and project caps per user.
 - Cap password length on `/auth/login`. Registration caps at 256 characters,
   login does not, and argon2 is slow by design.

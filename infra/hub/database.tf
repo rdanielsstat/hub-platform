@@ -36,6 +36,25 @@ resource "aws_ssm_parameter" "jwt" {
   value       = random_password.jwt.result
 }
 
+# Shared secret CloudFront sends to API Gateway as X-Origin-Verify on every
+# /api/* request (custom_header on the apigw-backend origin, frontend.tf).
+# The backend rejects any request without it (app/auth/origin_verify.py), so
+# the public execute-api URL can't be used to bypass CloudFront, and with it
+# the trustworthy CloudFront-Viewer-Address the login rate limit keys on.
+# Not a credential for anything else; rotate with
+# `tofu apply -replace=random_password.origin_verify`.
+resource "random_password" "origin_verify" {
+  length  = 48
+  special = false # header-safe
+}
+
+resource "aws_ssm_parameter" "origin_verify" {
+  name        = "/${local.name}/origin-verify-secret"
+  description = "X-Origin-Verify value CloudFront sends to the ${local.name} API"
+  type        = "SecureString"
+  value       = random_password.origin_verify.result
+}
+
 # Demo account password, created only when this environment has one. When it
 # is absent the bootstrap gets no DEMO_PASSWORD_PARAM_NAME at all and cannot
 # seed a demo user even by accident.

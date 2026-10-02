@@ -79,10 +79,28 @@ _LOCAL_ENVIRONMENTS = {"local", "development", "dev"}
 _ssm_client: Any = None
 _database_url: str | None = None
 _jwt_secret: str | None = None
+_origin_verify_secret: str | None = None
 
 
 def is_local_environment(environment: str = ENVIRONMENT) -> bool:
+    """Whether ENVIRONMENT is labelled local/development/dev. A label
+    only: the deployed dev Lambda is also "dev". To ask "is this a real
+    deployment?", use is_deployed()."""
     return environment.lower() in _LOCAL_ENVIRONMENTS
+
+
+def is_deployed(environment: str = ENVIRONMENT, use_ssm: bool = USE_SSM) -> bool:
+    """A real deployment rather than a laptop or Docker Compose run: true
+    when secrets come from SSM (every Lambda sets USE_SSM, local runs
+    never do), or when ENVIRONMENT isn't a local label. The dev Lambda
+    has ENVIRONMENT=dev, so the label alone would wrongly treat it as
+    local; USE_SSM settles it, the same override require_safe_jwt_secret()
+    applies.
+
+    Gates the deployment-only defaults: Secure session cookie, login rate
+    limit on, API docs hidden. Pure function of its arguments, like the
+    guards below, so it's testable without reloading this module."""
+    return use_ssm or not is_local_environment(environment)
 
 
 # The browser session: /auth/login and /auth/register set the JWT in this
@@ -91,23 +109,24 @@ def is_local_environment(environment: str = ENVIRONMENT) -> bool:
 # CSRF defence). Non-browser clients keep using the Authorization header.
 AUTH_COOKIE_NAME = "hub_token"
 
-# Secure (HTTPS-only) everywhere but a local run, where the Vite dev
-# server and uvicorn are plain http://localhost. AUTH_COOKIE_SECURE
-# overrides it either way.
+# Secure (HTTPS-only) whenever is_deployed(), dev Lambda included; off
+# for a local run, where the Vite dev server and uvicorn are plain
+# http://localhost. AUTH_COOKIE_SECURE overrides it either way.
 AUTH_COOKIE_SECURE = (
     env_flag("AUTH_COOKIE_SECURE")
     if os.environ.get("AUTH_COOKIE_SECURE", "").strip()
-    else not is_local_environment()
+    else is_deployed()
 )
 
 # Failed-or-not login attempts allowed per client IP per minute on
-# /auth/login; over it, 429. 0 turns the limit off. Defaults to 5 when
-# deployed and off locally, where the Playwright suite logs in far more
-# often than that from 127.0.0.1. See app/auth/rate_limit.py.
+# /auth/login; over it, 429. 0 turns the limit off. Defaults to 5
+# whenever is_deployed() (dev Lambda included) and off for a local run,
+# where the Playwright suite logs in far more often than that from
+# 127.0.0.1. See app/auth/rate_limit.py.
 # Blank counts as unset, so a .env copied from .env.example works.
 LOGIN_RATE_LIMIT_PER_MINUTE = int(
     os.environ.get("LOGIN_RATE_LIMIT_PER_MINUTE", "").strip()
-    or ("0" if is_local_environment() else "5")
+    or ("5" if is_deployed() else "0")
 )
 
 # Request header that carries the real client IP, set by a proxy in front
@@ -175,6 +194,42 @@ def get_jwt_secret() -> str:
         else:
             _jwt_secret = os.environ.get("HUB_JWT_SECRET", DEV_JWT_SECRET)
     return _jwt_secret
+
+
+# Header CloudFront adds to every /api/* request it forwards, carrying a
+# shared secret (infra/hub: frontend.tf, database.tf). See
+# app/auth/origin_verify.py.
+ORIGIN_VERIFY_HEADER = "X-Origin-Verify"
+
+
+def get_origin_verify_secret() -> str | None:
+    """The value every request must carry in X-Origin-Verify, from the
+    SSM parameter named by ORIGIN_VERIFY_PARAM_NAME. Only with USE_SSM
+    on: a local or Compose run has no CloudFront in front of it, so it
+    returns None and the check is off. Resolved at most once per process.
+
+    With USE_SSM on, a missing parameter name, an unreadable parameter or
+    an empty value raises: app/main.py calls this at import, so a deployed
+    Lambda that can't load the secret fails to start rather than running
+    with the check silently off."""
+    global _origin_verify_secret
+    if not USE_SSM:
+        return None
+    if _origin_verify_secret is None:
+        param_name = os.environ.get("ORIGIN_VERIFY_PARAM_NAME", "").strip()
+        if not param_name:
+            raise RuntimeError(
+                "USE_SSM is on but ORIGIN_VERIFY_PARAM_NAME is not set. Refusing "
+                "to start without origin verification."
+            )
+        secret = _fetch_ssm_parameter(param_name).strip()
+        if not secret:
+            raise RuntimeError(
+                f"SSM parameter {param_name!r} (ORIGIN_VERIFY_PARAM_NAME) is "
+                "empty. Refusing to start without origin verification."
+            )
+        _origin_verify_secret = secret
+    return _origin_verify_secret
 
 
 def require_safe_jwt_secret(

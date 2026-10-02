@@ -75,6 +75,15 @@ uv run pytest                        # run the test suite
   The web app's session is the JWT in an httpOnly, SameSite=Strict `hub_token`
   cookie; the API also accepts `Authorization: Bearer`, so the same API serves
   future iOS apps and agents. `/auth/login` is rate limited per client IP.
+- Deployed vs local: `is_deployed()` in `app/core/config.py` (true when `USE_SSM`
+  is on or `ENVIRONMENT` isn't local/development/dev, so the dev Lambda counts)
+  switches on the Secure cookie, the login rate limit, and hidden API docs. Use
+  it, not `is_local_environment()`, for anything that should differ once deployed.
+- Origin verification: deployed, every request must carry CloudFront's
+  `X-Origin-Verify` secret or gets 403 (`app/auth/origin_verify.py`), which blocks
+  direct calls to the public `execute-api` URL. A new request header the API
+  needs must be added to the `/api/*` origin request policy in
+  `infra/hub/frontend.tf`, or CloudFront drops it.
 - Multi-user with per-user data isolation.
 - `app/core/config.py` is the single settings source, read from environment
   variables with dev-safe defaults. Its `require_safe_jwt_secret()` runs at
@@ -90,20 +99,25 @@ See `backend/README.md` for the full setup, config table, and details.
 ## Testing
 
 Frontend: Vitest 5.0, React Testing Library 16, jsdom. `pnpm test`
-(from inside `frontend/`) runs `vitest run`.
+(from inside `frontend/`) runs `vitest run`; 173 tests in 20 files as of
+October 2026.
 
 - Vitest runs with `test.globals` off (tests import from vitest explicitly);
   RTL auto-cleanup is wired by hand in `src/test-setup.ts`, which must stay.
 - `base-ui`'s Dialog keeps its content mounted (hidden) while closed; scope
   queries to a landmark rather than the whole document to avoid matching hidden content.
 
-Backend: pytest 9.1. `uv run pytest` (from inside `backend/`). Each test gets
-its own in-memory SQLite database.
+Backend: pytest 9.1. `uv run pytest` (from inside `backend/`), 317 tests in 21
+files as of October 2026. Each test gets its own in-memory SQLite database.
+`tests/test_startup.py` imports the app in a subprocess to check startup
+behaviour (secret guards, deployed defaults, origin verification).
 
-E2E: Playwright is done. 189 tests in `frontend/tests/` cover signup, login,
-the session cookie, dashboard, projects, filters, sorts, edits, deletes, and
-API endpoints. Run
-`pnpm exec playwright test` from `frontend/` with the backend and dev server running.
+E2E: Playwright is done. 189 tests in `frontend/tests/` (`app.spec.ts` 89 browser
+tests, `api.spec.ts` 100 API tests) cover signup, login, the session cookie,
+dashboard, projects, filters, sorts, edits, deletes, and API endpoints. Run
+`pnpm exec playwright test` from `frontend/` with the backend and dev server
+running (the `e2e-testing` skill starts them if needed). They run against a
+local backend, so origin verification and the login rate limit are off.
 
 **All tests must pass before a task is considered done.** This includes:
 - Frontend unit tests (`pnpm test` from `frontend/`)
@@ -181,14 +195,18 @@ creates schema and seeds demo account on every deploy.
 
 **Frontend**: React SPA built with Vite, served from S3 with Origin Access Control,
 behind CloudFront. CloudFront Function routes SPA paths; forwards `/api/*` to API
-Gateway. Same-origin setup (no CORS needed). DNS and ACM in Cloudflare.
+Gateway through a custom origin request policy (allowlisted headers plus
+`CloudFront-Viewer-Address` for the per-IP login limit, never `Host`) and adds a
+secret `X-Origin-Verify` header the backend requires. API Gateway's stage
+throttles at 50 rps, burst 100. Same-origin setup (no CORS needed). DNS and ACM
+in Cloudflare.
 
 **Database**: Neon Postgres (deployed). Connection via `DATABASE_URL` read from SSM
 when `USE_SSM=true`. The app uses the pooled URL, bootstrap uses the direct URL.
 Local dev uses SQLite or Postgres 17 via Docker Compose.
 
-**Secrets**: The JWT secret and database URLs are stored in SSM SecureStrings and
-read at startup with `USE_SSM=true` in Lambda, via boto3. OTEL tokens are passed from
+**Secrets**: The JWT secret, database URLs, and origin-verify secret are stored in
+SSM SecureStrings and read at startup with `USE_SSM=true` in Lambda, via boto3. OTEL tokens are passed from
 GitHub secrets to the dev and prod Lambdas' environments (`TF_VAR_otel_headers_dev`
 in `ci.yml`, `TF_VAR_otel_headers_prod` in `promote.yml`); they are not stored in SSM.
 

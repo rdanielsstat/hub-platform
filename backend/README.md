@@ -50,7 +50,9 @@ Then visit:
 
 - `http://localhost:8000/health`
 - `http://localhost:8000/docs` (auto-generated OpenAPI docs, includes a
-  working "Authorize" button for the bearer token)
+  working "Authorize" button for the bearer token). Local runs only: once
+  deployed (`is_deployed()`, dev included) `/docs`, `/redoc` and
+  `/openapi.json` return 404.
 
 CORS allows `CORS_ORIGINS` (default: the Vite dev server at `http://localhost:5173` and `http://127.0.0.1:5173`).
 
@@ -63,13 +65,13 @@ of it.
 
 | Var | Default | Required in prod? |
 |---|---|---|
-| `ENVIRONMENT` | `local` | No. `local`/`development`/`dev` (case-insensitive) all count as local; anything else (`production`, `staging`, ...) is treated as non-local and turns on the JWT secret guard below. |
+| `ENVIRONMENT` | `local` | No. `local`/`development`/`dev` (case-insensitive) all count as local; anything else (`production`, `staging`, ...) is treated as non-local and turns on the JWT secret guard below. A run counts as deployed (`is_deployed()` in `app/core/config.py`) when `USE_SSM` is on or `ENVIRONMENT` isn't local, so the dev Lambda (`ENVIRONMENT=dev`, `USE_SSM=true`) gets the deployed defaults: Secure cookie, login rate limit on, API docs hidden. |
 | `USE_SSM` | off | No. When on, `DATABASE_URL`/`HUB_JWT_SECRET` below are ignored and the real settings come from AWS SSM Parameter Store instead (see "AWS SSM" below). Off by default so local dev and Docker Compose never need AWS access. |
 | `DATABASE_URL` | `sqlite:///./hub.db` | No if `USE_SSM` is off, but you'll want a real database URL outside dev. Ignored if `USE_SSM` is on. |
 | `HUB_JWT_SECRET` | a known dev-only string | **Yes, if `USE_SSM` is off.** See below. Ignored if `USE_SSM` is on. |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | No. |
-| `AUTH_COOKIE_SECURE` | off when `ENVIRONMENT` is local, on otherwise | No. Whether the `hub_token` session cookie gets the `Secure` flag (HTTPS only). Off locally because the dev servers are plain `http://localhost`. See "Auth". |
-| `LOGIN_RATE_LIMIT_PER_MINUTE` | `5` when deployed, `0` (off) locally | No. Login attempts allowed per client IP per minute on `POST /auth/login`; `0` turns the limit off. Off locally because the Playwright suite logs in many times from 127.0.0.1. See "Rate limits". |
+| `AUTH_COOKIE_SECURE` | on when deployed (`is_deployed()`), off locally | No. Whether the `hub_token` session cookie gets the `Secure` flag (HTTPS only). Off locally because the dev servers are plain `http://localhost`. See "Auth". |
+| `LOGIN_RATE_LIMIT_PER_MINUTE` | `5` when deployed (`is_deployed()`, dev Lambda included), `0` (off) locally | No. Login attempts allowed per client IP per minute on `POST /auth/login`; `0` turns the limit off. Off locally because the Playwright suite logs in many times from 127.0.0.1. See "Rate limits". |
 | `CLIENT_IP_HEADER` | unset (use the TCP peer address) | No. Request header holding the real client IP, for the login rate limit. The Lambdas set `CloudFront-Viewer-Address`. Only set it when every request comes through the proxy that writes it, since a client can send any header. |
 | `SEED_DEMO_DATA` | off | No. Local only: lets `python -m app.db.init_local` seed the demo account. Must be off with `USE_SSM` on; the app refuses to start otherwise. |
 | `OTEL_ENABLED` | off | No. On exports traces and metrics via OpenTelemetry (`observability/`). Set for the dev and prod Lambdas by OpenTofu, which export to Grafana Cloud. Prod sends OTEL data to Grafana via OTLP endpoint. See `observability/README.md` for local use. |
@@ -81,6 +83,7 @@ of it.
 | `CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | No. Comma-separated. Only matters locally; CloudFront makes the deployed site same-origin. |
 | `DB_URL_PARAM_NAME` | unset | Only used when `USE_SSM` is on: the SSM parameter name holding the full database URL. |
 | `JWT_PARAM_NAME` | unset | Only used when `USE_SSM` is on: the SSM parameter name holding the raw JWT secret. |
+| `ORIGIN_VERIFY_PARAM_NAME` | unset | **Required when `USE_SSM` is on**, ignored otherwise: the SSM parameter holding the `X-Origin-Verify` secret CloudFront sends. With `USE_SSM` on, the app refuses to start if it's unset, unreadable or empty. See "Origin verification". |
 | `DEMO_PASSWORD_PARAM_NAME` | unset | Only read by the bootstrap, only in cloud mode: the SSM parameter holding this environment's demo account password. Absent means no demo account. See "Seeded demo account". |
 | `MASTER_DB_PARAM_NAME` | unset | Unused. `app/bootstrap_db.py` would read master credentials from this SSM parameter with `USE_SSM` on, but cloud mode never asks for master credentials (Neon provides the role and database), and nothing sets it. |
 | `MASTER_DB_HOST` / `MASTER_DB_PORT` / `MASTER_DB_USER` / `MASTER_DB_PASSWORD` | unset | Only used by the bootstrap command (below), only in local mode (`USE_SSM` off). Never read by the app itself. |
@@ -274,7 +277,8 @@ future iOS app or scripts, which send it back as
 cookie: `HttpOnly` (JavaScript can't read it, so an XSS bug can't steal
 it), `SameSite=Strict` (the browser never sends it on a cross-site
 request, which is the CSRF defence), `Path=/`, `Max-Age` matching
-`ACCESS_TOKEN_EXPIRE_MINUTES`, and `Secure` unless running locally.
+`ACCESS_TOKEN_EXPIRE_MINUTES`, and `Secure` when deployed
+(`is_deployed()`, so dev as well as prod).
 Protected routes accept either; the header wins when both are sent
 (`app/auth/dependencies.py`). `POST /auth/logout` clears the cookie, and
 a cookie that fails validation is cleared on the 401 that rejects it.
@@ -308,11 +312,65 @@ Known gaps:
   backstop. A shared counter (e.g. a database table) would close this
   if it ever matters.
 - Behind CloudFront the client IP comes from `CloudFront-Viewer-Address`
-  (`CLIENT_IP_HEADER`). If that header is absent the app falls back to
-  the peer address, which is CloudFront's, so the limit would apply per
-  CloudFront edge instead of per user. Check after deploying that the
-  header arrives (the `AllViewerExceptHostHeader` origin request policy
-  should forward it).
-- API Gateway's default `execute-api` endpoint is public, and a request
-  sent there directly can set `CloudFront-Viewer-Address` to anything.
-  The stage throttle still applies.
+  (`CLIENT_IP_HEADER`). CloudFront only adds that header when the
+  origin request policy lists it, so `/api/*` uses a custom allowlist
+  policy (`aws_cloudfront_origin_request_policy.api` in
+  `infra/hub/frontend.tf`) instead of the managed
+  `AllViewerExceptHostHeader`, which didn't. If the header were missing,
+  the app would fall back to the peer address, which is CloudFront's,
+  and the limit would apply per CloudFront edge: one user's five
+  attempts would lock out everyone on that edge. The allowlist also
+  means a request header the API starts to rely on must be added to
+  that policy, or CloudFront drops it.
+- API Gateway's default `execute-api` endpoint is public, so a request
+  sent there directly could set `CloudFront-Viewer-Address` to anything.
+  Closed by origin verification (below): without CloudFront's secret
+  header, such a request gets 403 before the rate limit runs.
+
+## Origin verification
+
+Deployed, every request must come through CloudFront. API Gateway's
+default `execute-api` URL is public, and a request sent there skips
+CloudFront entirely: it could claim any `CloudFront-Viewer-Address` and
+so dodge the per-IP login limit, and it skips anything else CloudFront
+does. To close that:
+
+- OpenTofu generates a random secret per environment
+  (`random_password.origin_verify`) and stores it in SSM
+  (`/hub-<env>/origin-verify-secret`, `infra/hub/database.tf`).
+- CloudFront adds it as an `X-Origin-Verify` header to every request it
+  forwards to the API (`custom_header` on the API Gateway origin,
+  `infra/hub/frontend.tf`). CloudFront replaces any `X-Origin-Verify` a
+  viewer sends, so a client can't supply its own.
+- The Lambda loads the same value at startup from the parameter named by
+  `ORIGIN_VERIFY_PARAM_NAME`, and `OriginVerifyMiddleware`
+  (`app/auth/origin_verify.py`), the app's outermost layer, answers
+  `403 {"detail": "Forbidden"}` to any request whose header is missing
+  or wrong, compared in constant time. That happens before CORS,
+  routing, auth or the rate limit.
+- Each rejection is logged as a warning on the `app.security` logger
+  (`origin_verify_rejected method=... path=... source_ip=... reason=missing|mismatch`),
+  which lands in the Lambda's CloudWatch log group. The header value is
+  never logged.
+
+Only with `USE_SSM` on. Local and Docker Compose runs have no CloudFront
+in front of them, so the check is off and the setting is ignored. With
+`USE_SSM` on, a Lambda that can't load the secret refuses to start
+rather than run unprotected.
+
+On deploy, OpenTofu updates the CloudFront distribution and waits for it
+to finish deploying before it updates the Lambda (`depends_on` in
+`infra/hub/lambda.tf`), so CloudFront is already sending the header when
+a Lambda that checks for it goes live. To rotate the secret:
+`tofu apply -replace=random_password.origin_verify` in each workspace.
+The new value bumps the SSM parameter's version, which the Lambda
+carries as `ORIGIN_VERIFY_VERSION`, so the apply also updates the
+function and replaces warm containers holding the old cached value. The
+app accepts one value at a time, though, so between CloudFront switching
+to the new secret and the Lambda update finishing (a few minutes),
+requests get 403. Rotate in a quiet moment.
+
+The CI and promote smoke tests call `/api/health` through the site URL,
+so they pass through CloudFront and are unaffected. Anything that needs
+to call the API directly (a script, a load test) must go through the
+site URL too.

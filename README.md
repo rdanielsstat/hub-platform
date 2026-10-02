@@ -151,7 +151,7 @@ Locally, the frontend runs on the Vite dev server (`http://localhost:5173`) and 
 - Python 3.12 with Pydantic 2.13 for validation
 - SQLAlchemy 2.0 ORM (database-agnostic)
 - OpenTelemetry instrumentation
-- Authentication: JWT + argon2 password hashing
+- Authentication: JWT + argon2 password hashing; the web app's session is an httpOnly, SameSite=Strict cookie, and the API also accepts bearer tokens
 - Testing: pytest 9.1
 - RESTful API for CRUD operations on ideas and notes
 
@@ -170,6 +170,15 @@ Locally, the frontend runs on the Vite dev server (`http://localhost:5173`) and 
 - S3 (frontend static assets)
 - OpenTofu 1.12.6 (IaC)
 - GitHub Actions (CI/CD)
+
+**Security controls (deployed)**
+- Session cookie `hub_token`: HttpOnly, SameSite=Strict, Secure
+- Login rate limit: 5 attempts per minute per client IP (429 over it); API Gateway throttles at 50 rps, burst 100
+- CloudFront forwards the viewer's IP (`CloudFront-Viewer-Address`) through a custom origin request policy, so the login limit is per user, not per CloudFront edge
+- Origin verification: CloudFront adds a per-environment secret `X-Origin-Verify` header; the API answers 403 without it, so the public `execute-api` URL can't bypass CloudFront
+- Dev and prod both count as deployed (`USE_SSM` on), so both get these controls and hide the API docs
+- Gitleaks pre-commit hook; GitHub secret scanning with push protection
+- Details: `backend/README.md` ("Auth", "Rate limits", "Origin verification")
 
 **Observability**
 - OpenTelemetry SDK (Python): traces and metrics, with FastAPI and SQLAlchemy instrumentation
