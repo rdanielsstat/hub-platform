@@ -69,11 +69,11 @@ of it.
 | `HUB_JWT_SECRET` | a known dev-only string | **Yes, if `USE_SSM` is off.** See below. Ignored if `USE_SSM` is on. |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | No. |
 | `SEED_DEMO_DATA` | off | No. Local only: lets `python -m app.db.init_local` seed the demo account. Must be off with `USE_SSM` on; the app refuses to start otherwise. |
-| `OTEL_ENABLED` | off | No. On exports traces and metrics via OpenTelemetry (`observability/`). Set for the dev Lambda by OpenTofu, which exports to Grafana Cloud. Dev only: the prod Lambda leaves it off and emits no telemetry. See `observability/README.md` for local use. |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | No. OTLP/HTTP base URL (Grafana Cloud's, in dev). Unset with `OTEL_ENABLED` on means a local collector at `http://localhost:4318`. Only read when `OTEL_ENABLED` is on. Set for the dev Lambda only, by OpenTofu. |
-| `OTEL_EXPORTER_OTLP_HEADERS` | unset | No. Comma-separated `key=value` pairs, values URL-encoded (carries the Grafana Cloud `Authorization` token). Only read when `OTEL_ENABLED` is on. Set for the dev Lambda only, by OpenTofu. |
+| `OTEL_ENABLED` | off | No. On exports traces and metrics via OpenTelemetry (`observability/`). Set for the dev and prod Lambdas by OpenTofu, which export to Grafana Cloud. Prod sends OTEL data to Grafana via OTLP endpoint. See `observability/README.md` for local use. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | No. OTLP/HTTP base URL (Grafana Cloud's, in dev and prod). Unset with `OTEL_ENABLED` on means a local collector at `http://localhost:4318`. Only read when `OTEL_ENABLED` is on. Set for the dev and prod Lambdas by OpenTofu. |
+| `OTEL_EXPORTER_OTLP_HEADERS` | unset | No. Comma-separated `key=value` pairs, values URL-encoded (carries the Grafana Cloud `Authorization` token). Only read when `OTEL_ENABLED` is on. Set for the dev and prod Lambdas by OpenTofu. |
 | `OTEL_SDK_DISABLED` | unset | No. `true` turns observability off entirely, even with `OTEL_ENABLED` on. |
-| `SERVICE_VERSION` | unset (falls back to `LAMBDA_IMAGE_TAG`, then `local-dev`) | No. The `service.version` on telemetry. Set by OpenTofu on the dev Lambda from git tags; see "Releases and SERVICE_VERSION". |
+| `SERVICE_VERSION` | unset (falls back to `LAMBDA_IMAGE_TAG`, then `local-dev`) | No. The `service.version` on telemetry. Set by OpenTofu on the dev and prod Lambdas from git tags; see "Releases and SERVICE_VERSION". |
 | `API_BASE_PATH` | `/` | Lambda only (`app/lambda_handler.py`): the path prefix Mangum strips before routing. The deployment sets `/api`, since CloudFront forwards `/api/*` with the prefix intact. Unused by uvicorn. |
 | `CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | No. Comma-separated. Only matters locally; CloudFront makes the deployed site same-origin. |
 | `DB_URL_PARAM_NAME` | unset | Only used when `USE_SSM` is on: the SSM parameter name holding the full database URL. |
@@ -239,7 +239,8 @@ git push origin v1.2.0
 ```
 
 Pushing a tag doesn't deploy anything by itself; the version shows up on
-the next deploy of that commit or a later one. Image tags are unaffected:
+the next deploy of that commit or a later one. Prod reports the same
+version dev did for the image it promotes. Image tags are unaffected:
 they stay `<timestamp>-<sha>`, unique per build.
 
 ## Run the tests

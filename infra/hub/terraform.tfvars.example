@@ -30,3 +30,8 @@ demo_passwords = {
 # Optional overrides (defaults shown):
 # aws_region       = "us-east-1"
 # lambda_image_tag = "latest"
+
+# OTEL endpoint and auth header for prod Lambda telemetry export to Grafana.
+# Get these from Grafana Cloud account settings (Observability > OTLP Ingestion).
+otel_endpoint_prod = "https://otlp-gateway-prod-YOUR_REGION.grafana.net/otlp"
+otel_headers_prod  = "Authorization=Basic YOUR_ENCODED_CREDENTIALS"

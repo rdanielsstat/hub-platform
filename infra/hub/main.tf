@@ -49,7 +49,7 @@ variable "demo_passwords" {
 }
 
 # SemVer reported as SERVICE_VERSION (service.version on telemetry) by the
-# dev Lambda. CI derives it from git tags (.github/scripts/service-version.sh):
+# dev and prod Lambdas. CI derives it from git tags (.github/scripts/service-version.sh):
 # 1.2.0 on a release tag, 1.2.0+2.g<sha> after it, 0.0.0+<sha> before any.
 # Separate from lambda_image_tag, which must stay unique per build.
 variable "service_version" {
@@ -64,12 +64,11 @@ variable "service_version" {
 }
 
 # Grafana Cloud OTLP settings for the dev Lambda (lambda.tf), exactly as
-# Grafana's OTLP setup page gives them. Dev only for now: prod gets no
-# OTel variables at all. CI supplies them as TF_VAR_otel_endpoint_dev /
+# Grafana's OTLP setup page gives them. CI supplies them as TF_VAR_otel_endpoint_dev /
 # TF_VAR_otel_headers_dev from the dev environment's secrets; locally,
 # terraform.tfvars (gitignored). The "" defaults exist only so prod
-# applies (promote.yml) don't need them: guard_otel_dev below fails any
-# dev plan where either is missing.
+# plans don't need them: guard_otel_dev below fails any dev plan where
+# either is missing.
 variable "otel_endpoint_dev" {
   description = "OTEL_EXPORTER_OTLP_ENDPOINT for the dev Lambda."
   type        = string
@@ -78,6 +77,23 @@ variable "otel_endpoint_dev" {
 
 variable "otel_headers_dev" {
   description = "OTEL_EXPORTER_OTLP_HEADERS for the dev Lambda (carries the Grafana token)."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+# Same settings for the prod Lambda. CI (promote.yml) supplies them as
+# TF_VAR_otel_endpoint_prod / TF_VAR_otel_headers_prod from the prod
+# environment's secrets. The "" defaults keep dev plans working without
+# them; guard_otel_prod below fails any prod plan where either is missing.
+variable "otel_endpoint_prod" {
+  description = "OTEL_EXPORTER_OTLP_ENDPOINT for the prod Lambda."
+  type        = string
+  default     = ""
+}
+
+variable "otel_headers_prod" {
+  description = "OTEL_EXPORTER_OTLP_HEADERS for the prod Lambda (carries the Grafana token)."
   type        = string
   default     = ""
   sensitive   = true
@@ -103,18 +119,26 @@ locals {
   # Empty string means "no demo account in this environment".
   demo_password = lookup(var.demo_passwords, local.environment, "")
 
-  # OpenTelemetry export to Grafana Cloud: dev only. Empty in prod, so
-  # the prod Lambda's environment is unchanged and OTEL_ENABLED stays off.
-  otel_env = {
-    for k, v in {
+  # OpenTelemetry export to Grafana Cloud, per workspace. Empty in any
+  # other workspace, so OTEL_ENABLED stays off there.
+  otel_env = lookup({
+    dev = {
       OTEL_ENABLED                = "true"
       OTEL_EXPORTER_OTLP_ENDPOINT = var.otel_endpoint_dev
       OTEL_EXPORTER_OTLP_HEADERS  = var.otel_headers_dev
       # SemVer from git tags (CI's -var service_version), reported as the
       # service.version resource attribute on all telemetry.
       SERVICE_VERSION = var.service_version
-    } : k => v if local.environment == "dev"
-  }
+    }
+    prod = {
+      OTEL_ENABLED                = "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT = var.otel_endpoint_prod
+      OTEL_EXPORTER_OTLP_HEADERS  = var.otel_headers_prod
+      # promote.yml derives it from the commit the promoted image was built
+      # from, so prod reports the same version dev did for those bytes.
+      SERVICE_VERSION = var.service_version
+    }
+  }, local.environment, {})
 }
 
 resource "terraform_data" "guard_env" {
@@ -148,6 +172,18 @@ resource "terraform_data" "guard_otel_dev" {
     precondition {
       condition     = var.otel_endpoint_dev != "" && var.otel_headers_dev != ""
       error_message = "otel_endpoint_dev and otel_headers_dev must be set for dev. Add them to terraform.tfvars (or TF_VAR_otel_endpoint_dev / TF_VAR_otel_headers_dev in CI)."
+    }
+  }
+}
+
+# Same for prod.
+resource "terraform_data" "guard_otel_prod" {
+  count = local.environment == "prod" ? 1 : 0
+
+  lifecycle {
+    precondition {
+      condition     = var.otel_endpoint_prod != "" && var.otel_headers_prod != ""
+      error_message = "otel_endpoint_prod and otel_headers_prod must be set for prod. Add them to terraform.tfvars (or TF_VAR_otel_endpoint_prod / TF_VAR_otel_headers_prod in CI)."
     }
   }
 }

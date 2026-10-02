@@ -36,7 +36,7 @@ Hub-Platform is a personal hub for capturing ideas, scoring them, and tracking t
 - **Dashboard filtering**: Filter by status or tag, search by text, and sort by recently updated, scores, target date, or name
 - **Notes and links**: Add notes to ideas and link to external resources
 - **Personal workspace**: Individual signup and login; your ideas, your rules
-- **Deployed**: Runs on AWS, with separate dev and prod environments (dev is live; prod is not yet deployed), OpenTelemetry tracing and metrics in dev and a manual AI-assisted alert diagnostic
+- **Deployed**: Runs on AWS, with separate dev and prod environments (dev is live; prod is not yet deployed), OpenTelemetry tracing and metrics in dev and prod, and a manual AI-assisted alert diagnostic
 - **AI-native development**: Built with Claude Code using spec-driven development, AI skills, and specialized subagents
 
 ### Typical workflow
@@ -120,7 +120,7 @@ It doesn't include the frontend (run `pnpm dev` as above) or the observability s
 
 [**ARCHITECTURE DIAGRAM PLACEHOLDER**]
 
-Visual description: A user opens Hub-Platform in a web browser at CloudFront (HTTPS). CloudFront serves the built React app from a private S3 bucket and forwards `/api/*` requests to an API Gateway HTTP API, so the frontend and API share one origin. API Gateway invokes the backend Lambda, a container image from ECR running FastAPI through Mangum, which strips the `/api` prefix. The Lambda stores data in Neon Postgres. A separate bootstrap Lambda creates the schema and seeds the demo account on every deploy. In the dev environment, OpenTelemetry sends traces and metrics from the backend to Grafana Cloud; production sends none.
+Visual description: A user opens Hub-Platform in a web browser at CloudFront (HTTPS). CloudFront serves the built React app from a private S3 bucket and forwards `/api/*` requests to an API Gateway HTTP API, so the frontend and API share one origin. API Gateway invokes the backend Lambda, a container image from ECR running FastAPI through Mangum, which strips the `/api` prefix. The Lambda stores data in Neon Postgres. A separate bootstrap Lambda creates the schema and seeds the demo account on every deploy. In both dev and prod, OpenTelemetry sends traces and metrics from the backend to Grafana Cloud.
 
 Locally, the frontend runs on the Vite dev server (`http://localhost:5173`) and calls the backend directly on `http://localhost:8000`, which uses SQLite.
 
@@ -162,7 +162,7 @@ Locally, the frontend runs on the Vite dev server (`http://localhost:5173`) and 
 
 **Observability**
 - OpenTelemetry SDK (Python): traces and metrics, with FastAPI and SQLAlchemy instrumentation
-- Grafana Cloud (dev environment only; production sends no telemetry)
+- Grafana Cloud (dev and prod environments)
 - Optional local stack: OTel Collector, Prometheus, Tempo, Loki, Grafana
 
 ---
@@ -407,7 +407,7 @@ Every metric and trace is tagged with the deployed version (`SERVICE_VERSION`, f
 ### Where telemetry goes
 
 - **Dev** (`hub-dev.dnls.dev`): the dev Lambda exports traces and metrics to Grafana Cloud over OTLP/HTTP.
-- **Production**: telemetry is deliberately off (`OTEL_ENABLED` is not set), so prod sends nothing.
+- **Production** (`hub.dnls.dev`): the prod Lambda exports traces and metrics to Grafana Cloud over OTLP/HTTP.
 - **Local**: off by default. Turn it on to send to the optional local stack below.
 
 ### Local Observability (optional)

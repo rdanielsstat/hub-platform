@@ -223,7 +223,7 @@ Agents expect:
 - Frontend running locally on http://localhost:5173
 - Demo data seeded: `SEED_DEMO_DATA=true uv run python -m app.db.init_local`
 - GitHub Actions configured with OIDC trust for deployment
-- Grafana Cloud configured for observability (dev Lambda only)
+- Grafana Cloud configured for observability (dev and prod Lambdas)
 
 ## Future Work
 

@@ -31,8 +31,8 @@
 
 ## Observability
 
-- Prod Lambda Grafana Cloud wiring (new instance, separate tokens).
-- Prod SERVICE_VERSION SemVer versioning (follow CI/CD pattern from dev).
+- Prod SERVICE_VERSION SemVer versioning: done. `promote.yml` runs
+  `service-version.sh` against the promoted image's commit.
 
 ## Deferred features
 

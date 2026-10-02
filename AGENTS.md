@@ -186,8 +186,8 @@ Local dev uses SQLite or Postgres 17 via Docker Compose.
 
 **Secrets**: The JWT secret and database URLs are stored in SSM SecureStrings and
 read at startup with `USE_SSM=true` in Lambda, via boto3. OTEL tokens are passed from
-GitHub secrets (`TF_VAR_otel_headers_dev`) to the dev Lambda's environment; they are
-not stored in SSM.
+GitHub secrets to the dev and prod Lambdas' environments (`TF_VAR_otel_headers_dev`
+in `ci.yml`, `TF_VAR_otel_headers_prod` in `promote.yml`); they are not stored in SSM.
 
 **CI/CD** (`.github/workflows/`):
 - `ci.yml`: on PR, run tests; on push to main, run tests, deploy to dev (build
@@ -197,10 +197,11 @@ not stored in SSM.
 - `reset-demo.yml`: manual reset of demo account.
 - `observability-alert-handler.yml`: manual on-call diagnostic (started manually after a Grafana alert).
 
-**Observability**: Grafana Cloud over OTLP/HTTP (dev Lambda only). Traces and metrics
-exported via OpenTelemetry SDK + FastAPI and SQLAlchemy instrumentation. Prod Lambda
-deliberately leaves `OTEL_ENABLED` off and emits no telemetry. Local dev: off by
-default; optional local Grafana/Tempo/Prometheus/Loki stack in `backend/observability/`.
+**Observability**: Grafana Cloud over OTLP/HTTP (dev and prod Lambdas). Traces and
+metrics exported via OpenTelemetry SDK + FastAPI and SQLAlchemy instrumentation. Prod
+sends OTEL traces and metrics to Grafana. `SERVICE_VERSION` is set for both dev and
+prod Lambdas from git tags.
+Local dev: off by default; optional local Grafana/Tempo/Prometheus/Loki stack in `backend/observability/`.
 
 **Versioning**: SemVer `SERVICE_VERSION` from git tags (v0.1.0, etc.) via
 `.github/scripts/service-version.sh`.
@@ -216,7 +217,8 @@ default; optional local Grafana/Tempo/Prometheus/Loki stack in `backend/observab
 - From main at the commit you want to release: `git tag -a vX.Y.Z -m "Release vX.Y.Z"`
 - Push the tag: `git push origin vX.Y.Z`
 - Tags do not trigger CI. The tag takes effect on the next push to main, when `service-version.sh`
-  extracts it and sets `SERVICE_VERSION` (reported in telemetry on dev Lambda).
+  extracts it and sets `SERVICE_VERSION` (reported in telemetry on dev Lambda). Prod gets
+  the version of the promoted image's commit when `promote.yml` runs.
 - If HEAD is exactly the tagged commit, dev reports `SERVICE_VERSION=X.Y.Z`; otherwise
   `SERVICE_VERSION=X.Y.Z+N.g<sha>`.
 
@@ -231,7 +233,6 @@ default; optional local Grafana/Tempo/Prometheus/Loki stack in `backend/observab
 - Security scanning on releases (planned via `security-scanning` skill)
 - Version sync: `pyproject.toml` and `package.json` are hardcoded; should sync with git tags
 - Package registry publishing (PyPI, npm) is not set up
-- Prod emits no telemetry (SERVICE_VERSION is dev-only)
 
 ## Do Not
 

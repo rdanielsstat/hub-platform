@@ -61,7 +61,7 @@ resource "aws_lambda_function" "backend" {
   depends_on = [aws_cloudwatch_log_group.backend]
 
   environment {
-    # local.otel_env (main.tf) adds the OTel settings in dev only.
+    # local.otel_env (main.tf) adds the OTel settings in dev and prod.
     variables = merge({
       APP_NAME    = "hub"
       ENVIRONMENT = local.environment
