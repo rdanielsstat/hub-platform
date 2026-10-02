@@ -104,10 +104,10 @@ AUTH_COOKIE_SECURE = (
 # /auth/login; over it, 429. 0 turns the limit off. Defaults to 5 when
 # deployed and off locally, where the Playwright suite logs in far more
 # often than that from 127.0.0.1. See app/auth/rate_limit.py.
+# Blank counts as unset, so a .env copied from .env.example works.
 LOGIN_RATE_LIMIT_PER_MINUTE = int(
-    os.environ.get(
-        "LOGIN_RATE_LIMIT_PER_MINUTE", "0" if is_local_environment() else "5"
-    )
+    os.environ.get("LOGIN_RATE_LIMIT_PER_MINUTE", "").strip()
+    or ("0" if is_local_environment() else "5")
 )
 
 # Request header that carries the real client IP, set by a proxy in front

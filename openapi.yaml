@@ -10,7 +10,7 @@ info:
   version: 0.1.0
 servers:
   - url: https://hub.dnls.dev/api
-    description: Production (not yet deployed; CloudFront forwards /api/* to the API)
+    description: Production (CloudFront forwards /api/* to the API)
   - url: https://hub-dev.dnls.dev/api
     description: Development (CloudFront forwards /api/* to the API)
   - url: http://localhost:8000

@@ -22,6 +22,17 @@ A personal idea management system for capturing, triaging, and tracking ideas fr
 - [docs/permissions.md](docs/permissions.md) - Agent security boundaries and permissions
 - [openapi.yaml](openapi.yaml) - API contract (hand-written; a backend test checks the app matches it)
 
+## Demo Account
+
+Reviewers can explore the live app without signing up:
+
+1. Open https://hub.dnls.dev
+2. Log in with:
+   - Email: `demo@hub.dev`
+   - Password: `demo-hub-2026`
+
+The account comes with seeded sample ideas and notes to explore. It is read/write and shared by all reviewers, so its data may change during the review, and it may be reset to the original sample data at any time. It is temporary and valid through the end of the review period. Login is limited to 5 attempts per minute per IP; if you see "Too many login attempts", wait a minute and try again. To keep your own data private, sign up with any email instead.
+
 ---
 
 ## What is Hub-Platform?

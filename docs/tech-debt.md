@@ -7,7 +7,11 @@
 
 ## Security
 
-- Rate-limiting on signup and login.
+- Rate limiting: done for login (5 attempts per minute per IP, plus API
+  Gateway stage throttling at 50 rps, burst 100). Signup is still unlimited
+  per IP, and the login limit is per Lambda container, not shared.
+- Verify in a deployed environment that CloudFront forwards
+  `CloudFront-Viewer-Address`, which the login rate limit uses as the client IP.
 - Account and project caps per user.
 - Cap password length on `/auth/login`. Registration caps at 256 characters,
   login does not, and argon2 is slow by design.
@@ -66,6 +70,6 @@
   or `custom-agent/`, plus `docs/agent-extension-pack.md` and
   `docs/permissions.md`. Needs a reusable workflow, a subagent, an MCP tool or
   server, and a hook or guardrail.
-- Promote to prod so `hub.dnls.dev` is live.
+- Promote to prod so `hub.dnls.dev` is live: done.
 - Make the repo public before peer review: done (https://github.com/rdanielsstat/hub-platform).
 - Do not destroy the stack until peer review is finished.

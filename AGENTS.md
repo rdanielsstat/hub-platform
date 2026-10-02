@@ -72,7 +72,9 @@ uv run pytest                        # run the test suite
   (default), Neon Postgres when deployed (via `DATABASE_URL`), Postgres 17 in
   Docker Compose for local prod-parity. No Alembic; tables come from `create_all`.
 - Auth: argon2-cffi (password hashing) + PyJWT (HS256), OAuth2 password flow.
-  Token-based so the same API serves the web app and future iOS apps.
+  The web app's session is the JWT in an httpOnly, SameSite=Strict `hub_token`
+  cookie; the API also accepts `Authorization: Bearer`, so the same API serves
+  future iOS apps and agents. `/auth/login` is rate limited per client IP.
 - Multi-user with per-user data isolation.
 - `app/core/config.py` is the single settings source, read from environment
   variables with dev-safe defaults. Its `require_safe_jwt_secret()` runs at
@@ -98,8 +100,9 @@ Frontend: Vitest 5.0, React Testing Library 16, jsdom. `pnpm test`
 Backend: pytest 9.1. `uv run pytest` (from inside `backend/`). Each test gets
 its own in-memory SQLite database.
 
-E2E: Playwright is done. 187 tests in `frontend/tests/` cover signup, login,
-dashboard, projects, filters, sorts, edits, deletes, and API endpoints. Run
+E2E: Playwright is done. 189 tests in `frontend/tests/` cover signup, login,
+the session cookie, dashboard, projects, filters, sorts, edits, deletes, and
+API endpoints. Run
 `pnpm exec playwright test` from `frontend/` with the backend and dev server running.
 
 **All tests must pass before a task is considered done.** This includes:
@@ -132,7 +135,7 @@ workflow on PRs.
 
 - **Never commit code.** Make the changes you're asked to make, write a summary of what changed, provide a suggested commit message (use conventional commit format: `feat:`, `fix:`, `refactor:`, etc.; no capital first letter; use semicolons to separate clauses, not periods). The human reviews and commits.
 - **Never deploy.** All deployment is manual or via CI/CD gates. Agents can verify that deployment would work, but cannot trigger it.
-- **Never modify `.env` files or any secrets.** All environment configuration is off-limits. If a task needs an env variable, flag it and document what's needed.
+- **Never modify real `.env` files or any secrets.** Files named `.env` (no `.example` suffix, e.g. `backend/.env`, `frontend/.env`) hold local configuration and possibly secrets: never read them into output, edit them, or commit them (they are gitignored). The tracked templates `backend/.env.example` and `frontend/.env.example` are different: they hold no secrets, and you CAN and SHOULD update them whenever a task adds, removes, or changes a setting, documenting what it does and its default. If a task needs a real value set somewhere, flag it and document what's needed.
 - **Never make destructive changes to data.** Do not delete user data, reset the database, or modify production state without explicit approval.
 - **Never restructure or refactor working code** unless explicitly asked. Stick to the task scope.
 - **Never add dependencies casually.** Only add what a task actually requires. Justify each addition.
@@ -226,7 +229,9 @@ Local dev: off by default; optional local Grafana/Tempo/Prometheus/Loki stack in
 - Copies the current backend image from dev ECR to prod ECR (no rebuild, exact bytes)
 - Rebuilds and deploys frontend from current main checkout
 - Smoke-tests prod /api/health
-- Requires typing "promote" to confirm, and reviewer approval (GitHub prod environment to be created)
+- Requires typing "promote" to confirm, then approval through the GitHub `prod`
+  environment (required reviewers plus a wait timer). Prod is live at
+  https://hub.dnls.dev.
 
 **Tech debt (not yet wired):**
 - E2E test automation on tagged releases (planned via `e2e-testing` skill)
@@ -241,5 +246,5 @@ Local dev: off by default; optional local Grafana/Tempo/Prometheus/Loki stack in
 - Don't reproduce or edit files under `docs/` as if they were code; they're
   planning/reference material.
 - Don't commit code; summarize instead.
-- Don't deploy or modify `.env` files.
+- Don't deploy or modify real `.env` files (`.env.example` templates are fine; keep them current).
 - Don't make decisions about architecture or data model changes; ask first.
