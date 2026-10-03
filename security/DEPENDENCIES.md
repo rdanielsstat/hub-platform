@@ -11,8 +11,11 @@ results table.
 | pip-audit 2.10.1 | 2026-10-02 | Backend runtime deps, 61 pinned packages from `uv.lock` | No known vulnerabilities |
 | pip-audit 2.10.1 | 2026-10-02 | Backend runtime + dev deps, 69 packages | No known vulnerabilities |
 | pnpm audit | 2026-10-02 | Frontend, full tree from `pnpm-lock.yaml` | No known vulnerabilities |
-| trivy (image) | not run | Backend `prod` image | **Open**: trivy not installed, and Docker wasn't running |
-| checkov / tfsec | not run | `infra/` OpenTofu | **Open**: neither installed |
+| trivy 0.75.0 (image) | 2026-10-03 | Backend `prod` image in prod, then the patched Dockerfile | Prod image: 8 HIGH, 12 MEDIUM (base image OS packages, base image pip). Patched build: 0 CRITICAL/HIGH/MEDIUM/LOW, 1 UNKNOWN accepted. `security/IAC_SCANS.md` |
+| tfsec 1.28.14 / checkov 3.3.22 | 2026-10-03 | `infra/hub` OpenTofu | 2 HIGH fixed, 2 HIGH accepted; checkov failures triaged. `security/IAC_SCANS.md` |
+| pip-audit 2.10.1 | 2026-10-03 | Backend runtime + dev deps, 71 packages, after adding `opentelemetry-instrumentation-logging` | No known vulnerabilities |
+| bandit (medium and above) | 2026-10-03 | `backend/app/` | No issues |
+| pnpm audit --prod | 2026-10-03 | Frontend production dependencies | No known vulnerabilities |
 
 Commands used:
 
@@ -79,19 +82,35 @@ Changed on 2026-10-02, to clear test-run deprecation warnings:
 vulnerabilities. Mangum 0.22.0 is still the latest release; its one
 remaining warning is filtered in `pyproject.toml`, with the reason.
 
+Added on 2026-10-03: `opentelemetry-instrumentation-logging` (backend
+runtime), the OpenTelemetry project's logging handler, to export
+selected app logs to Grafana (`ops/MONITORING.md`). Replaces the SDK's
+own `LoggingHandler`, which is deprecated. Same project and version line
+as the FastAPI and SQLAlchemy instrumentation already in use.
+
+Changed on 2026-10-03, prod image (`backend/Dockerfile`): OS security
+updates applied at build time and pip removed from the final image,
+after the trivy findings in `security/IAC_SCANS.md`.
+
 ## Supply-chain notes and gaps
 
-- Image tags aren't pinned to digests. A compromised or broken upstream
-  tag would reach the next build. Pinning by digest (and bumping it
+- The base images are still referenced by tag, not digest, so a
+  compromised or broken upstream tag would reach the next build. The prod
+  stage now applies OS security updates itself (`dnf upgrade
+  --releasever=latest`) and removes pip, so staleness is covered; digest
+  pinning would cover tampering. Pinning by digest (and bumping it
   deliberately) would close that; Dependabot or Renovate could do the
   bumping.
 - No automated dependency update PRs (Dependabot or Renovate) yet, so
   updates happen when someone runs `uv lock --upgrade` or
   `pnpm update`.
-- GitHub Actions are pinned to tags, not commit SHAs. A moved tag on a
-  third-party action would run new code with this repo's OIDC token in
-  the deploy job. Pinning third-party actions to SHAs in `ci.yml` and
-  `promote.yml` is the standard fix.
+- GitHub Actions: pinned to full commit SHAs in every workflow since
+  2026-10-03, with the version in a trailing comment
+  (`uses: actions/checkout@<sha> # v7.0.1`). A moved or hijacked tag
+  can no longer change what runs with this repo's OIDC token. To bump
+  one: resolve the new release tag to its commit
+  (`gh api repos/<owner>/<repo>/git/ref/tags/<tag>`, dereferencing an
+  annotated tag) and update both the SHA and the comment.
 - The `security-scanning` skill runs `uvx pip-audit`, `uvx bandit` and
   installs trufflehog with Homebrew without version pins (see
   `security/AGENT_SECURITY.md`).

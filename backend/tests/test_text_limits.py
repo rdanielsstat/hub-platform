@@ -140,3 +140,99 @@ def test_database_rejects_over_long_note_written_directly(store):
     with pytest.raises(IntegrityError):
         store.create_note(project_id=project.id, body="b" * (NOTE_BODY_MAX_LENGTH + 1))
     store._db.rollback()
+
+
+# ---- tags, links, display name (migration 0003) ----
+
+from app.models.project import (  # noqa: E402
+    LINK_LABEL_MAX_LENGTH,
+    LINK_URL_MAX_LENGTH,
+    LINKS_MAX_ITEMS,
+    TAG_MAX_LENGTH,
+    TAGS_MAX_ITEMS,
+)
+from app.models.user import DISPLAY_NAME_MAX_LENGTH  # noqa: E402
+
+
+def test_list_limits_are_the_agreed_values():
+    assert (TAGS_MAX_ITEMS, TAG_MAX_LENGTH) == (50, 64)
+    assert (LINKS_MAX_ITEMS, LINK_URL_MAX_LENGTH, LINK_LABEL_MAX_LENGTH) == (50, 2048, 200)
+    assert DISPLAY_NAME_MAX_LENGTH == 100
+
+
+def _url(length: int) -> str:
+    prefix = "https://example.com/"
+    return prefix + "a" * (length - len(prefix))
+
+
+@pytest.mark.parametrize(
+    ("ok", "too_long", "loc"),
+    [
+        (
+            {"tags": [f"t{i}" for i in range(50)]},
+            {"tags": [f"t{i}" for i in range(51)]},
+            ["body", "tags"],
+        ),
+        ({"tags": ["x" * 64]}, {"tags": ["x" * 65]}, ["body", "tags", 0]),
+        (
+            {"links": [{"url": f"https://e.com/{i}"} for i in range(50)]},
+            {"links": [{"url": f"https://e.com/{i}"} for i in range(51)]},
+            ["body", "links"],
+        ),
+        (
+            {"links": [{"url": _url(2048)}]},
+            {"links": [{"url": _url(2049)}]},
+            ["body", "links", 0, "url"],
+        ),
+        (
+            {"links": [{"url": "https://e.com", "label": "l" * 200}]},
+            {"links": [{"url": "https://e.com", "label": "l" * 201}]},
+            ["body", "links", 0, "label"],
+        ),
+    ],
+)
+def test_tag_and_link_limits_on_create_and_update(client, headers, ok, too_long, loc):
+    created = client.post("/projects", json={"name": "p", **ok}, headers=headers)
+    rejected = client.post("/projects", json={"name": "p", **too_long}, headers=headers)
+    patched = client.patch(
+        f"/projects/{created.json()['id']}", json=too_long, headers=headers
+    )
+
+    assert created.status_code == 201
+    assert rejected.status_code == 422
+    assert loc in _error_locs(rejected)
+    assert patched.status_code == 422
+
+
+def test_display_name_limit(client):
+    ok = client.post(
+        "/auth/register",
+        json={"email": "dn-ok@example.com", "password": "password123",
+              "displayName": "d" * 100},
+    )
+    too_long = client.post(
+        "/auth/register",
+        json={"email": "dn-long@example.com", "password": "password123",
+              "displayName": "d" * 101},
+    )
+
+    assert ok.status_code == 201
+    assert too_long.status_code == 422
+    assert ["body", "displayName"] in _error_locs(too_long)
+
+
+def test_database_rejects_too_many_tags_or_links_written_directly(store):
+    user = store.create_user(email="lists@example.com", password_hash="h")
+    store.create_project(owner_id=user.id, **_project_fields(tags=["t"] * 50))
+
+    for overrides in ({"tags": ["t"] * 51}, {"links": [{"url": "https://e.com"}] * 51}):
+        with pytest.raises(IntegrityError):
+            store.create_project(owner_id=user.id, **_project_fields(**overrides))
+        store._db.rollback()
+
+
+def test_database_rejects_long_display_name_written_directly(store):
+    store.create_user(email="dn1@example.com", password_hash="h", display_name="d" * 100)
+
+    with pytest.raises(IntegrityError):
+        store.create_user(email="dn2@example.com", password_hash="h", display_name="d" * 101)

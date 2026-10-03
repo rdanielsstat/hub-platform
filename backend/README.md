@@ -188,8 +188,9 @@ SQLite can't `ALTER` most things in place; foreign keys stay off while
 they run, or dropping `projects` would cascade-delete every note.
 
 Migrations so far: `0001` baseline schema; `0002` CHECK constraints for
-the text length limits (refuses to run if existing rows are already
-longer; see "Usage caps").
+the text length limits; `0003` limits on display names and on the number
+of tags and links. `0002` and `0003` refuse to run if existing rows
+already exceed them (see "Usage caps").
 
 ## Postgres and the database bootstrap
 
@@ -446,6 +447,14 @@ directly can exceed them either. Migration `0002` refuses to run over a
 database that already holds longer values, rather than truncating them;
 see `ops/TROUBLESHOOTING.md`.
 
+Lists and short fields are limited too: at most 50 tags per project,
+each up to 64 characters; at most 50 links, each URL up to 2048
+characters and label up to 200; display names up to 100. All are 422s
+from the input models; the database backs up the display name length and
+the tag and link counts (migration `0003`). A CHECK constraint can't
+portably look inside each JSON array element, so the per-tag and
+per-link lengths are enforced by the API only.
+
 `POST /auth/login` also caps the password at 256 characters, the same
 maximum sign-up enforces: anything longer is a `422` before any argon2
 work, so one request can't burn seconds of Lambda CPU hashing a huge
@@ -458,8 +467,9 @@ web app (`frontend/src/lib/error-reporting.ts`): uncaught errors,
 unhandled promise rejections, React render crashes, and API calls that
 got no response or a 5xx. Each is written as one JSON line on the
 `app.client_errors` logger, so CloudWatch Logs when deployed and the
-console locally; nothing goes in the database. The request itself shows
-up in the per-endpoint metrics as `client_errors_post_*`.
+console locally, plus Grafana Cloud (Loki) as OTLP log records wherever
+`OTEL_ENABLED` is on; nothing goes in the database. The request itself
+shows up in the per-endpoint metrics as `client_errors_post_*`.
 
 ```
 WARNING:app.client_errors:client_error {"endpoint": null, "kind": "error", "message": "TypeError: ...", "method": null, "stack": "...", "status": null, "url": "https://hub.dnls.dev/project/...", "user_agent": "...", "user_id": "..."}
@@ -469,8 +479,8 @@ Unauthenticated, because errors happen while signed out too; rate
 limited per IP (above) and length-capped per field instead. A valid
 session attaches the user id (never the email). URLs lose their query
 string and fragment. The browser side sends at most 20 reports per page
-load and each distinct one once. Getting these logs into Grafana is a
-separate step; see `ops/MONITORING.md`.
+load and each distinct one once. Querying them in Grafana:
+`ops/MONITORING.md`.
 
 ## Origin verification
 

@@ -12,6 +12,21 @@ resource "aws_s3_bucket" "frontend" {
   bucket = "dnls-${local.name}-frontend" # dnls-hub-prod-frontend / dnls-hub-dev-frontend
 }
 
+# Explicit SSE-S3. AWS already encrypts new objects this way by default; this
+# makes it part of the configuration (tfsec AVD-AWS-0088) rather than an
+# account default. A customer-managed KMS key (AVD-AWS-0132) is deliberately
+# not used: the bucket holds only the public build, see security/IAC_SCANS.md.
+resource "aws_s3_bucket_server_side_encryption_configuration" "frontend" {
+  bucket = aws_s3_bucket.frontend.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+    bucket_key_enabled = true
+  }
+}
+
 resource "aws_s3_bucket_public_access_block" "frontend" {
   bucket                  = aws_s3_bucket.frontend.id
   block_public_acls       = true
@@ -98,6 +113,77 @@ resource "aws_cloudfront_origin_request_policy" "api" {
   }
 }
 
+# Security headers on every response, the SPA's and the API's. CloudFront
+# adds them (override = true replaces any the origin sent), so S3 objects
+# and the Lambda need no changes.
+#
+# Content-Security-Policy, kept as strict as the app allows:
+#   - script-src 'self': no inline scripts and no third-party scripts. The
+#     pre-paint theme script is a file (frontend/public/theme-init.js) for
+#     this reason; the Vite build emits only <script src>.
+#   - style-src 'unsafe-inline': React style props and Base UI's popup
+#     positioning set inline style attributes, which CSP governs as styles.
+#     Script injection stays blocked; inline styles can't run code.
+#   - Google Fonts: the stylesheet (fonts.googleapis.com) and the font
+#     files (fonts.gstatic.com), loaded by index.html.
+#   - connect-src 'self': the API is same-origin (/api/*).
+#   - frame-ancestors 'none' (with X-Frame-Options DENY): no clickjacking.
+# A change that loads anything from a new origin must be added here, or
+# the browser blocks it (the console shows the CSP violation).
+#
+# HSTS: one year, includeSubDomains, preload. Covers this hostname and
+# anything under it; dnls.dev itself is unaffected. "preload" only takes
+# effect if the apex domain is submitted to the preload list, which this
+# stack doesn't do; harmless here.
+locals {
+  content_security_policy = join("; ", [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data:",
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+    "upgrade-insecure-requests",
+  ])
+}
+
+resource "aws_cloudfront_response_headers_policy" "security" {
+  name    = "${local.name}-security-headers"
+  comment = "CSP, HSTS and related security headers for the SPA and the API"
+
+  security_headers_config {
+    content_security_policy {
+      content_security_policy = local.content_security_policy
+      override                = true
+    }
+
+    strict_transport_security {
+      access_control_max_age_sec = 31536000
+      include_subdomains         = true
+      preload                    = true
+      override                   = true
+    }
+
+    content_type_options {
+      override = true
+    }
+
+    frame_options {
+      frame_option = "DENY"
+      override     = true
+    }
+
+    referrer_policy {
+      referrer_policy = "strict-origin-when-cross-origin"
+      override        = true
+    }
+  }
+}
+
 resource "aws_cloudfront_distribution" "frontend" {
   enabled             = true
   default_root_object = "index.html"
@@ -138,6 +224,8 @@ resource "aws_cloudfront_distribution" "frontend" {
     cached_methods         = ["GET", "HEAD"]
     cache_policy_id        = "658327ea-f89d-4fab-a63d-7e88639e58f6" # CachingOptimized
 
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.security.id
+
     function_association {
       event_type   = "viewer-request"
       function_arn = aws_cloudfront_function.spa_router.arn
@@ -159,6 +247,8 @@ resource "aws_cloudfront_distribution" "frontend" {
     # forwarding the CloudFront alias as Host makes API Gateway answer 403.
     # See aws_cloudfront_origin_request_policy.api above.
     origin_request_policy_id = aws_cloudfront_origin_request_policy.api.id
+
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.security.id
   }
 
   restrictions {

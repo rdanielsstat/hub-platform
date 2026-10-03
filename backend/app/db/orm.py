@@ -20,11 +20,14 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from app.models.note import NOTE_BODY_MAX_LENGTH
 from app.models.project import (
     DESCRIPTION_MAX_LENGTH,
+    LINKS_MAX_ITEMS,
     NAME_MAX_LENGTH,
     NEXT_ACTION_MAX_LENGTH,
     PITCH_MAX_LENGTH,
+    TAGS_MAX_ITEMS,
     Status,
 )
+from app.models.user import DISPLAY_NAME_MAX_LENGTH
 
 
 class Base(DeclarativeBase):
@@ -44,8 +47,18 @@ def _max_length(table: str, column: str, limit: int) -> CheckConstraint:
     )
 
 
+def _max_items(table: str, column: str, limit: int) -> CheckConstraint:
+    """A cap on the number of entries in a JSON array column.
+    json_array_length() exists in both SQLite and Postgres (for the json
+    type these columns use there). Names match migration 0003."""
+    return CheckConstraint(
+        f"json_array_length({column}) <= {limit}", name=f"ck_{table}_{column}_count"
+    )
+
+
 class UserTable(Base):
     __tablename__ = "users"
+    __table_args__ = (_max_length("users", "display_name", DISPLAY_NAME_MAX_LENGTH),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_id)
     email: Mapped[str] = mapped_column(Text, unique=True, index=True)
@@ -77,6 +90,8 @@ class ProjectTable(Base):
         _max_length("projects", "pitch", PITCH_MAX_LENGTH),
         _max_length("projects", "description", DESCRIPTION_MAX_LENGTH),
         _max_length("projects", "next_action", NEXT_ACTION_MAX_LENGTH),
+        _max_items("projects", "tags", TAGS_MAX_ITEMS),
+        _max_items("projects", "links", LINKS_MAX_ITEMS),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_id)

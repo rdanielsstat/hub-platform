@@ -159,7 +159,7 @@ def test_length_constraints_exist_and_are_enforced_on_postgres(pg_url):
                 conn.execute(
                     text(
                         "SELECT conname FROM pg_constraint "
-                        "WHERE contype = 'c' AND conname LIKE 'ck_%_length'"
+                        "WHERE contype = 'c' AND conname LIKE 'ck_%'"
                     )
                 ).scalars()
             )
@@ -171,6 +171,9 @@ def test_length_constraints_exist_and_are_enforced_on_postgres(pg_url):
         "ck_projects_description_length",
         "ck_projects_next_action_length",
         "ck_notes_body_length",
+        "ck_projects_tags_count",
+        "ck_projects_links_count",
+        "ck_users_display_name_length",
     }
 
 

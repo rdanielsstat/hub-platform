@@ -31,8 +31,9 @@ here and don't let this file drift from it.
 - `backend/alembic/`: Alembic migration scripts (`versions/`); run by
   `backend/app/db/migrations.py`.
 - `ops/`: runbooks: deployment, health checks, troubleshooting, monitoring.
-- `security/`: rate limiting, agent security, gitleaks, dependencies, data
-  policy, and the security checklist (what's checked and what's open).
+- `security/`: rate limiting, agent security, gitleaks, dependencies, image
+  and IaC scan results (`IAC_SCANS.md`), data policy, and the security
+  checklist (what's checked and what's open).
 - `backend/observability/`: OpenTelemetry setup, local Grafana/Tempo/Prometheus
   stack.
 - `backend/oncall/`: on-call agent (OpenAI diagnostic for dev alerts).
@@ -93,7 +94,12 @@ uv run pytest                        # run the test suite
   (`app/main.py`), and the web app only treats a 401 as signed out
   (`frontend/src/auth.tsx`). Keep both true; see `ops/TROUBLESHOOTING.md`.
 - Frontend errors: `POST /client-errors` (`app/routers/errors.py`) logs
-  reports sent by `frontend/src/lib/error-reporting.ts`.
+  reports sent by `frontend/src/lib/error-reporting.ts`; the `app.client_errors`,
+  `app.db` and `app.security` loggers are also exported to Grafana (Loki) as
+  OTLP logs (`backend/observability/`).
+- Security headers: CloudFront sends a strict CSP (no inline scripts; Google
+  Fonts allowed) and HSTS (`infra/hub/frontend.tf`). Anything the frontend
+  loads from a new origin must be added to `local.content_security_policy`.
 - Deployed vs local: `is_deployed()` in `app/core/config.py` (true when `USE_SSM`
   is on or `ENVIRONMENT` isn't local/development/dev, so the dev Lambda counts)
   switches on the Secure cookie, the login rate limit, and hidden API docs. Use
@@ -129,16 +135,16 @@ October 2026.
   queries to a landmark rather than the whole document to avoid matching hidden content.
 
 Backend: pytest 9.1, two layers told apart by the `integration` marker.
-`uv run pytest` (from inside `backend/`) runs the unit tests only: 414 tests in
+`uv run pytest` (from inside `backend/`) runs the unit tests only: 432 tests in
 26 files as of October 2026, each with its own in-memory SQLite database.
-`uv run pytest -m integration` runs `tests/integration/` (34 tests in 4 files)
+`uv run pytest -m integration` runs `tests/integration/` (38 tests in 4 files)
 against the Docker Compose Postgres (`docker compose up -d --wait postgres`, or
 `make test-integration`), in a throwaway database built by the real
 migrations. `tests/test_startup.py` imports the app in a subprocess to check
 startup behaviour (secret guards, deployed defaults, origin verification).
 
-E2E: Playwright, 199 tests in `frontend/tests/`, in two projects. `chromium`:
-`app.spec.ts` (89 browser tests) and `api.spec.ts` (102 API tests) cover signup,
+E2E: Playwright, 201 tests in `frontend/tests/`, in two projects. `chromium`:
+`app.spec.ts` (89 browser tests) and `api.spec.ts` (104 API tests) cover signup,
 login, the session cookie, dashboard, projects, filters, sorts, edits, deletes,
 and API endpoints, against any backend on :8000. `docker-compose`:
 `integration.spec.ts` (8 tests) covers the Compose stack, error reporting, and
@@ -160,8 +166,9 @@ are off. See `frontend/README.md`.
 
 Note: CI runs the unit tests, a gitleaks secret scan of the full git
 history, the backend integration tests and the Playwright suite (against
-the Compose stack) on every PR and push; only the unit tests and the
-gitleaks scan gate the dev deploy so far. Lint, format, and build checks are enforced
+the Compose stack) on every PR and push; all four must pass before the
+dev deploy runs. Actions in `.github/workflows/` are pinned to commit SHAs
+(version in a trailing comment); keep it that way when adding or bumping one. Lint, format, and build checks are enforced
 locally before committing; they do not run in the GitHub Actions workflow on
 PRs. Reviewed gitleaks false positives go in `.gitleaksignore` (by
 fingerprint); never add a real secret there.
@@ -249,7 +256,7 @@ in `ci.yml`, `TF_VAR_otel_headers_prod` in `promote.yml`); they are not stored i
 **CI/CD** (`.github/workflows/`):
 - `ci.yml`: on PR, run unit tests, integration tests, Playwright E2E against
   Docker Compose, and the gitleaks history scan; on push to main, run them,
-  then (only if the unit tests and the scan pass) deploy to dev (build
+  then (only if all of them pass) deploy to dev (build
   image, apply infra, bootstrap, build frontend, sync to S3, invalidate CloudFront,
   smoke-test `/api/health`).
 - `promote.yml`: manual promotion of exact image tag from dev to prod (no rebuild).
@@ -268,7 +275,9 @@ Local dev: off by default; optional local Grafana/Tempo/Prometheus/Loki stack in
 
 **Per-commit CI/CD (runs on every push to main):**
 - Unit tests (frontend + backend; lint, format, and build are enforced locally, not in CI)
-- Gitleaks scan of the full history (`secrets-scan` job; deploy waits on it)
+- Backend integration tests against Postgres and Playwright E2E against Docker Compose
+- Gitleaks scan of the full history (`secrets-scan` job)
+- The deploy waits on all of the above
 - Build and push backend image to dev ECR (timestamp-sha tag, e.g., 20260930-123456-abc123)
 - Deploy to dev Lambda (applies infra, bootstraps, rebuilds frontend, smoke-tests /api/health)
 

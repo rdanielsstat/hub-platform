@@ -2,7 +2,7 @@
 
 Pre-launch security validation: what's been checked, with evidence, and
 what's still open. Update the date and the status column whenever an
-item changes. Last reviewed: 2026-10-02.
+item changes. Last reviewed: 2026-10-03.
 
 Legend: **Done** (implemented, and tested or configured in code),
 **Verified** (also confirmed by hand on a deployed environment),
@@ -42,7 +42,7 @@ Legend: **Done** (implemented, and tested or configured in code),
 | Per-IP limits shared across Lambda containers | Accepted | Per container; see `security/RATE_LIMITING.md` for the bound and the fixes |
 | Rate limits key on the real client IP behind Cloudflare and CloudFront | Done, **not yet enabled** | `TRUSTED_PROXY_IPS` + `X-Forwarded-For` (`app/auth/rate_limit.py`, `tests/test_rate_limit.py`). Takes effect once the GitHub environment variable `TRUSTED_PROXY_IPS` is set to Cloudflare's ranges on dev and prod (`ops/DEPLOYMENT.md`), then verify from two networks |
 | Text field length limits: project name 256, pitch 2000, description 5000, next action 1000, note body 10000 characters | Done | API 422 (`app/models/project.py`, `app/models/note.py`) and Postgres CHECK constraints (migration `0002`); `tests/test_text_limits.py`, `tests/test_migrations.py`, integration tests |
-| Length limits on tags, links and display name | **Open** | Not capped yet; same approach as the text fields would work |
+| Length limits on tags, links and display name | Done | 50 tags of up to 64 characters, 50 links (URL 2048, label 200), display name 100. API 422 (`app/models/`), CHECK constraints for the counts and the display name (migration `0003`); per-element lengths are API-only. `tests/test_text_limits.py`, integration and E2E tests |
 
 ## Infrastructure and transport
 
@@ -54,8 +54,8 @@ Legend: **Done** (implemented, and tested or configured in code),
 | API docs (`/docs`, `/openapi.json`) hidden when deployed | Done | `app/main.py`, `tests/test_startup.py` |
 | Secrets in SSM SecureStrings, read only by the Lambdas | Done | `infra/hub/database.tf`, `lambda.tf` |
 | CORS limited to the local dev origins (same-origin when deployed) | Done | `tests/test_cors.py` |
-| Security headers on the SPA (CSP, HSTS, X-Frame-Options) | **Open** | Not checked in this review. A CloudFront response headers policy would add them. |
-| IaC scan (checkov or tfsec) | **Open** | Not run; `security/DEPENDENCIES.md` |
+| Security headers (CSP, HSTS, X-Frame-Options, nosniff, Referrer-Policy) | Done | `aws_cloudfront_response_headers_policy.security` (`infra/hub/frontend.tf`) on the SPA and `/api/*`. Strict CSP (`script-src 'self'`, no inline scripts); full E2E suite passes on the production build under it |
+| IaC scan (checkov and tfsec) | Done | 2026-10-03, every finding fixed or accepted with a reason: `security/IAC_SCANS.md` |
 
 ## Database
 
@@ -74,8 +74,10 @@ Legend: **Done** (implemented, and tested or configured in code),
 |---|---|---|
 | Secret scan of full history on every PR and push, gating deploys | Done | `security/GITLEAKS_CONFIG.md` |
 | Dependency audit (pip-audit, pnpm audit) | Done | Clean on 2026-10-02, `security/DEPENDENCIES.md` |
-| Container image scan (trivy) | **Open** | `security/DEPENDENCIES.md` |
-| Third-party GitHub Actions pinned to commit SHAs | **Open** | Pinned to tags today |
+| Container image scan (trivy) | Done | 2026-10-03: 8 HIGH in the base image fixed in the Dockerfile; patched build has no CRITICAL/HIGH/MEDIUM/LOW. ECR also scans on push. `security/IAC_SCANS.md` |
+| GitHub Actions pinned to commit SHAs | Done | Every `uses:` in `.github/workflows/` since 2026-10-03 |
+| Every CI check gates the dev deploy | Done | `deploy-dev` needs `test`, `secrets-scan`, `integration`, `e2e` |
+| ECR image tags immutable | Done | `infra/hub/ecr.tf`; `promote.yml` skips re-copying an existing tag |
 | Dependency scans in CI | **Open** | Run by hand only |
 
 ## Monitoring and response
@@ -84,7 +86,7 @@ Legend: **Done** (implemented, and tested or configured in code),
 |---|---|---|
 | Traces and metrics in Grafana Cloud for dev and prod | Done | `ops/MONITORING.md` |
 | Frontend errors reported | Done | `POST /client-errors`, logged to CloudWatch |
-| Frontend errors visible in Grafana | **Open** | Manual setup; `ops/MONITORING.md`, "Frontend errors to Grafana" |
+| Frontend errors visible in Grafana | Done | Exported as OTLP logs to Grafana Cloud (Loki); `ops/MONITORING.md`, "Frontend errors in Grafana" |
 | Alerting beyond the registration error rate | **Open** | Suggestions in `ops/MONITORING.md` |
 | Deploy and rollback runbook | Done | `ops/DEPLOYMENT.md` |
 
@@ -98,10 +100,9 @@ Legend: **Done** (implemented, and tested or configured in code),
 
 ## Highest-priority open items
 
-1. Set `TRUSTED_PROXY_IPS` to Cloudflare's ranges on the dev and prod
-   GitHub environments, deploy, and check the login limit from two
-   networks (`ops/DEPLOYMENT.md`).
-2. Security headers on the CloudFront distribution.
-3. Run trivy on the image and checkov or tfsec on `infra/`.
-4. Pin third-party GitHub Actions to SHAs.
-5. Length caps on tags, links and display name.
+1. Exercise a restore from Neon's point-in-time history once, so backups
+   are known to work.
+2. Run the dependency scans (pip-audit, pnpm audit) in CI rather than by
+   hand.
+3. Alerts beyond the registration error rate (`ops/MONITORING.md`).
+4. Self-service account deletion and data export.

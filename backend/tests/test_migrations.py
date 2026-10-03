@@ -218,8 +218,11 @@ LENGTH_CONSTRAINTS = {
         "ck_projects_pitch_length",
         "ck_projects_description_length",
         "ck_projects_next_action_length",
+        "ck_projects_tags_count",
+        "ck_projects_links_count",
     },
     "notes": {"ck_notes_body_length"},
+    "users": {"ck_users_display_name_length"},
 }
 
 
@@ -300,6 +303,7 @@ def test_0002_downgrade_removes_the_constraints(db_url):
 
     assert not _check_constraint_names(db_url, "projects")
     assert not _check_constraint_names(db_url, "notes")
+    assert not _check_constraint_names(db_url, "users")
     assert _scalars(db_url, "SELECT body FROM notes") == ["kept note"]
 
 
@@ -341,3 +345,31 @@ def test_empty_version_table_counts_as_unstamped(db_url, capsys):
 
     assert "stamped at baseline" in capsys.readouterr().out
     assert _revision(db_url) == _head()
+
+
+# ---- 0003: tag, link and display name limits ----
+
+
+def test_0003_refuses_existing_violations_and_changes_nothing(db_url):
+    _migrate_to(db_url, "0002")
+    _execute(
+        db_url,
+        "INSERT INTO users (id, email, display_name, created_at, updated_at) "
+        f"VALUES ('u1', 'long@example.com', '{'d' * 101}', '2026-01-01', '2026-01-01')",
+    )
+
+    with pytest.raises(RuntimeError, match=r"ck_users_display_name_length .*1 row"):
+        upgrade_to_head(db_url)
+
+    assert _revision(db_url) == "0002"
+    assert "ck_users_display_name_length" not in _check_constraint_names(db_url, "users")
+
+
+def test_0003_counts_json_array_entries(db_url):
+    upgrade_to_head(db_url)
+    tags_50 = "[" + ",".join('"t"' for _ in range(50)) + "]"
+    tags_51 = "[" + ",".join('"t"' for _ in range(51)) + "]"
+    _execute(db_url, USER_SQL, _project_sql().replace("'[]', 3", f"'{tags_50}', 3", 1))
+
+    with pytest.raises(IntegrityError):
+        _execute(db_url, _project_sql("p2").replace("'[]', 3", f"'{tags_51}', 3", 1))

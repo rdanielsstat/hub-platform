@@ -421,3 +421,150 @@ def test_auth_and_domain_counters(
     assert _counter(metric_reader, "authentication_login_errors_total") == 1
     assert _counter(metric_reader, "projects_created_total") == 1
     assert _counter(metric_reader, "notes_created_total") == 1
+
+
+# ---- logs (EXPORTED_LOGGERS) ---------------------------------------
+
+from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter  # noqa: E402
+
+from app.routers import errors  # noqa: E402
+from observability import EXPORTED_LOGGERS  # noqa: E402
+
+
+@pytest.fixture()
+def log_exporter() -> InMemoryLogRecordExporter:
+    return InMemoryLogRecordExporter()
+
+
+@pytest.fixture()
+def instrumented_with_logs(
+    store: Store,
+    span_exporter: InMemorySpanExporter,
+    metric_reader: InMemoryMetricReader,
+    log_exporter: InMemoryLogRecordExporter,
+) -> Iterator[TestClient]:
+    app = _build_app()
+    app.include_router(errors.router)
+    app.dependency_overrides[get_store] = lambda: store
+    handle = initialize_observability(
+        app,
+        span_exporter=span_exporter,
+        metric_reader=metric_reader,
+        log_exporter=log_exporter,
+    )
+    assert handle is not None
+    try:
+        with TestClient(app, raise_server_exceptions=False) as client:
+            yield client
+    finally:
+        handle.shutdown()
+
+
+def test_client_error_reports_are_exported_as_otlp_logs(
+    instrumented_with_logs: TestClient, log_exporter: InMemoryLogRecordExporter
+) -> None:
+    res = instrumented_with_logs.post(
+        "/client-errors",
+        json={"kind": "http", "message": "GET /projects returned 503", "status": 503},
+    )
+
+    assert res.status_code == 204
+    (record,) = [
+        r for r in log_exporter.get_finished_logs()
+        if "client_error" in str(r.log_record.body)
+    ]
+    assert "GET /projects returned 503" in str(record.log_record.body)
+    assert record.log_record.severity_text == "WARN"
+    assert record.log_record.attributes["client_error.kind"] == "http"
+    assert record.log_record.attributes["client_error.status"] == 503
+    assert record.resource.attributes["service.name"] == "hub-platform"
+
+
+def test_only_the_listed_loggers_are_exported(
+    instrumented_with_logs: TestClient, log_exporter: InMemoryLogRecordExporter
+) -> None:
+    import logging
+
+    logging.getLogger("app.db").warning("database_unavailable method=GET path=/x error=E")
+    logging.getLogger("app.somewhere_else").warning("not exported")
+    logging.getLogger("app.client_errors").info("below WARNING, not exported")
+
+    bodies = [str(r.log_record.body) for r in log_exporter.get_finished_logs()]
+    assert any("database_unavailable" in b for b in bodies)
+    assert not any("not exported" in b for b in bodies)
+
+
+def test_exported_loggers_list() -> None:
+    assert EXPORTED_LOGGERS == ("app.client_errors", "app.db", "app.security")
+
+
+def test_shutdown_removes_the_log_handler(
+    store: Store,
+    span_exporter: InMemorySpanExporter,
+    metric_reader: InMemoryMetricReader,
+    log_exporter: InMemoryLogRecordExporter,
+) -> None:
+    import logging
+
+    handle = initialize_observability(
+        _build_app(),
+        span_exporter=span_exporter,
+        metric_reader=metric_reader,
+        log_exporter=log_exporter,
+    )
+    assert handle is not None
+    handle.shutdown()
+
+    for name in EXPORTED_LOGGERS:
+        assert handle.log_handler not in logging.getLogger(name).handlers
+
+
+def test_disabled_observability_attaches_no_log_handler() -> None:
+    import logging
+
+    from opentelemetry.instrumentation.logging.handler import LoggingHandler
+
+    initialize_observability(_build_app(), enabled=False)
+
+    for name in EXPORTED_LOGGERS:
+        assert not any(
+            isinstance(h, LoggingHandler) for h in logging.getLogger(name).handlers
+        )
+
+
+def test_report_without_status_exports_cleanly(
+    instrumented_with_logs: TestClient, log_exporter: InMemoryLogRecordExporter
+) -> None:
+    instrumented_with_logs.post("/client-errors", json={"kind": "error", "message": "boom"})
+
+    (record,) = [
+        r for r in log_exporter.get_finished_logs()
+        if "client_error" in str(r.log_record.body)
+    ]
+    assert record.log_record.attributes["client_error.kind"] == "error"
+    assert "client_error.status" not in record.log_record.attributes
+
+
+def test_log_handler_flush_starts_no_thread(
+    store: Store,
+    span_exporter: InMemorySpanExporter,
+    metric_reader: InMemoryMetricReader,
+    log_exporter: InMemoryLogRecordExporter,
+) -> None:
+    """logging.shutdown() flushes every handler at interpreter exit, when
+    starting a thread raises; the handler's flush must not need one."""
+    import threading
+
+    handle = initialize_observability(
+        _build_app(),
+        span_exporter=span_exporter,
+        metric_reader=metric_reader,
+        log_exporter=log_exporter,
+    )
+    assert handle is not None
+    try:
+        before = threading.active_count()
+        handle.log_handler.flush()
+        assert threading.active_count() == before
+    finally:
+        handle.shutdown()

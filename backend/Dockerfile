@@ -18,8 +18,22 @@ RUN uv export --frozen --no-dev --no-hashes -o requirements.txt
 # ---- stage: prod (AWS Lambda container image) -------------------------
 FROM public.ecr.aws/lambda/python:3.12 AS prod
 
+# Security fixes the base image doesn't have yet. AWS publishes this image
+# on its own schedule, and trivy found HIGH CVEs in its OS packages (curl,
+# pcre2, rpm) with fixes already released. Amazon Linux 2023 locks dnf to
+# the image's release snapshot, so --releasever=latest is what reaches the
+# fixes. See security/DEPENDENCIES.md.
+RUN dnf upgrade -y --releasever=latest \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf
+
+# pip is removed once the app's dependencies are in: the function never
+# uses it, and it carries its own bundled copies of urllib3, msgpack and
+# setuptools' pkg_resources, which trivy flags (HIGH) independently of the
+# app's own, patched, urllib3.
 COPY --from=deps /src/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt --target "${LAMBDA_TASK_ROOT}"
+RUN pip install --no-cache-dir -r requirements.txt --target "${LAMBDA_TASK_ROOT}" \
+    && pip uninstall -y pip
 
 COPY app ${LAMBDA_TASK_ROOT}/app
 COPY observability ${LAMBDA_TASK_ROOT}/observability

@@ -1,12 +1,12 @@
 /**
  * Theme persistence + the theme-color meta tag.
  *
- * The initial theme itself is resolved even earlier than this, by the
- * inline script in index.html (before React mounts, to avoid a flash of
- * the wrong theme) — that script reads/writes the same localStorage key
- * as THEME_STORAGE_KEY below in a plain, duplicated form, since it can't
- * import this module. Keep the key literal in index.html in sync with
- * this constant if it ever changes.
+ * The initial theme itself is resolved even earlier than this, by
+ * public/theme-init.js, which index.html loads before React mounts (to
+ * avoid a flash of the wrong theme). That script reads/writes the same
+ * localStorage key as THEME_STORAGE_KEY below in a plain, duplicated form,
+ * since it can't import this module. Keep the key literal in
+ * public/theme-init.js in sync with this constant if it ever changes.
  */
 
 export type Theme = 'light' | 'dark'

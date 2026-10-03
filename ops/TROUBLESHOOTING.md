@@ -161,6 +161,39 @@ Common causes:
 Locally, `docker compose logs bootstrap init_local` shows the same
 output.
 
+## Something on the page doesn't load: CSP
+
+**Symptom:** a script, stylesheet, font, image or API call fails only on
+the deployed site, and the browser console shows `Refused to load ...
+because it violates the following Content Security Policy directive`.
+
+**Cause:** the resource comes from an origin the CSP doesn't list
+(`local.content_security_policy`, `infra/hub/frontend.tf`), or it's an
+inline `<script>`. The dev server sends no CSP, so it only shows up
+deployed.
+
+**Fix:** add the origin to the right directive (`script-src`,
+`style-src`, `font-src`, `img-src`, `connect-src`), or move inline
+script into a file under `frontend/public/` (as `theme-init.js` is).
+Never add `'unsafe-inline'` or `'unsafe-eval'` to `script-src`.
+
+## init_local or the Compose bootstrap stops at migration 0003
+
+Same cause and fix as 0002 below, for `0003`'s limits (display names over
+100 characters, more than 50 tags or links on a project). Older E2E runs
+stored 1,000-character display names. For a local database:
+
+- SQLite: `rm backend/hub.db`, then run `init_local` again.
+- Docker Compose: `docker compose down -v` (deletes the Compose
+  database volume), then `make docker-up`. Or, keeping the data:
+
+  ```
+  docker compose exec postgres psql -U postgres -d hub_dev -c "UPDATE users SET display_name = left(display_name, 100) WHERE length(display_name) > 100;"
+  ```
+
+  then `make docker-up` again. Only for local test data: shortening real
+  users' names is a decision for them.
+
 ## init_local stops at migration 0002 (local database)
 
 **Symptom:** `python -m app.db.init_local` (or Compose's `init_local`)

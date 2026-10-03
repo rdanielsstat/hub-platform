@@ -38,6 +38,7 @@ no location.
 |---|---|---|
 | CloudWatch Logs (API Lambda) | Frontend error reports: user id (when signed in), browser user agent, page path (no query string), error message and stack trace. Origin-verification rejections: the source IP of the rejected request (a caller that bypassed CloudFront, not a site user). Unhandled exception tracebacks. | 14 days |
 | CloudWatch Logs (bootstrap Lambda) | The demo account's email when it's seeded; no user data otherwise | 14 days |
+| Grafana Cloud (logs) | The same frontend error reports, database-outage lines and origin-verification rejections as CloudWatch (user id, user agent, page path, error message and stack; source IP of a rejected direct call), exported from the `app.client_errors`, `app.db` and `app.security` loggers. Nothing else is exported as logs. | Per the Grafana Cloud stack's plan |
 | Grafana Cloud (traces, metrics) | Traces: request method, route, status, timing, SQL statements as parameterized text (bound values aren't recorded), and whatever HTTP attributes the OpenTelemetry FastAPI instrumentation adds (which can include the client address and user agent). Metrics: counts and latencies only, no user data. | Per the Grafana Cloud stack's plan |
 | API Gateway, CloudFront, Cloudflare | Standard request handling. API Gateway access logging is off. | Per each provider |
 

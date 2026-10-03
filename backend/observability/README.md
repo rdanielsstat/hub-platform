@@ -59,7 +59,7 @@ OTEL_ENABLED=true uv run uvicorn app.main:app --reload
 ```
 
 At startup the backend prints
-`observability: exporting traces and metrics to local collector at http://localhost:4318`.
+`observability: exporting traces, metrics and logs to local collector at http://localhost:4318`.
 
 ## Stop
 

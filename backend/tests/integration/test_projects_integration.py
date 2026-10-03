@@ -146,3 +146,33 @@ def test_project_cap_on_postgres(client, register_and_login, monkeypatch):
     ]
 
     assert statuses == [201, 201, 403]
+
+
+def test_postgres_check_constraint_counts_json_array_entries(store):
+    """Migration 0003's json_array_length() constraints, on Postgres's json type."""
+    user = store.create_user(email="many-tags@example.com", password_hash="h")
+    fields = dict(
+        name="p", pitch="", description="", status="Inbox", links=[],
+        excitement=3, effort=3, potential=3, next_action="", target_date=None,
+    )
+    store.create_project(owner_id=user.id, tags=["t"] * 50, **fields)
+
+    with pytest.raises(DBAPIError):
+        store.create_project(owner_id=user.id, tags=["t"] * 51, **fields)
+    store._db.rollback()
+
+
+def test_api_rejects_too_many_tags_and_long_link_urls_on_postgres(client, register_and_login):
+    headers = register_and_login("lists-api@example.com")
+
+    too_many = client.post(
+        "/projects", json={"name": "p", "tags": ["t"] * 51}, headers=headers
+    )
+    long_url = client.post(
+        "/projects",
+        json={"name": "p", "links": [{"url": "https://e.com/" + "a" * 2040}]},
+        headers=headers,
+    )
+
+    assert too_many.status_code == 422
+    assert long_url.status_code == 422

@@ -162,7 +162,14 @@ class Store:
             self._db.commit()
         except IntegrityError as exc:
             self._db.rollback()
-            raise DuplicateEmailError(email) from exc
+            # Only a clash on the unique email index is a duplicate. Any other
+            # integrity failure (a CHECK constraint, say) is a real error and
+            # must not be reported to the user as "Email already registered".
+            # Checked by looking the email up, not by parsing the driver's
+            # message, so it reads the same on SQLite and Postgres.
+            if self.get_user_by_email(email) is not None:
+                raise DuplicateEmailError(email) from exc
+            raise
         return _user_record(user, identity)
 
     def get_user(self, user_id: str) -> UserRecord | None:

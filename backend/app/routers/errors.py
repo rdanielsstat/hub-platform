@@ -4,9 +4,9 @@ The web app (frontend/src/lib/error-reporting.ts) sends one report per
 uncaught JS error, unhandled promise rejection, React render crash, and
 failed API call (network error or 5xx). Each becomes one JSON log line
 on the "app.client_errors" logger: CloudWatch Logs when deployed, the
-console locally. Forwarding those logs to Grafana is a separate,
-manual step (see ops/MONITORING.md); the request also shows up in the
-existing per-endpoint metrics as client_errors_post_*.
+console locally, and, wherever OTEL_ENABLED is on, Grafana Cloud as an
+OTLP log record (observability/, EXPORTED_LOGGERS; stored in Loki). The
+request also shows up in the per-endpoint metrics as client_errors_post_*.
 
 Unauthenticated on purpose: errors happen while signed out too (the
 login page can crash). So it's rate limited per client IP
@@ -80,4 +80,10 @@ def report_client_error(report: ClientErrorReport, request: Request) -> None:
     entry["user_id"] = _user_id(request)
     # One JSON object per line, so a log pipeline (CloudWatch Logs
     # Insights, Loki) can parse fields without a custom pattern.
-    logger.warning("client_error %s", json.dumps(entry, sort_keys=True))
+    # extra becomes OTLP log attributes when the record is exported to
+    # Grafana (observability/), so reports can be filtered by kind there.
+    # (OTLP attributes can't be None, hence status only when present.)
+    attributes: dict[str, str | int] = {"client_error.kind": report.kind}
+    if report.status is not None:
+        attributes["client_error.status"] = report.status
+    logger.warning("client_error %s", json.dumps(entry, sort_keys=True), extra=attributes)

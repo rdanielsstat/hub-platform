@@ -215,11 +215,24 @@ test.describe('POST /auth/register', () => {
     }
   })
 
+  test('displayName over 100 characters is rejected with 422', async ({
+    request,
+  }) => {
+    await expect422(
+      await register(request, {
+        email: uniqueEmail(),
+        password: PASSWORD,
+        displayName: 'd'.repeat(101),
+      }),
+      ['body', 'displayName'],
+    )
+  })
+
   test('displayName: empty, long, and unicode values are stored as sent', async ({
     request,
   }) => {
-    // No length limit or blank check on displayName today.
-    for (const displayName of ['', 'd'.repeat(1000), 'Zoë 日本 🚀']) {
+    // Up to 100 characters; no blank check.
+    for (const displayName of ['', 'd'.repeat(100), 'Zoë 日本 🚀']) {
       const res = await register(request, {
         email: uniqueEmail(),
         password: PASSWORD,
@@ -777,15 +790,40 @@ test.describe('projects', () => {
       ).toBe('2028-02-29')
     })
 
-    test('tags are stored as sent: no dedupe, case kept, long values allowed', async ({
+    test('tags are stored as sent: no dedupe, case kept, up to 64 characters', async ({
       request,
     }) => {
       // The API does not normalize tags; the UI lowercases (and on the
       // detail page, dedupes) before sending.
-      const tags = ['a', 'a', 'A', 't'.repeat(1000), 'émoji-🚀']
+      const tags = ['a', 'a', 'A', 't'.repeat(64), 'émoji-🚀']
       const res = await post(request, { name: 't', tags })
       expect(res.status()).toBe(201)
       expect((await res.json()).tags).toEqual(tags)
+    })
+
+    test('422 for more than 50 tags, a tag over 64 characters, or more than 50 links', async ({
+      request,
+    }) => {
+      await expect422(
+        await post(request, {
+          name: 't',
+          tags: Array.from({ length: 51 }, (_, i) => `t${i}`),
+        }),
+        ['body', 'tags'],
+      )
+      await expect422(
+        await post(request, { name: 't', tags: ['t'.repeat(65)] }),
+        ['body', 'tags', 0],
+      )
+      await expect422(
+        await post(request, {
+          name: 't',
+          links: Array.from({ length: 51 }, (_, i) => ({
+            url: `https://e.com/${i}`,
+          })),
+        }),
+        ['body', 'links'],
+      )
     })
 
     test('422 for tags that are not a list of strings', async ({ request }) => {

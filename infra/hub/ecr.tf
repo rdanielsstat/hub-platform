@@ -1,8 +1,13 @@
 # One ECR repo per environment (hub-prod-backend, hub-dev-backend), so prod and
 # dev images never mix.
+#
+# Tags are immutable (tfsec AVD-AWS-0031): a tag, once pushed, always names
+# the same image, so the tag dev tested is byte-for-byte the tag prod runs.
+# CI pushes a fresh <timestamp>-<sha> tag per build; promote.yml skips the
+# copy when prod already has the tag (re-promoting the same build).
 resource "aws_ecr_repository" "backend" {
   name                 = "${local.name}-backend"
-  image_tag_mutability = "MUTABLE"
+  image_tag_mutability = "IMMUTABLE"
 
   image_scanning_configuration {
     scan_on_push = true

@@ -79,6 +79,19 @@ page load, each distinct one once, fire-and-forget. Nothing is sent from
 unit tests: reporting stays off until `installErrorReporting()` runs. See
 `backend/README.md` ("Frontend error reports").
 
+## Content-Security-Policy
+
+Deployed, CloudFront sends a strict CSP (`infra/hub/frontend.tf`):
+scripts only from the site itself, with no inline `<script>`; styles and
+fonts from the site and Google Fonts; API calls same-origin. So:
+
+- Don't add inline scripts to `index.html`. Code that has to run before
+  React (like the theme, to avoid a flash) goes in a file under
+  `public/` and loads with `<script src>`; see `public/theme-init.js`.
+- Loading anything from a new origin (a CDN, an analytics script, an
+  image host) needs that origin added to the CSP first, or the browser
+  blocks it. The dev server sends no CSP, so this only fails deployed.
+
 ## Session check
 
 On load, `src/auth.tsx` asks `GET /auth/me` whether the session cookie is

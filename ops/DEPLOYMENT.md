@@ -38,9 +38,9 @@ Nobody deploys from a laptop, and agents never deploy (`AGENTS.md`).
 7. Smoke test: `GET /api/health` through the site URL until it returns
    200 (5 tries, 10 s apart).
 
-The `integration` and `e2e` jobs also run on every push and PR, but don't
-gate the deploy yet (see the comment in `ci.yml`). Once they've been
-green on `main` for a while, add them to `deploy-dev`'s `needs`.
+`deploy-dev` waits for every check: `test`, `secrets-scan`,
+`integration` (Postgres) and `e2e` (Playwright against Docker Compose).
+Any failure means no deploy.
 
 ## Prod: promote.yml
 
@@ -122,6 +122,39 @@ So migrations must stay compatible with the code that's still running:
 The targeted apply prints OpenTofu's usual warning about `-target`
 being for exceptional use; it's expected here. The full apply right
 after brings everything else in line.
+
+## Migration 0003: check existing data first
+
+`0003` adds limits on tags (50 per project), links (50 per project) and
+display names (100 characters), and, like `0002`, refuses to run over
+rows that already exceed them. Before the first deploy that includes it,
+in the Neon SQL editor for each environment:
+
+```
+SELECT
+  (SELECT count(*) FROM users    WHERE length(display_name) > 100)    AS display_names,
+  (SELECT count(*) FROM projects WHERE json_array_length(tags) > 50)  AS tag_lists,
+  (SELECT count(*) FROM projects WHERE json_array_length(links) > 50) AS link_lists;
+```
+
+All zeros: deploy. Otherwise the bootstrap stops the deploy with the
+counts, before any code changes (`ops/TROUBLESHOOTING.md`).
+
+## Security headers
+
+CloudFront adds CSP, HSTS (one year, includeSubDomains, preload),
+`X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and
+`Referrer-Policy` to every response (`infra/hub/frontend.tf`). Check
+after a deploy:
+
+```
+curl -sI https://hub-dev.dnls.dev/ | grep -iE "content-security|strict-transport|x-frame|x-content-type|referrer"
+```
+
+The CSP allows scripts from the site itself only (no inline scripts),
+styles and fonts from the site and Google Fonts, and API calls to the
+same origin. A change that loads anything from another origin must add
+it to `local.content_security_policy`, or browsers block it.
 
 ## Trusted proxies: Cloudflare's IP ranges
 

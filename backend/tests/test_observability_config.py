@@ -58,7 +58,7 @@ def test_otel_enabled_unset_disables_observability() -> None:
 
 def test_otel_enabled_true_enables_observability() -> None:
     out = _import_app_main(OTEL_ENABLED="true")
-    assert "observability: exporting traces and metrics to local collector" in out
+    assert "observability: exporting traces, metrics and logs to local collector" in out
     assert "observability: disabled" not in out
 
 

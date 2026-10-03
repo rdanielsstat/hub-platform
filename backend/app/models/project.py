@@ -1,7 +1,8 @@
 from datetime import date, datetime
 from enum import Enum
+from typing import Annotated
 
-from pydantic import Field, field_validator
+from pydantic import Field, StringConstraints, field_validator
 
 from app.models.base import CamelModel
 
@@ -14,6 +15,18 @@ PITCH_MAX_LENGTH = 2000
 DESCRIPTION_MAX_LENGTH = 5000
 NEXT_ACTION_MAX_LENGTH = 1000
 
+# Tags and links (JSON lists). The API checks both the number of entries and
+# each entry's length. The database checks only the number of entries
+# (CHECK json_array_length(...), migration 0003): a CHECK constraint can't
+# look inside each element of a JSON array portably.
+TAGS_MAX_ITEMS = 50
+TAG_MAX_LENGTH = 64
+LINKS_MAX_ITEMS = 50
+LINK_URL_MAX_LENGTH = 2048
+LINK_LABEL_MAX_LENGTH = 200
+
+Tag = Annotated[str, StringConstraints(max_length=TAG_MAX_LENGTH)]
+
 
 class Status(str, Enum):
     INBOX = "Inbox"
@@ -25,8 +38,8 @@ class Status(str, Enum):
 
 
 class Link(CamelModel):
-    label: str | None = None
-    url: str
+    label: str | None = Field(default=None, max_length=LINK_LABEL_MAX_LENGTH)
+    url: str = Field(max_length=LINK_URL_MAX_LENGTH)
 
     @field_validator("url")
     @classmethod
@@ -62,13 +75,13 @@ class CreateProjectInput(CamelModel):
     pitch: str = Field(default="", max_length=PITCH_MAX_LENGTH)
     description: str = Field(default="", max_length=DESCRIPTION_MAX_LENGTH)
     status: Status = Status.INBOX
-    tags: list[str] = Field(default_factory=list)
+    tags: list[Tag] = Field(default_factory=list, max_length=TAGS_MAX_ITEMS)
     excitement: int = Field(default=3, ge=1, le=5)
     effort: int = Field(default=3, ge=1, le=5)
     potential: int = Field(default=3, ge=1, le=5)
     next_action: str = Field(default="", max_length=NEXT_ACTION_MAX_LENGTH)
     target_date: date | None = None
-    links: list[Link] = Field(default_factory=list)
+    links: list[Link] = Field(default_factory=list, max_length=LINKS_MAX_ITEMS)
 
 
 class UpdateProjectInput(CamelModel):
@@ -79,13 +92,13 @@ class UpdateProjectInput(CamelModel):
     pitch: str | None = Field(default=None, max_length=PITCH_MAX_LENGTH)
     description: str | None = Field(default=None, max_length=DESCRIPTION_MAX_LENGTH)
     status: Status | None = None
-    tags: list[str] | None = None
+    tags: list[Tag] | None = Field(default=None, max_length=TAGS_MAX_ITEMS)
     excitement: int | None = Field(default=None, ge=1, le=5)
     effort: int | None = Field(default=None, ge=1, le=5)
     potential: int | None = Field(default=None, ge=1, le=5)
     next_action: str | None = Field(default=None, max_length=NEXT_ACTION_MAX_LENGTH)
     target_date: date | None = None
-    links: list[Link] | None = None
+    links: list[Link] | None = Field(default=None, max_length=LINKS_MAX_ITEMS)
 
     # None is only the "not sent" default here. An explicit null is valid
     # for target_date alone (it clears the date); for any other field it

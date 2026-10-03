@@ -9,6 +9,10 @@ from app.models.base import CamelModel
 # request burn seconds of Lambda CPU.
 PASSWORD_MAX_LENGTH = 256
 
+# Longest display name, in characters. Also a CHECK constraint on users
+# (app/db/orm.py, migration 0003).
+DISPLAY_NAME_MAX_LENGTH = 100
+
 
 class User(CamelModel):
     id: str
@@ -21,7 +25,7 @@ class User(CamelModel):
 class RegisterInput(CamelModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=PASSWORD_MAX_LENGTH)
-    display_name: str | None = None
+    display_name: str | None = Field(default=None, max_length=DISPLAY_NAME_MAX_LENGTH)
 
 
 class TokenResponse(BaseModel):

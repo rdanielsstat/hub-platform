@@ -500,6 +500,7 @@ components:
           maxLength: 256
         displayName:
           type: [string, "null"]
+          maxLength: 100
 
     LoginForm:
       type: object
@@ -621,8 +622,10 @@ components:
           $ref: '#/components/schemas/Status'
         tags:
           type: array
+          maxItems: 50
           items:
             type: string
+            maxLength: 64
         excitement:
           type: integer
           minimum: 1
@@ -643,6 +646,7 @@ components:
           format: date
         links:
           type: array
+          maxItems: 50
           items:
             $ref: '#/components/schemas/Link'
 
@@ -666,8 +670,10 @@ components:
           $ref: '#/components/schemas/Status'
         tags:
           type: array
+          maxItems: 50
           items:
             type: string
+            maxLength: 64
         excitement:
           type: integer
           minimum: 1
@@ -688,6 +694,7 @@ components:
           format: date
         links:
           type: array
+          maxItems: 50
           items:
             $ref: '#/components/schemas/Link'
 
@@ -697,9 +704,11 @@ components:
       properties:
         label:
           type: [string, "null"]
+          maxLength: 200
           description: Optional. Returned as null when not set.
         url:
           type: string
+          maxLength: 2048
           format: uri
           pattern: '^[Hh][Tt][Tt][Pp][Ss]?://'
           description: Must start with http:// or https://.

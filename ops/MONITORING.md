@@ -9,7 +9,8 @@ What telemetry exists, where it goes, and how to look at it.
 | Traces | OpenTelemetry (FastAPI + SQLAlchemy instrumentation) | Grafana Cloud (Tempo) | Grafana Cloud (Tempo) | Off, or the local stack |
 | Metrics | OpenTelemetry (`backend/observability/metrics.py`) | Grafana Cloud (Prometheus/Mimir) | Grafana Cloud | Off, or the local stack |
 | App logs | Python logging, stdout | CloudWatch Logs, 14 days | CloudWatch Logs, 14 days | Terminal |
-| Frontend error reports | `POST /client-errors`, logged by the backend | CloudWatch Logs | CloudWatch Logs | Terminal |
+| Frontend error reports | `POST /client-errors`, logged by the backend | CloudWatch Logs and Grafana Cloud (Loki) | CloudWatch Logs and Grafana Cloud (Loki) | Terminal, or the local stack |
+| Database outages, rejected direct API calls | `app.db`, `app.security` loggers | CloudWatch Logs and Grafana Cloud (Loki) | same | Terminal |
 | Bootstrap logs | stdout of the bootstrap Lambda | CloudWatch Logs, 14 days | CloudWatch Logs, 14 days | `docker compose logs bootstrap` |
 | API Gateway and CloudFront | AWS | CloudWatch metrics (default) | same | n/a |
 
@@ -116,31 +117,44 @@ fields @timestamp, @message
 | limit 50
 ```
 
-## Frontend errors to Grafana: the manual step
+## Frontend errors in Grafana
 
-Frontend errors are reported today, but they land in CloudWatch Logs,
-not Grafana. The app only exports traces and metrics over OTLP, not
-logs. To see them in Grafana, pick one:
+Frontend error reports, database outages and origin-verification
+rejections are exported to Grafana Cloud as OTLP log records (stored in
+Loki), from the loggers listed in `EXPORTED_LOGGERS`
+(`backend/observability/__init__.py`): `app.client_errors`, `app.db`,
+`app.security`. Same OTLP endpoint and credentials as traces and
+metrics, so nothing extra to configure; wherever `OTEL_ENABLED` is on
+(the dev and prod Lambdas) they're exported. They still go to
+CloudWatch too.
 
-1. **CloudWatch data source in Grafana** (least work): add the AWS
-   CloudWatch data source in Grafana Cloud with a read-only IAM role,
-   then query the log group with the Logs Insights query above. Needs
-   an IAM role for Grafana (OpenTofu change) and the data source set up
-   in the Grafana UI.
-2. **OTLP logs from the backend**: add the OpenTelemetry logging
-   handler in `backend/observability/` so `app.client_errors` records
-   are exported to Grafana Cloud's OTLP endpoint (Loki). Same
-   endpoint and credentials as traces and metrics, so no new secret.
-   A code change, plus confirming the Grafana Cloud stack accepts OTLP
-   logs.
-3. **Grafana Faro in the browser**: send errors straight from the
-   frontend to a Grafana Faro collector. Needs a new dependency and a
-   Faro collector URL (the receiver URL is public by design), and
-   duplicates what `/client-errors` already does.
+(Chosen 2026-10-03 over a CloudWatch data source in Grafana, which needs
+an IAM role and UI setup, and over Grafana Faro in the browser, which
+needs a new dependency and duplicates `/client-errors`.)
 
-Option 2 is the most consistent with the current setup. Whichever is
-chosen, the Grafana side (data source or receiver URL, credentials) has
-to be set by someone with access to the Grafana Cloud stack.
+Grafana Explore, Loki data source:
+
+```
+# Every frontend error report, newest first
+{service_name="hub-platform"} |= "client_error"
+
+# Only one environment, one kind
+{service_name="hub-platform", deployment_environment="prod"} |= "client_error" | client_error_kind="http"
+
+# Database outages (503s) and rejected direct API calls
+{service_name="hub-platform"} |~ "database_unavailable|origin_verify_rejected"
+```
+
+Each `client_error` line carries the report as JSON (`| json` parses
+it), plus the attributes `client_error.kind` and, for failed API calls,
+`client_error.status`. Records are exported synchronously as they're
+logged (Lambda freezes between invocations), with a 2-second timeout and
+a 60-second back-off after a failed export, like spans.
+
+Checked locally against the repo's collector and Loki
+(`backend/observability/docker-compose.yml`): a report sent to
+`/client-errors` appears in Loki with `service_name=hub-platform`,
+`client_error_kind`, `severity_text=WARN`.
 
 ## Local
 

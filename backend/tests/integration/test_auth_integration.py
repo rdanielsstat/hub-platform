@@ -109,3 +109,25 @@ def test_over_long_login_password_is_422(client):
     )
 
     assert res.status_code == 422
+
+
+def test_display_name_limit_on_postgres(client, store):
+    ok = client.post(
+        "/auth/register",
+        json={"email": "dn@example.com", "password": TEST_PASSWORD, "displayName": "d" * 100},
+    )
+    too_long = client.post(
+        "/auth/register",
+        json={"email": "dn2@example.com", "password": TEST_PASSWORD, "displayName": "d" * 101},
+    )
+
+    assert ok.status_code == 201
+    assert too_long.status_code == 422
+
+
+def test_check_violation_is_not_reported_as_a_duplicate_email(store):
+    """create_user maps only a real email clash to DuplicateEmailError."""
+    from sqlalchemy.exc import IntegrityError
+
+    with pytest.raises(IntegrityError):
+        store.create_user(email="dn3@example.com", password_hash="h", display_name="d" * 101)
