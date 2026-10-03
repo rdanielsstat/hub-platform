@@ -1,3 +1,5 @@
+import ipaddress
+
 import pytest
 from starlette.requests import Request
 
@@ -259,3 +261,147 @@ def test_register_and_login_limits_are_counted_separately(
     )
     assert login.status_code == 200
 
+
+
+# ---- trusted proxies and X-Forwarded-For (TRUSTED_PROXY_IPS) ----
+
+CLOUDFLARE = tuple(
+    ipaddress.ip_network(n) for n in ("173.245.48.0/20", "2400:cb00::/32")
+)
+VIEWER = "CloudFront-Viewer-Address"
+
+
+def _behind_cloudflare(xff: str, viewer: str = "173.245.48.10:443") -> Request:
+    """A request as the Lambda sees it: CloudFront's viewer is a
+    Cloudflare edge, and X-Forwarded-For carries the chain."""
+    return _request({VIEWER: viewer, "X-Forwarded-For": xff})
+
+
+def test_forwarded_for_is_used_when_the_hop_is_a_trusted_proxy():
+    request = _behind_cloudflare("198.51.100.7, 173.245.48.10")
+
+    assert client_ip(request, header=VIEWER, trusted=CLOUDFLARE) == "198.51.100.7"
+
+
+def test_entries_appended_after_the_hop_are_ignored():
+    """CloudFront and API Gateway may append their own addresses after the
+    Cloudflare hop; those aren't the client."""
+    request = _behind_cloudflare("198.51.100.7, 173.245.48.10, 54.239.1.1")
+
+    assert client_ip(request, header=VIEWER, trusted=CLOUDFLARE) == "198.51.100.7"
+
+
+def test_chain_without_the_hop_is_read_from_the_right():
+    request = _behind_cloudflare("198.51.100.7")
+
+    assert client_ip(request, header=VIEWER, trusted=CLOUDFLARE) == "198.51.100.7"
+
+
+def test_forwarded_for_is_ignored_when_no_proxies_are_trusted():
+    """The default (local, Docker Compose): the header changes nothing."""
+    request = _behind_cloudflare("198.51.100.7, 173.245.48.10")
+
+    assert client_ip(request, header=VIEWER, trusted=()) == "173.245.48.10"
+
+
+def test_forwarded_for_is_ignored_when_the_hop_is_not_trusted():
+    """A client calling CloudFront directly, skipping Cloudflare, can't
+    choose its own address by sending X-Forwarded-For."""
+    request = _behind_cloudflare("1.2.3.4", viewer="203.0.113.50:443")
+
+    assert client_ip(request, header=VIEWER, trusted=CLOUDFLARE) == "203.0.113.50"
+
+
+def test_a_forged_left_entry_does_not_win():
+    """Cloudflare appends the real client after whatever the client sent,
+    so the walk stops at the real one."""
+    request = _behind_cloudflare("6.6.6.6, 198.51.100.7, 173.245.48.10")
+
+    assert client_ip(request, header=VIEWER, trusted=CLOUDFLARE) == "198.51.100.7"
+
+
+def test_several_trusted_proxies_are_skipped():
+    request = _behind_cloudflare("198.51.100.7, 173.245.50.1, 173.245.48.10")
+
+    assert client_ip(request, header=VIEWER, trusted=CLOUDFLARE) == "198.51.100.7"
+
+
+def test_malformed_entry_stops_the_walk_and_falls_back_to_the_hop():
+    request = _behind_cloudflare("198.51.100.7, not-an-ip, 173.245.48.10")
+
+    assert client_ip(request, header=VIEWER, trusted=CLOUDFLARE) == "173.245.48.10"
+
+
+def test_missing_or_all_trusted_chain_falls_back_to_the_hop():
+    assert client_ip(_behind_cloudflare(""), header=VIEWER, trusted=CLOUDFLARE) == (
+        "173.245.48.10"
+    )
+    assert client_ip(
+        _behind_cloudflare("173.245.50.1"), header=VIEWER, trusted=CLOUDFLARE
+    ) == "173.245.48.10"
+
+
+def test_ipv6_client_behind_ipv6_proxy_is_grouped_by_64():
+    request = _behind_cloudflare(
+        "2001:db8:1:2::abcd, 2400:cb00:1::1", viewer="2400:cb00:1::1:443"
+    )
+
+    assert client_ip(request, header=VIEWER, trusted=CLOUDFLARE) == "2001:db8:1:2::abcd"
+    assert rate_limit_key(request, header=VIEWER, trusted=CLOUDFLARE) == (
+        "2001:db8:1:2::/64"
+    )
+
+
+def test_trusted_peer_without_a_proxy_header():
+    """No CLIENT_IP_HEADER (e.g. behind a single reverse proxy): the TCP
+    peer is the hop."""
+    request = _request({"X-Forwarded-For": "198.51.100.7"}, peer="173.245.48.10")
+
+    assert client_ip(request, header="", trusted=CLOUDFLARE) == "198.51.100.7"
+
+
+def test_two_users_behind_one_cloudflare_edge_get_separate_login_buckets(
+    client, monkeypatch
+):
+    """The bug this fixes: without trusted proxies, everyone behind one
+    Cloudflare egress IP shared a bucket."""
+    monkeypatch.setattr(rate_limit, "CLIENT_IP_HEADER", VIEWER)
+    monkeypatch.setattr(rate_limit, "TRUSTED_PROXY_NETWORKS", CLOUDFLARE)
+    monkeypatch.setattr(rate_limit, "login_rate_limiter", SlidingWindowRateLimiter(2))
+    form = {"username": "nobody@example.com", "password": "wrong-password"}
+
+    def attempt(user_ip: str) -> int:
+        return client.post(
+            "/auth/login",
+            data=form,
+            headers={VIEWER: "173.245.48.10:443", "X-Forwarded-For": user_ip},
+        ).status_code
+
+    assert [attempt("198.51.100.7") for _ in range(3)] == [401, 401, 429]
+    # Same Cloudflare edge, different user: not blocked.
+    assert attempt("198.51.100.8") == 401
+
+
+def test_parse_trusted_proxies():
+    from app.core.config import parse_trusted_proxies
+
+    assert parse_trusted_proxies(None) == ()
+    assert parse_trusted_proxies(" ") == ()
+    assert parse_trusted_proxies("173.245.48.0/20, 2400:cb00::/32,10.0.0.1") == (
+        "173.245.48.0/20",
+        "2400:cb00::/32",
+        "10.0.0.1/32",
+    )
+    # Host bits set are normalized, not rejected.
+    assert parse_trusted_proxies("173.245.48.5/20") == ("173.245.48.0/20",)
+
+
+def test_parse_trusted_proxies_rejects_typos():
+    from app.core.config import parse_trusted_proxies
+
+    with pytest.raises(RuntimeError, match="TRUSTED_PROXY_IPS"):
+        parse_trusted_proxies("173.245.48.0/20, cloudflare")
+
+
+def test_trusted_proxies_are_off_by_default():
+    assert rate_limit.TRUSTED_PROXY_NETWORKS == ()

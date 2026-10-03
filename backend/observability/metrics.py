@@ -31,6 +31,7 @@ ENDPOINT_METRICS: dict[tuple[str, str], str] = {
     ("GET", "/projects/{project_id}/notes"): "project_notes_list",
     ("POST", "/projects/{project_id}/notes"): "project_notes_create",
     ("DELETE", "/notes/{note_id}"): "note_delete",
+    ("POST", "/client-errors"): "client_errors_post",
 }
 
 _SIGNUP = ("POST", "/auth/register")

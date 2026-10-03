@@ -3,14 +3,16 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { AuthProvider } from '@/auth'
-import type { Project } from '@/services/api'
+import { HttpError, type Project } from '@/services/api'
+import { SESSION_RETRY_DELAY_MS } from '@/auth'
 import { App } from './App'
 
 const mockAuthApi = vi.hoisted(() => ({
   register: vi.fn(),
   login: vi.fn(),
-  // No session unless a test says otherwise.
-  getCurrentUser: vi.fn().mockRejectedValue(new Error('Not authenticated')),
+  // No session (a 401) unless a test says otherwise; set in beforeEach,
+  // since HttpError can't be imported into this hoisted block.
+  getCurrentUser: vi.fn(),
   logout: vi.fn().mockResolvedValue(undefined),
 }))
 
@@ -64,6 +66,41 @@ beforeEach(() => {
   vi.clearAllMocks()
   localStorage.clear()
   mockApi.listNotes.mockResolvedValue([])
+  mockAuthApi.getCurrentUser.mockRejectedValue(
+    new HttpError(401, 'Not authenticated'),
+  )
+})
+
+describe('Backend unreachable on load', () => {
+  it('shows a retry screen instead of the login page, and recovers', async () => {
+    const user = userEvent.setup()
+    mockAuthApi.getCurrentUser
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce({
+        id: 'u1',
+        email: 'me@example.com',
+        displayName: 'Rob',
+        createdAt: 'now',
+        updatedAt: 'now',
+      })
+    mockApi.listProjects.mockResolvedValueOnce([project()])
+
+    renderApp()
+
+    expect(
+      await screen.findByRole(
+        'heading',
+        { name: 'Can’t reach the server' },
+        { timeout: SESSION_RETRY_DELAY_MS + 1000 },
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Welcome back.')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+
+    expect(await screen.findByText('Chess analytics')).toBeInTheDocument()
+  })
 })
 
 describe('Auth to dashboard flow', () => {

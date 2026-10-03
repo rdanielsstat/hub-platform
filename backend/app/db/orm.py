@@ -12,12 +12,19 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Date, DateTime
+from sqlalchemy import JSON, CheckConstraint, Date, DateTime
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from app.models.project import Status
+from app.models.note import NOTE_BODY_MAX_LENGTH
+from app.models.project import (
+    DESCRIPTION_MAX_LENGTH,
+    NAME_MAX_LENGTH,
+    NEXT_ACTION_MAX_LENGTH,
+    PITCH_MAX_LENGTH,
+    Status,
+)
 
 
 class Base(DeclarativeBase):
@@ -26,6 +33,15 @@ class Base(DeclarativeBase):
 
 def _new_id() -> str:
     return str(uuid.uuid4())
+
+
+def _max_length(table: str, column: str, limit: int) -> CheckConstraint:
+    """A length cap as a CHECK constraint, backing up the API's own
+    validation (app/models/). The columns stay Text: length() counts
+    characters in both SQLite and Postgres. Names match migration 0002."""
+    return CheckConstraint(
+        f"length({column}) <= {limit}", name=f"ck_{table}_{column}_length"
+    )
 
 
 class UserTable(Base):
@@ -56,6 +72,12 @@ class AuthIdentityTable(Base):
 
 class ProjectTable(Base):
     __tablename__ = "projects"
+    __table_args__ = (
+        _max_length("projects", "name", NAME_MAX_LENGTH),
+        _max_length("projects", "pitch", PITCH_MAX_LENGTH),
+        _max_length("projects", "description", DESCRIPTION_MAX_LENGTH),
+        _max_length("projects", "next_action", NEXT_ACTION_MAX_LENGTH),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_id)
     owner_id: Mapped[str] = mapped_column(
@@ -80,6 +102,7 @@ class ProjectTable(Base):
 
 class NoteTable(Base):
     __tablename__ = "notes"
+    __table_args__ = (_max_length("notes", "body", NOTE_BODY_MAX_LENGTH),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_id)
     project_id: Mapped[str] = mapped_column(

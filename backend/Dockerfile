@@ -23,6 +23,9 @@ RUN pip install --no-cache-dir -r requirements.txt --target "${LAMBDA_TASK_ROOT}
 
 COPY app ${LAMBDA_TASK_ROOT}/app
 COPY observability ${LAMBDA_TASK_ROOT}/observability
+# Migration scripts, applied by the bootstrap Lambda (app/bootstrap_db.py).
+COPY alembic ${LAMBDA_TASK_ROOT}/alembic
+COPY alembic.ini ${LAMBDA_TASK_ROOT}/alembic.ini
 
 # Mangum-wrapped FastAPI app; see app/lambda_handler.py.
 CMD ["app.lambda_handler.handler"]
@@ -37,6 +40,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 COPY observability ./observability
+COPY alembic ./alembic
+COPY alembic.ini ./alembic.ini
 
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

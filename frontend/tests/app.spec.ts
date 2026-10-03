@@ -699,7 +699,8 @@ test.describe('dashboard', () => {
     request,
   }) => {
     const user = await registerViaApi(request)
-    const longName = `Long ${'word '.repeat(80)}${uid()}`
+    // Long enough to wrap, under the 256-character name limit.
+    const longName = `Long ${'word '.repeat(45)}${uid()}`
     const unicode = `日本語 🚀 Ünïcödé ${uid()}`
     const markup = `<img src=x onerror="window.__xss=1"> ${uid()}`
     for (const name of [longName, unicode, markup]) {
@@ -920,7 +921,8 @@ test.describe('create project', () => {
 
   test('long and unicode values round-trip', async ({ page, request }) => {
     const name = `Ünïcödé 日本語 🚀 ${uid()}`
-    const desc = `${'Lorem ipsum dolor sit amet. '.repeat(200)}\nSecond line ✓`
+    // Under the 5,000-character description limit.
+    const desc = `${'Lorem ipsum dolor sit amet. '.repeat(170)}\nSecond line ✓`
     await headerCapture(page).click()
     const dialog = captureDialog(page)
     await dialog.locator('#qc-name').fill(name)

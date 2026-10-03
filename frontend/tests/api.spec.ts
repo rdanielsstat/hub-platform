@@ -658,7 +658,8 @@ test.describe('projects', () => {
 
     test('long and unicode names are stored exactly', async ({ request }) => {
       for (const name of [
-        'n'.repeat(10_000),
+        'n'.repeat(256),
+        '🚀'.repeat(256), // the limit counts characters, not UTF-16 units or bytes
         '日本語 🚀 émoji Ünïcödé',
         'RTL ‮txet‬ and zero​width',
         '<script>alert(1)</script>',
@@ -667,6 +668,28 @@ test.describe('projects', () => {
         const res = await post(request, { name })
         expect(res.status()).toBe(201)
         expect((await res.json()).name).toBe(name)
+      }
+    })
+
+    test('text fields over their limits are rejected with 422', async ({
+      request,
+    }) => {
+      const limits = {
+        name: 256,
+        pitch: 2000,
+        description: 5000,
+        nextAction: 1000,
+      }
+      for (const [field, limit] of Object.entries(limits)) {
+        const atLimit = await post(request, {
+          name: 'n',
+          [field]: 'x'.repeat(limit),
+        })
+        expect(atLimit.status()).toBe(201)
+        await expect422(
+          await post(request, { name: 'n', [field]: 'x'.repeat(limit + 1) }),
+          ['body', field],
+        )
       }
     })
 
@@ -1116,7 +1139,7 @@ test.describe('notes', () => {
       request,
     }) => {
       for (const text of [
-        'z'.repeat(100_000),
+        'z'.repeat(10_000),
         'line 1\nline 2\n\n  indented',
         '日本 🚀 <b>x</b>',
       ]) {
@@ -1124,6 +1147,16 @@ test.describe('notes', () => {
         expect(res.status()).toBe(201)
         expect((await res.json()).note.body).toBe(text)
       }
+    })
+
+    test('a body over 10,000 characters is rejected with 422', async ({
+      request,
+    }) => {
+      const res = await addNote(request, project.id, {
+        body: 'z'.repeat(10_001),
+      })
+      await expect422(res, ['body', 'body'])
+      expect(await listNotesViaApi(request, user, project.id)).toEqual([])
     })
 
     test('empty and whitespace bodies are accepted (only the UI blocks them)', async ({

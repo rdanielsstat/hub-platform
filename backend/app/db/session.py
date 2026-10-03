@@ -14,7 +14,6 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_database_url
-from app.db.orm import Base
 
 
 def enable_sqlite_foreign_keys(target_engine: Engine, database_url: str) -> None:
@@ -88,15 +87,6 @@ def SessionLocal() -> Session:
     zero-arg callable (`SessionLocal()`) so existing call sites don't
     need to know the engine behind it is built lazily."""
     return _get_session_factory()()
-
-
-def create_tables() -> None:
-    """v1 migration story: create tables if they don't exist. Called by
-    the local init step (app/db/init_local.py), never at app import.
-    No Alembic yet — the schema is still moving pre-launch. Once it
-    stabilizes, swap this for real Alembic migrations so future schema
-    changes are tracked and reversible instead of implicit."""
-    Base.metadata.create_all(bind=_get_engine())
 
 
 def get_db_session() -> Iterator[Session]:

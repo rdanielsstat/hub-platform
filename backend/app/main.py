@@ -1,5 +1,9 @@
-from fastapi import FastAPI
+import logging
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy.exc import OperationalError
 
 from app.auth.origin_verify import OriginVerifyMiddleware
 from app.core.config import (
@@ -11,7 +15,7 @@ from app.core.config import (
     require_safe_jwt_secret,
     require_safe_seed_setting,
 )
-from app.routers import auth, health, notes, projects
+from app.routers import auth, errors, health, notes, projects
 from observability import initialize_observability
 
 # First thing at startup, and deliberately not wrapped in try/except:
@@ -62,7 +66,37 @@ app.add_middleware(
 # the login rate limit see it. A no-op when the secret is None (local).
 app.add_middleware(OriginVerifyMiddleware, secret=_origin_verify_secret)
 
+
+db_logger = logging.getLogger("app.db")
+
+
+@app.exception_handler(OperationalError)
+async def database_unavailable(request: Request, exc: OperationalError) -> JSONResponse:
+    """The database couldn't be reached (Neon still resuming, Postgres
+    down, connection dropped): 503 with Retry-After, not an unhandled 500.
+    Clients treat it as "try again", and the web app never takes it for a
+    signed-out session (frontend/src/auth.tsx). Handled here, inside the
+    CORS middleware, so the response keeps its CORS headers; an unhandled
+    500 comes from the outermost layer without them, and a cross-origin
+    browser then sees only a network error. The message is logged, not
+    returned: it can name the database host."""
+    db_logger.warning(
+        "database_unavailable method=%s path=%s error=%s",
+        request.method,
+        request.url.path,
+        type(exc.orig).__name__ if exc.orig is not None else type(exc).__name__,
+    )
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": "The database is temporarily unavailable. Try again in a moment."
+        },
+        headers={"Retry-After": "2"},
+    )
+
+
 app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(projects.router)
 app.include_router(notes.router)
+app.include_router(errors.router)

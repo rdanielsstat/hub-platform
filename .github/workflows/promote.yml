@@ -33,6 +33,9 @@ jobs:
       TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       TF_VAR_otel_endpoint_prod: ${{ secrets.TF_VAR_OTEL_EXPORTER_OTLP_ENDPOINT_PROD }}
       TF_VAR_otel_headers_prod: ${{ secrets.TF_VAR_OTEL_EXPORTER_OTLP_HEADERS_PROD }}
+      # Cloudflare's IP ranges, comma-separated: a variable (not a secret) on
+      # this GitHub environment. Unset means trust no proxy. ops/DEPLOYMENT.md.
+      TF_VAR_trusted_proxy_ips: ${{ vars.TRUSTED_PROXY_IPS }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -91,6 +94,28 @@ jobs:
           docker tag "$DEV_REPO:${{ steps.tag.outputs.tag }}" "$PROD_REPO:${{ steps.tag.outputs.tag }}"
           docker push "$PROD_REPO:${{ steps.tag.outputs.tag }}"
 
+      # Migrations before code, as in ci.yml: point only the bootstrap
+      # function at the promoted image, run it, then apply everything else
+      # (which switches the API Lambda). A failed migration stops here, with
+      # prod still on the old image and the old schema.
+      - name: Update prod bootstrap function
+        working-directory: infra/hub
+        run: |
+          tofu workspace select prod
+          tofu apply -input=false -auto-approve \
+            -target=aws_lambda_function.bootstrap \
+            -var="lambda_image_tag=${{ steps.tag.outputs.tag }}" \
+            -var="service_version=${{ steps.version.outputs.version }}"
+
+      - name: Bootstrap schema
+        working-directory: infra/hub
+        run: |
+          tofu workspace select prod
+          FN=$(tofu output -raw bootstrap_function_name)
+          aws lambda invoke --function-name "$FN" --cli-binary-format raw-in-base64-out /tmp/bootstrap.json
+          cat /tmp/bootstrap.json
+          grep -q '"errorMessage"' /tmp/bootstrap.json && exit 1 || true
+
       - name: Apply prod
         working-directory: infra/hub
         run: |
@@ -98,14 +123,6 @@ jobs:
           tofu apply -input=false -auto-approve \
             -var="lambda_image_tag=${{ steps.tag.outputs.tag }}" \
             -var="service_version=${{ steps.version.outputs.version }}"
-
-      - name: Bootstrap schema
-        working-directory: infra/hub
-        run: |
-          FN=$(tofu output -raw bootstrap_function_name)
-          aws lambda invoke --function-name "$FN" --cli-binary-format raw-in-base64-out /tmp/bootstrap.json
-          cat /tmp/bootstrap.json
-          grep -q '"errorMessage"' /tmp/bootstrap.json && exit 1 || true
 
       - uses: pnpm/action-setup@v4
         with:

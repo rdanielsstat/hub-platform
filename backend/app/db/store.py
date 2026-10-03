@@ -127,6 +127,10 @@ class Store:
         app/db/seed.py and app/main.py): true once any account exists."""
         return self._db.scalar(select(UserTable.id).limit(1)) is not None
 
+    def count_users(self) -> int:
+        """For the account cap (app/core/quotas.py)."""
+        return self._db.scalar(select(func.count()).select_from(UserTable)) or 0
+
     def create_user(
         self, *, email: str, password_hash: str, display_name: str | None = None
     ) -> UserRecord:
@@ -200,6 +204,17 @@ class Store:
         )
         return [_project_record(r) for r in rows]
 
+    def count_projects(self, owner_id: str) -> int:
+        """For the per-user project cap (app/core/quotas.py)."""
+        return (
+            self._db.scalar(
+                select(func.count())
+                .select_from(ProjectTable)
+                .where(ProjectTable.owner_id == owner_id)
+            )
+            or 0
+        )
+
     def get_project(self, project_id: str, owner_id: str) -> ProjectRecord | None:
         row = self._db.get(ProjectTable, project_id)
         if row is None or row.owner_id != owner_id:
@@ -261,6 +276,17 @@ class Store:
             .order_by(NoteTable.created_at.desc())
         )
         return [_note_record(r) for r in rows]
+
+    def count_notes(self, project_id: str) -> int:
+        """For the per-project note cap (app/core/quotas.py)."""
+        return (
+            self._db.scalar(
+                select(func.count())
+                .select_from(NoteTable)
+                .where(NoteTable.project_id == project_id)
+            )
+            or 0
+        )
 
     def get_note(self, note_id: str) -> NoteRecord | None:
         row = self._db.get(NoteTable, note_id)

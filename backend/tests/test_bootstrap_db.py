@@ -88,13 +88,13 @@ def fake_connect(monkeypatch: pytest.MonkeyPatch, fake_pg_state: dict):
     def _connect(**kwargs: object) -> FakeConnection:
         return FakeConnection(fake_pg_state, **kwargs)
 
-    def _create_tables(database_url: str) -> None:
-        fake_pg_state["executed"].append(("CREATE TABLES", database_url))
+    def _migrate_schema(database_url: str) -> None:
+        fake_pg_state["executed"].append(("MIGRATE SCHEMA", database_url))
 
     monkeypatch.setattr("app.bootstrap_db._connect", _connect)
-    # Table creation goes through SQLAlchemy, not _connect; record it
-    # instead of letting it reach for a real Postgres.
-    monkeypatch.setattr("app.bootstrap_db._create_tables", _create_tables)
+    # Migrations go through SQLAlchemy/Alembic, not _connect; record them
+    # instead of letting them reach for a real Postgres.
+    monkeypatch.setattr("app.bootstrap_db._migrate_schema", _migrate_schema)
     return _connect
 
 
@@ -390,20 +390,20 @@ def test_lambda_handler_propagates_exceptions(monkeypatch):
 # ---- local mode: tables ----
 
 
-def test_local_bootstrap_creates_tables_after_grants_as_the_app_role(
+def test_local_bootstrap_migrates_after_grants_as_the_app_role(
     local_master_env, app_database_url, fake_connect, fake_pg_state
 ):
     bootstrap()
 
     executed = [q for q, _ in fake_pg_state["executed"]]
     table_steps = [
-        params for q, params in fake_pg_state["executed"] if q == "CREATE TABLES"
+        params for q, params in fake_pg_state["executed"] if q == "MIGRATE SCHEMA"
     ]
     assert table_steps == [
         "postgresql+psycopg://hub_dev_user:hub_dev_password@postgres:5432/hub_dev"
     ]
     last_grant = max(i for i, q in enumerate(executed) if q.startswith("GRANT"))
-    assert executed.index("CREATE TABLES") > last_grant
+    assert executed.index("MIGRATE SCHEMA") > last_grant
 
 
 # ---- cloud mode (USE_SSM on): tables only ----
@@ -475,7 +475,8 @@ def cloud_env(monkeypatch: pytest.MonkeyPatch, cloud_ssm_url) -> list[str]:
 def test_cloud_bootstrap_creates_tables(cloud_env, cloud_db_file):
     bootstrap()
 
-    assert EXPECTED_TABLES <= _table_names(cloud_db_file)
+    # alembic_version: the schema came from the migrations, not create_all().
+    assert EXPECTED_TABLES | {"alembic_version"} <= _table_names(cloud_db_file)
     assert cloud_env == ["/hub-prod/db-url-direct"]
 
 

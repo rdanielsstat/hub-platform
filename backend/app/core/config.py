@@ -17,6 +17,7 @@ calls `require_safe_jwt_secret()` against the resolved secret and
 refuses to run on a missing or default value.
 """
 
+import ipaddress
 import os
 from typing import Any
 
@@ -138,11 +139,67 @@ REGISTER_RATE_LIMIT_PER_MINUTE = int(
     or ("3" if is_deployed() else "0")
 )
 
+# Same for POST /client-errors (frontend error reports, see
+# app/routers/errors.py): 30 per client IP per minute when deployed, off
+# locally. The endpoint is unauthenticated, so this is what stops one
+# client from flooding the logs.
+CLIENT_ERROR_RATE_LIMIT_PER_MINUTE = int(
+    os.environ.get("CLIENT_ERROR_RATE_LIMIT_PER_MINUTE", "").strip()
+    or ("30" if is_deployed() else "0")
+)
+
+# Usage caps (app/core/quotas.py). 0 turns a cap off. Blank counts as
+# unset. Soft limits: two requests racing at the boundary can both get
+# through, which is fine for their purpose (bounding what one account,
+# or a burst of sign-ups, can make the database hold).
+#
+# Total accounts: 1000 when deployed, off locally, where the E2E suite
+# registers a fresh user per test. Accounts created outside /auth/register
+# (the bootstrap's demo account) are counted but never blocked.
+MAX_ACCOUNTS = int(
+    os.environ.get("MAX_ACCOUNTS", "").strip() or ("1000" if is_deployed() else "0")
+)
+# Projects per user, and notes per project: the same everywhere.
+MAX_PROJECTS_PER_USER = int(os.environ.get("MAX_PROJECTS_PER_USER", "").strip() or "500")
+MAX_NOTES_PER_PROJECT = int(os.environ.get("MAX_NOTES_PER_PROJECT", "").strip() or "500")
+
 # Request header that carries the real client IP, set by a proxy in front
 # of the app (in AWS: CloudFront-Viewer-Address, "ip:port"). Unset means
 # use the TCP peer address. Only set this when every request comes
 # through that proxy: a client can send any header it likes.
 CLIENT_IP_HEADER = os.environ.get("CLIENT_IP_HEADER", "").strip()
+
+
+def parse_trusted_proxies(raw: str | None) -> tuple[str, ...]:
+    """TRUSTED_PROXY_IPS: comma-separated addresses or CIDR ranges,
+    whitespace ignored. Each is validated here, so a typo stops the app
+    at startup instead of silently trusting nothing (or the wrong
+    thing). Returned as normalized network strings; app/auth/rate_limit.py
+    turns them into ip_network objects."""
+    networks = []
+    for entry in (raw or "").split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        try:
+            networks.append(str(ipaddress.ip_network(entry, strict=False)))
+        except ValueError as exc:
+            raise RuntimeError(
+                f"TRUSTED_PROXY_IPS has an invalid entry {entry!r}: expected an "
+                "IP address or CIDR range, e.g. 173.245.48.0/20."
+            ) from exc
+    return tuple(networks)
+
+
+# Proxies allowed to vouch for the client address in X-Forwarded-For. When
+# the hop the app sees (CLIENT_IP_HEADER's address, else the TCP peer) is
+# in one of these ranges, the rate limiter takes the client from
+# X-Forwarded-For instead (app/auth/rate_limit.py). Empty (the default,
+# and right for local and Docker Compose) trusts no proxy, so the header is
+# ignored. Deployed behind Cloudflare, set it to Cloudflare's published IP
+# ranges (ops/DEPLOYMENT.md). Anyone in a listed range can claim any client
+# address, so list only proxies you actually sit behind.
+TRUSTED_PROXY_IPS = parse_trusted_proxies(os.environ.get("TRUSTED_PROXY_IPS"))
 
 
 def _get_ssm_client() -> Any:

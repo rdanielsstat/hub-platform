@@ -7,6 +7,11 @@ info:
     docs/specs.md. The backend implements this contract;
     backend/tests/test_openapi_contract.py fails if the paths and methods
     here and in the FastAPI app drift apart.
+
+    Any operation that reads or writes the database can also answer 503
+    with a Retry-After header and an HTTPError body when the database
+    can't be reached (for example while Neon resumes from suspend).
+    Clients should retry; it never means the session is invalid.
   version: 0.1.0
 servers:
   - url: https://hub.dnls.dev/api
@@ -21,6 +26,7 @@ tags:
   - name: projects
   - name: notes
   - name: health
+  - name: errors
 
 security:
   - bearerAuth: []
@@ -72,6 +78,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TokenResponse'
+        '403':
+          description: >
+            Sign-ups are closed: the instance has MAX_ACCOUNTS accounts (1000
+            when deployed; off locally).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPError'
         '409':
           description: Email already registered
           content:
@@ -101,6 +115,8 @@ paths:
         / Swagger "Authorize" tooling works out of the box. The email goes in the
         `username` field. Limited to LOGIN_RATE_LIMIT_PER_MINUTE attempts per
         client IP per minute (5 when deployed); over it, 429 with Retry-After.
+        A password over 256 characters (the sign-up maximum) is a 422 before
+        any hashing.
       security: []
       requestBody:
         required: true
@@ -208,6 +224,13 @@ paths:
                 $ref: '#/components/schemas/Project'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: >
+            The user already has MAX_PROJECTS_PER_USER projects (default 500).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPError'
         '422':
           $ref: '#/components/responses/ValidationError'
 
@@ -307,6 +330,13 @@ paths:
                 $ref: '#/components/schemas/AddNoteResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: >
+            The project already has MAX_NOTES_PER_PROJECT notes (default 500).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPError'
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -333,6 +363,43 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+
+  /client-errors:
+    post:
+      tags: [errors]
+      summary: Report a frontend error
+      description: >
+        The web app reports uncaught errors, unhandled promise rejections,
+        render crashes and failed API calls (network errors and 5xx) here.
+        Each report is written as one JSON log line; nothing is stored in the
+        database. Unauthenticated, since errors happen while signed out too;
+        when a valid session is present the user id is attached. URLs are
+        logged without their query string or fragment. Limited to
+        CLIENT_ERROR_RATE_LIMIT_PER_MINUTE reports per client IP per minute
+        (30 when deployed); over it, 429 with Retry-After.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientErrorReport'
+      responses:
+        '204':
+          description: Report logged
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          description: Too many error reports from this client IP
+          headers:
+            Retry-After:
+              description: Seconds until another report is allowed
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPError'
 
 components:
   securitySchemes:
@@ -448,6 +515,7 @@ components:
           description: The account's email address.
         password:
           type: string
+          maxLength: 256
         scope:
           type: string
         client_id:
@@ -536,13 +604,19 @@ components:
     CreateProjectInput:
       type: object
       required: [name]
+      description: >
+        Text fields are capped in characters (not bytes); longer values are a
+        422. The database enforces the same limits.
       properties:
         name:
           type: string
+          maxLength: 256
         pitch:
           type: string
+          maxLength: 2000
         description:
           type: string
+          maxLength: 5000
         status:
           $ref: '#/components/schemas/Status'
         tags:
@@ -563,6 +637,7 @@ components:
           maximum: 5
         nextAction:
           type: string
+          maxLength: 1000
         targetDate:
           type: [string, "null"]
           format: date
@@ -575,14 +650,18 @@ components:
       type: object
       description: >
         Partial update; every field optional. Excludes id, createdAt, and
-        updatedAt, which are never client-settable.
+        updatedAt, which are never client-settable. Same text limits as
+        CreateProjectInput.
       properties:
         name:
           type: string
+          maxLength: 256
         pitch:
           type: string
+          maxLength: 2000
         description:
           type: string
+          maxLength: 5000
         status:
           $ref: '#/components/schemas/Status'
         tags:
@@ -603,6 +682,7 @@ components:
           maximum: 5
         nextAction:
           type: string
+          maxLength: 1000
         targetDate:
           type: [string, "null"]
           format: date
@@ -646,6 +726,8 @@ components:
       properties:
         body:
           type: string
+          maxLength: 10000
+          description: Capped in characters; longer is a 422.
 
     AddNoteResponse:
       type: object
@@ -655,6 +737,39 @@ components:
           $ref: '#/components/schemas/Note'
         project:
           $ref: '#/components/schemas/Project'
+
+    ClientErrorReport:
+      type: object
+      required: [kind, message]
+      properties:
+        kind:
+          type: string
+          enum: [error, unhandledrejection, render, http]
+        message:
+          type: string
+          maxLength: 2000
+        stack:
+          type: [string, "null"]
+          maxLength: 8000
+        url:
+          type: [string, "null"]
+          maxLength: 2000
+          description: The page the error happened on.
+        userAgent:
+          type: [string, "null"]
+          maxLength: 500
+        endpoint:
+          type: [string, "null"]
+          maxLength: 500
+          description: For kind http, the API URL that failed.
+        method:
+          type: [string, "null"]
+          maxLength: 10
+        status:
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 599
+          description: For kind http. 0 means no response (network error).
 
     HTTPError:
       type: object

@@ -5,10 +5,14 @@
 #
 # Sequence: postgres starts -> bootstrap connects as the local
 # superuser and creates the per-env database + a least-privilege login
-# role (see backend/app/bootstrap_db.py) -> init_local creates tables
-# and seeds the demo account (see backend/app/db/init_local.py) -> app
-# starts and connects as that limited role. The app itself does no
-# database work at import.
+# role, then applies the Alembic migrations as that role (see
+# backend/app/bootstrap_db.py and backend/app/db/migrations.py) ->
+# init_local re-checks the schema (a no-op at head) and seeds the demo
+# account (see backend/app/db/init_local.py) -> app starts and connects
+# as that limited role. The app itself does no database work at import.
+#
+# An existing postgres_data volume from before Alembic is stamped at the
+# baseline revision on the next `up`, not recreated; data is kept.
 #
 # The `postgres` superuser credentials below are Compose-local dev
 # defaults, not used anywhere outside this file.

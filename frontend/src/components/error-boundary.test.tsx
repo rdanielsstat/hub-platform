@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { ErrorBoundary } from './error-boundary'
+
+const reportClientError = vi.fn()
+vi.mock('@/services/api/client-errors', () => ({ reportClientError }))
+
+const { ErrorBoundary } = await import('./error-boundary')
 
 function ThrowingChild(): never {
   throw new Error('boom')
@@ -13,6 +17,31 @@ function SafeChild() {
 describe('ErrorBoundary', () => {
   afterEach(() => {
     vi.restoreAllMocks()
+    reportClientError.mockClear()
+  })
+
+  it('reports a render crash to the backend', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    render(
+      <ErrorBoundary>
+        <ThrowingChild />
+      </ErrorBoundary>,
+    )
+
+    expect(reportClientError).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'render', message: 'Error: boom' }),
+    )
+  })
+
+  it('reports nothing when nothing throws', () => {
+    render(
+      <ErrorBoundary>
+        <SafeChild />
+      </ErrorBoundary>,
+    )
+
+    expect(reportClientError).not.toHaveBeenCalled()
   })
 
   it('renders children normally when nothing throws', () => {

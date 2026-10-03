@@ -30,10 +30,10 @@ def _has_users() -> bool:
 def test_init_local_refuses_to_run_with_use_ssm(monkeypatch):
     """Refuses before any database work, whatever SEED_DEMO_DATA says."""
 
-    def _boom() -> None:
-        raise AssertionError("create_tables must not run with USE_SSM on")
+    def _boom(database_url: str) -> None:
+        raise AssertionError("migrations must not run with USE_SSM on")
 
-    monkeypatch.setattr(init_local, "create_tables", _boom)
+    monkeypatch.setattr(init_local, "upgrade_to_head", _boom)
 
     with pytest.raises(RuntimeError, match="USE_SSM"):
         init_local.init_local(use_ssm=True, seed_demo_data=False)

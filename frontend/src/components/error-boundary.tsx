@@ -2,6 +2,7 @@ import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
+import { reportClientError } from '@/services/api/client-errors'
 
 interface Props {
   children: ReactNode
@@ -13,10 +14,9 @@ interface State {
 
 /**
  * Catches render-time errors anywhere below it so a crash shows this
- * fallback instead of a white screen. componentDidCatch is also the spot
- * to forward errors to real error tracking once that's wired up (see
- * docs/tech-debt.md, Sentry is deferred to the deploy phase); for now
- * console.error is the only record.
+ * fallback instead of a white screen. componentDidCatch reports the crash
+ * to the backend (services/api/client-errors.ts; a no-op until
+ * lib/error-reporting.ts turns reporting on) and logs it to the console.
  */
 export class ErrorBoundary extends Component<Props, State> {
   state: State = { hasError: false }
@@ -27,6 +27,11 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
     console.error('Unhandled render error:', error, info.componentStack)
+    reportClientError({
+      kind: 'render',
+      message: `${error.name}: ${error.message}`,
+      stack: [error.stack, info.componentStack].filter(Boolean).join('\n'),
+    })
   }
 
   render() {

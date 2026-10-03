@@ -25,6 +25,14 @@ here and don't let this file drift from it.
   alert handling).
 - `docker-compose.yml` (repo root): local Postgres 17, bootstrap, and app for
   prod-parity testing.
+- `Makefile` (repo root): common commands (`make help`), including the test
+  layers (`test-unit`, `test-integration`, `test-e2e`, `test-e2e-docker`),
+  `docker-up`/`docker-down`, and `check` (every local gate below).
+- `backend/alembic/`: Alembic migration scripts (`versions/`); run by
+  `backend/app/db/migrations.py`.
+- `ops/`: runbooks: deployment, health checks, troubleshooting, monitoring.
+- `security/`: rate limiting, agent security, gitleaks, dependencies, data
+  policy, and the security checklist (what's checked and what's open).
 - `backend/observability/`: OpenTelemetry setup, local Grafana/Tempo/Prometheus
   stack.
 - `backend/oncall/`: on-call agent (OpenAI diagnostic for dev alerts).
@@ -70,12 +78,22 @@ uv run pytest                        # run the test suite
 
 - Storage: SQLAlchemy 2.0 (`app/db/`), database-agnostic. SQLite locally and in tests
   (default), Neon Postgres when deployed (via `DATABASE_URL`), Postgres 17 in
-  Docker Compose for local prod-parity. No Alembic; tables come from `create_all`.
+  Docker Compose for local prod-parity. Schema changes are Alembic migrations
+  (`backend/alembic/versions/`, run by `app/db/migrations.py`). A change to
+  `app/db/orm.py` needs a reviewed `alembic revision --autogenerate`; the
+  `test_migrations_match_the_orm_models` test fails until it has one.
 - Auth: argon2-cffi (password hashing) + PyJWT (HS256), OAuth2 password flow.
   The web app's session is the JWT in an httpOnly, SameSite=Strict `hub_token`
   cookie; the API also accepts `Authorization: Bearer`, so the same API serves
-  future iOS apps and agents. `/auth/login` (5/min) and `/auth/register`
-  (3/min) are rate limited per client IP when deployed.
+  future iOS apps and agents. `/auth/login` (5/min), `/auth/register`
+  (3/min) and `/client-errors` (30/min) are rate limited per client IP when
+  deployed. Usage caps (`app/core/quotas.py`: accounts, projects per user,
+  notes per project) answer 403. See `security/RATE_LIMITING.md`.
+- Database outages: an `OperationalError` is a 503 with `Retry-After`
+  (`app/main.py`), and the web app only treats a 401 as signed out
+  (`frontend/src/auth.tsx`). Keep both true; see `ops/TROUBLESHOOTING.md`.
+- Frontend errors: `POST /client-errors` (`app/routers/errors.py`) logs
+  reports sent by `frontend/src/lib/error-reporting.ts`.
 - Deployed vs local: `is_deployed()` in `app/core/config.py` (true when `USE_SSM`
   is on or `ENVIRONMENT` isn't local/development/dev, so the dev Lambda counts)
   switches on the Secure cookie, the login rate limit, and hidden API docs. Use
@@ -90,17 +108,19 @@ uv run pytest                        # run the test suite
   variables with dev-safe defaults. Its `require_safe_jwt_secret()` runs at
   startup and refuses to start, outside a local `ENVIRONMENT` or whenever
   `USE_SSM` is on, if the JWT secret is unset or still the built-in dev default.
-- Database initialization: Importing the app does no database work. Tables are
-  created by `init_local` locally (or with SEED_DEMO_DATA=true), `bootstrap_db.py`
-  (separate Lambda, run on every deploy) when deployed, and `create_all` directly
-  in tests. Docker Compose runs both init_local and bootstrap.
+- Database initialization: Importing the app does no database work. The schema
+  comes from Alembic migrations, applied by `init_local` locally (or with
+  SEED_DEMO_DATA=true) and `bootstrap_db.py` (separate Lambda, run on every
+  deploy) when deployed. Unit tests use `create_all` directly. Docker Compose
+  runs both init_local and bootstrap. Pre-Alembic databases are stamped at the
+  baseline revision automatically.
 
 See `backend/README.md` for the full setup, config table, and details.
 
 ## Testing
 
 Frontend: Vitest 5.0, React Testing Library 16, jsdom. `pnpm test`
-(from inside `frontend/`) runs `vitest run`; 173 tests in 20 files as of
+(from inside `frontend/`) runs `vitest run`; 197 tests in 22 files as of
 October 2026.
 
 - Vitest runs with `test.globals` off (tests import from vitest explicitly);
@@ -108,27 +128,40 @@ October 2026.
 - `base-ui`'s Dialog keeps its content mounted (hidden) while closed; scope
   queries to a landmark rather than the whole document to avoid matching hidden content.
 
-Backend: pytest 9.1. `uv run pytest` (from inside `backend/`), 332 tests in 21
-files as of October 2026. Each test gets its own in-memory SQLite database.
-`tests/test_startup.py` imports the app in a subprocess to check startup
-behaviour (secret guards, deployed defaults, origin verification).
+Backend: pytest 9.1, two layers told apart by the `integration` marker.
+`uv run pytest` (from inside `backend/`) runs the unit tests only: 414 tests in
+26 files as of October 2026, each with its own in-memory SQLite database.
+`uv run pytest -m integration` runs `tests/integration/` (34 tests in 4 files)
+against the Docker Compose Postgres (`docker compose up -d --wait postgres`, or
+`make test-integration`), in a throwaway database built by the real
+migrations. `tests/test_startup.py` imports the app in a subprocess to check
+startup behaviour (secret guards, deployed defaults, origin verification).
 
-E2E: Playwright is done. 189 tests in `frontend/tests/` (`app.spec.ts` 89 browser
-tests, `api.spec.ts` 100 API tests) cover signup, login, the session cookie,
-dashboard, projects, filters, sorts, edits, deletes, and API endpoints. Run
-`pnpm exec playwright test` from `frontend/` with the backend and dev server
-running (the `e2e-testing` skill starts them if needed). They run against a
-local backend, so origin verification and the login rate limit are off.
+E2E: Playwright, 199 tests in `frontend/tests/`, in two projects. `chromium`:
+`app.spec.ts` (89 browser tests) and `api.spec.ts` (102 API tests) cover signup,
+login, the session cookie, dashboard, projects, filters, sorts, edits, deletes,
+and API endpoints, against any backend on :8000. `docker-compose`:
+`integration.spec.ts` (8 tests) covers the Compose stack, error reporting, and
+backend and database outages; its outage tests stop and pause the Compose
+Postgres and only run with `E2E_DOCKER=1` and `--workers=1`. Playwright starts
+the Vite dev server itself (or reuses one); the backend must already be running
+(`make docker-up`, or uvicorn; the `e2e-testing` skill starts one if needed).
+Against a local or Compose backend, origin verification and the rate limits
+are off. See `frontend/README.md`.
 
 **All tests must pass before a task is considered done.** This includes:
 - Frontend unit tests (`pnpm test` from `frontend/`)
 - Backend unit tests (`uv run pytest` from `backend/`)
+- Backend integration tests (`uv run pytest -m integration`) when a change
+  touches the database layer or migrations, and Docker is available
 - Lint checks must be 0 errors / 0 warnings (`pnpm lint` from `frontend/`)
 - TypeScript build must be clean (`pnpm build` from `frontend/`)
 - Format must pass (`pnpm format:check` from `frontend/`)
 
-Note: CI runs the unit tests and a gitleaks secret scan of the full git
-history on every PR and push. Lint, format, and build checks are enforced
+Note: CI runs the unit tests, a gitleaks secret scan of the full git
+history, the backend integration tests and the Playwright suite (against
+the Compose stack) on every PR and push; only the unit tests and the
+gitleaks scan gate the dev deploy so far. Lint, format, and build checks are enforced
 locally before committing; they do not run in the GitHub Actions workflow on
 PRs. Reviewed gitleaks false positives go in `.gitleaksignore` (by
 fingerprint); never add a real secret there.
@@ -214,8 +247,9 @@ GitHub secrets to the dev and prod Lambdas' environments (`TF_VAR_otel_headers_d
 in `ci.yml`, `TF_VAR_otel_headers_prod` in `promote.yml`); they are not stored in SSM.
 
 **CI/CD** (`.github/workflows/`):
-- `ci.yml`: on PR, run tests and the gitleaks history scan; on push to main,
-  run both, then (only if both pass) deploy to dev (build
+- `ci.yml`: on PR, run unit tests, integration tests, Playwright E2E against
+  Docker Compose, and the gitleaks history scan; on push to main, run them,
+  then (only if the unit tests and the scan pass) deploy to dev (build
   image, apply infra, bootstrap, build frontend, sync to S3, invalidate CloudFront,
   smoke-test `/api/health`).
 - `promote.yml`: manual promotion of exact image tag from dev to prod (no rebuild).

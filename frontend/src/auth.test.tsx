@@ -1,14 +1,15 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { User } from '@/services/api'
-import { AuthProvider } from '@/auth.tsx'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { HttpError, type User } from '@/services/api'
+import { AuthProvider, SESSION_RETRY_DELAY_MS } from '@/auth.tsx'
 import { useAuth } from '@/use-auth'
 import { act, flush, renderHook } from '@/lib/render-hook'
 
 const mockAuthApi = vi.hoisted(() => ({
   register: vi.fn(),
   login: vi.fn(),
-  // No session unless a test says otherwise.
-  getCurrentUser: vi.fn().mockRejectedValue(new Error('Not authenticated')),
+  // No session (a 401) unless a test says otherwise; set in beforeEach,
+  // since HttpError can't be imported into this hoisted block.
+  getCurrentUser: vi.fn(),
   logout: vi.fn().mockResolvedValue(undefined),
 }))
 
@@ -34,6 +35,9 @@ function setup() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockAuthApi.getCurrentUser.mockRejectedValue(
+    new HttpError(401, 'Not authenticated'),
+  )
 })
 
 describe('on-mount session check', () => {
@@ -64,6 +68,101 @@ describe('on-mount session check', () => {
     expect(hook.result.user).toBeNull()
     // The 401 isn't a mid-session expiry, so no logout request either.
     expect(mockAuthApi.logout).not.toHaveBeenCalled()
+  })
+})
+
+describe('session check when the backend is unavailable', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout'] })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  // flush() waits on a real setTimeout, which is faked here: advance the
+  // fake clock instead (which also drains pending promises).
+  async function tick(ms = 0) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ms)
+    })
+  }
+
+  const waitOutRetryDelay = () => tick(SESSION_RETRY_DELAY_MS)
+
+  it('retries once after a network error and signs in if that works', async () => {
+    const current = user()
+    mockAuthApi.getCurrentUser
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(current)
+
+    const hook = setup()
+    await tick()
+    // Still loading during the retry delay: never bounced to login.
+    expect(hook.result.status).toBe('loading')
+
+    await waitOutRetryDelay()
+
+    expect(mockAuthApi.getCurrentUser).toHaveBeenCalledTimes(2)
+    expect(hook.result.status).toBe('authenticated')
+    expect(hook.result.user).toEqual(current)
+  })
+
+  it('retries once after a 5xx, and a 401 on the retry means signed out', async () => {
+    mockAuthApi.getCurrentUser.mockRejectedValueOnce(
+      new HttpError(503, 'Service Unavailable'),
+    )
+
+    const hook = setup()
+    await tick()
+    await waitOutRetryDelay()
+
+    expect(mockAuthApi.getCurrentUser).toHaveBeenCalledTimes(2)
+    expect(hook.result.status).toBe('unauthenticated')
+  })
+
+  it('ends unreachable, not unauthenticated, when both attempts fail', async () => {
+    mockAuthApi.getCurrentUser.mockRejectedValue(
+      new TypeError('Failed to fetch'),
+    )
+
+    const hook = setup()
+    await tick()
+    await waitOutRetryDelay()
+
+    expect(mockAuthApi.getCurrentUser).toHaveBeenCalledTimes(2)
+    expect(hook.result.status).toBe('unreachable')
+    expect(hook.result.user).toBeNull()
+    expect(mockAuthApi.logout).not.toHaveBeenCalled()
+  })
+
+  it('does not retry a 401', async () => {
+    const hook = setup()
+    await tick()
+    await waitOutRetryDelay()
+
+    expect(mockAuthApi.getCurrentUser).toHaveBeenCalledTimes(1)
+    expect(hook.result.status).toBe('unauthenticated')
+  })
+
+  it('retry() checks again from the unreachable state', async () => {
+    const current = user()
+    mockAuthApi.getCurrentUser
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(current)
+
+    const hook = setup()
+    await tick()
+    await waitOutRetryDelay()
+    expect(hook.result.status).toBe('unreachable')
+
+    act(() => hook.result.retry())
+    expect(hook.result.status).toBe('loading')
+    await tick()
+
+    expect(mockAuthApi.getCurrentUser).toHaveBeenCalledTimes(3)
+    expect(hook.result.status).toBe('authenticated')
   })
 })
 

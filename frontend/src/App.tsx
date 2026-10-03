@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
-import { Loader2 } from 'lucide-react'
+import { Loader2, WifiOff } from 'lucide-react'
 import { useAuth } from '@/use-auth'
 import { StoreProvider } from '@/store'
 import { AppHeader } from '@/components/layout/app-header'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { QuickCaptureDialog } from '@/components/quick-capture-dialog'
 import { Toaster } from '@/components/ui/toaster'
+import { Button } from '@/components/ui/button'
+import { EmptyState } from '@/components/ui/empty-state'
 import { DashboardPage } from '@/pages/dashboard'
 import { ProjectDetailPage } from '@/pages/project-detail'
 import { NotFoundPage } from '@/pages/not-found'
@@ -14,13 +16,31 @@ import { LoginPage } from '@/pages/login'
 import { SignupPage } from '@/pages/signup'
 
 export function App() {
-  const { status } = useAuth()
+  const { status, retry } = useAuth()
 
   return (
     <ErrorBoundary>
       {status === 'loading' ? (
         <div className="grid min-h-dvh place-items-center">
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : status === 'unreachable' ? (
+        // The session check failed twice without a 401: the backend (or
+        // its database) is down or waking up. Not the login page: the
+        // session cookie may well be valid.
+        <div className="grid min-h-dvh place-items-center px-4">
+          <EmptyState
+            variant="page"
+            icon={WifiOff}
+            tone="danger"
+            title="Can’t reach the server"
+            message="Hub couldn’t check your session. Check your connection, then try again."
+            action={
+              <Button size="lg" onClick={retry}>
+                Try again
+              </Button>
+            }
+          />
         </div>
       ) : status === 'unauthenticated' ? (
         <Routes>

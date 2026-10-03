@@ -4,6 +4,11 @@ from pydantic import BaseModel, EmailStr, Field
 
 from app.models.base import CamelModel
 
+# Longest password accepted at sign-up and at login. argon2 hashes the
+# whole input and is slow by design, so an uncapped login would let one
+# request burn seconds of Lambda CPU.
+PASSWORD_MAX_LENGTH = 256
+
 
 class User(CamelModel):
     id: str
@@ -15,7 +20,7 @@ class User(CamelModel):
 
 class RegisterInput(CamelModel):
     email: EmailStr
-    password: str = Field(min_length=8, max_length=256)
+    password: str = Field(min_length=8, max_length=PASSWORD_MAX_LENGTH)
     display_name: str | None = None
 
 

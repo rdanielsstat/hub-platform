@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { HttpError, httpRequest, setUnauthorizedHandler } =
-  await import('./http')
+const {
+  HttpError,
+  httpRequest,
+  setRequestFailureHandler,
+  setUnauthorizedHandler,
+} = await import('./http')
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -13,6 +17,7 @@ function jsonResponse(status: number, body: unknown): Response {
 beforeEach(() => {
   vi.restoreAllMocks()
   setUnauthorizedHandler(null)
+  setRequestFailureHandler(null)
 })
 
 describe('session cookie', () => {
@@ -170,5 +175,53 @@ describe('request URL', () => {
     expect(await requestedUrl('/auth/login')).toBe(
       'http://localhost:8000/auth/login',
     )
+  })
+})
+
+describe('request failure hook', () => {
+  it('fires with status 0 and rethrows when there is no response', async () => {
+    const onFailure = vi.fn()
+    setRequestFailureHandler(onFailure)
+    const networkError = new TypeError('Failed to fetch')
+    vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(networkError)
+
+    await expect(
+      httpRequest('/projects', { method: 'POST', body: {} }),
+    ).rejects.toBe(networkError)
+    expect(onFailure).toHaveBeenCalledWith(
+      expect.objectContaining({ method: 'POST', path: '/projects', status: 0 }),
+    )
+  })
+
+  it('fires for a 5xx', async () => {
+    const onFailure = vi.fn()
+    setRequestFailureHandler(onFailure)
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      jsonResponse(503, { detail: 'Service Unavailable' }),
+    )
+
+    await expect(httpRequest('/projects')).rejects.toMatchObject({
+      status: 503,
+    })
+    expect(onFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: 'GET',
+        path: '/projects',
+        status: 503,
+      }),
+    )
+  })
+
+  it('does not fire for a 4xx or a success', async () => {
+    const onFailure = vi.fn()
+    setRequestFailureHandler(onFailure)
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(jsonResponse(404, { detail: 'Project not found' }))
+      .mockResolvedValueOnce(jsonResponse(200, { ok: true }))
+
+    await expect(httpRequest('/projects/x')).rejects.toBeInstanceOf(HttpError)
+    await httpRequest('/projects')
+
+    expect(onFailure).not.toHaveBeenCalled()
   })
 })

@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.12"
 dependencies = [
+    "alembic>=1.20.0",
     "argon2-cffi>=25.1.0",
     "boto3>=1.43.98",
     "email-validator>=2.3.0",
@@ -30,3 +31,12 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# `uv run pytest` runs the unit tests only (in-memory SQLite, no
+# services). `uv run pytest -m integration` runs tests/integration/,
+# which needs the Docker Compose Postgres (`make docker-up` or
+# `docker compose up -d postgres` from the repo root). A later -m on the
+# command line replaces this one.
+addopts = "-m 'not integration'"
+markers = [
+    "integration: needs a real Postgres (Docker Compose); deselected by default",
+]

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.auth.dependencies import get_current_user
+from app.core.quotas import enforce_project_cap
 from app.db.store import ProjectRecord, Store, UserRecord, get_store
 from app.models.project import CreateProjectInput, Project, UpdateProjectInput
 
@@ -36,6 +37,7 @@ def create_project(
     current_user: UserRecord = Depends(get_current_user),
     store: Store = Depends(get_store),
 ) -> Project:
+    enforce_project_cap(store, current_user.id)
     record = store.create_project(owner_id=current_user.id, **body.model_dump())
     return _to_project(record)
 

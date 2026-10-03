@@ -1,5 +1,6 @@
-"""Local-only database setup: create tables, and seed the demo account
-when SEED_DEMO_DATA is on.
+"""Local-only database setup: migrate the schema to the latest Alembic
+revision (app/db/migrations.py), and seed the demo account when
+SEED_DEMO_DATA is on.
 
 Run standalone before starting the app locally: `python -m
 app.db.init_local`. Docker Compose does this for you (see the
@@ -12,7 +13,8 @@ its hardcoded password.
 Reads backend/.env when run as a script (see main()), so SEED_DEMO_DATA
 and DATABASE_URL can live there instead of on the command line.
 
-Idempotent: create_tables() only creates what's missing, and seeding
+Idempotent: a database already at the latest revision is left alone (a
+pre-Alembic one is stamped, not recreated), and seeding
 only ever happens into a database with no users, so an existing
 database is never re-seeded, duplicated, or overwritten.
 """
@@ -23,8 +25,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from app.core import config
+from app.db.migrations import upgrade_to_head
 from app.db.seed import seed
-from app.db.session import SessionLocal, create_tables
+from app.db.session import SessionLocal
 from app.db.store import Store
 
 ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
@@ -41,7 +44,7 @@ def init_local(
             "bootstrap."
         )
 
-    create_tables()
+    upgrade_to_head(config.get_database_url())
 
     if not seed_demo_data:
         print("Tables ready. SEED_DEMO_DATA is off, not seeding.")

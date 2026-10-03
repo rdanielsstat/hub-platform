@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.security import OAuth2PasswordRequestForm
 
 from app.auth.cookies import clear_auth_cookie, set_auth_cookie
@@ -10,8 +11,9 @@ from app.auth.security import (
     hash_password,
     verify_password,
 )
+from app.core.quotas import enforce_account_cap
 from app.db.store import DuplicateEmailError, Store, UserRecord, get_store
-from app.models.user import RegisterInput, TokenResponse, User
+from app.models.user import PASSWORD_MAX_LENGTH, RegisterInput, TokenResponse, User
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -38,6 +40,7 @@ def register(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Email already registered"
         )
+    enforce_account_cap(store)
     try:
         user = store.create_user(
             email=body.email,
@@ -61,6 +64,21 @@ def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     store: Store = Depends(get_store),
 ) -> TokenResponse:
+    # Same cap as registration, checked before any argon2 work: no stored
+    # password can be longer, so nothing valid is turned away. A 422 in
+    # FastAPI's usual validation shape, like an over-long sign-up password.
+    if len(form_data.password) > PASSWORD_MAX_LENGTH:
+        raise RequestValidationError(
+            [
+                {
+                    "type": "string_too_long",
+                    "loc": ("body", "password"),
+                    "msg": f"String should have at most {PASSWORD_MAX_LENGTH} characters",
+                    "input": None,
+                    "ctx": {"max_length": PASSWORD_MAX_LENGTH},
+                }
+            ]
+        )
     user = store.get_user_by_email(form_data.username)
     # Verify against a dummy hash when the email doesn't exist, so this
     # branch costs the same as a real wrong-password check (see

@@ -303,16 +303,32 @@ Visit `http://localhost:5173`.
 
 ### Running Tests Locally
 
-```bash
-# Backend tests (from backend/)
-uv run pytest
+From the repo root, `make help` lists everything. The test layers:
 
-# Frontend tests, lint, typecheck and format (from frontend/)
+```bash
+make test-unit         # backend pytest (in-memory SQLite) + frontend Vitest; no services
+make test-integration  # backend tests against the Docker Compose Postgres (starts it)
+make test-e2e          # Playwright browser + API tests; needs a backend on :8000
+make test-e2e-docker   # Playwright against the full Compose stack, incl. Postgres outages
+make check             # lint, format, unit tests and build: the pre-commit gate
+```
+
+Or by hand:
+
+```bash
+# Backend (from backend/)
+uv run pytest                  # unit tests only
+uv run pytest -m integration   # integration tests; needs `docker compose up -d --wait postgres`
+
+# Frontend (from frontend/)
 pnpm test
 pnpm lint
 pnpm build
 pnpm format:check
+pnpm exec playwright test --project=chromium   # E2E; needs a backend on :8000
 ```
+
+Details: `backend/README.md` ("Run the tests") and `frontend/README.md`.
 
 ### Database Management
 
@@ -362,7 +378,7 @@ This starts Postgres 17 (with a persistent volume), creates the database, role, 
 
 [**CI/CD DIAGRAM PLACEHOLDER**]
 
-Visual description: A developer pushes code to main. GitHub Actions runs the backend tests, then the frontend tests, in a single job (pull requests run only this step). If they pass, CI builds a Docker image, tags it with a timestamp and short SHA (e.g., 20261001-163457-83242da), and pushes it to the dev ECR repository. It then applies the dev infrastructure with OpenTofu, runs the bootstrap Lambda, builds the frontend and uploads it to S3, and smoke-tests `/api/health`. After testing in dev, a release owner manually runs the promote workflow, which copies the same image from dev ECR to prod ECR (no rebuild), deploys it to the production Lambda, and builds and uploads the frontend.
+Visual description: A developer pushes code to main. GitHub Actions runs the backend and frontend unit tests in one job, alongside a gitleaks history scan, backend integration tests against Postgres, and Playwright E2E tests against the Docker Compose stack (pull requests run only these checks). The unit tests and the gitleaks scan gate the deploy. If they pass, CI builds a Docker image, tags it with a timestamp and short SHA (e.g., 20261001-163457-83242da), and pushes it to the dev ECR repository. It then applies the dev infrastructure with OpenTofu, runs the bootstrap Lambda, builds the frontend and uploads it to S3, and smoke-tests `/api/health`. After testing in dev, a release owner manually runs the promote workflow, which copies the same image from dev ECR to prod ECR (no rebuild), deploys it to the production Lambda, and builds and uploads the frontend.
 
 ### Environments
 

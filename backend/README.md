@@ -37,13 +37,14 @@ trust, Neon and Cloudflare setup), see `../infra/BOOTSTRAP.md`.
 ## Run the dev server
 
 ```
-SEED_DEMO_DATA=true uv run python -m app.db.init_local   # once: tables + demo account
+SEED_DEMO_DATA=true uv run python -m app.db.init_local   # schema + demo account
 uv run uvicorn app.main:app --reload
 ```
 
-Importing the app does no database work: tables and the demo account
+Importing the app does no database work: the schema and the demo account
 come from `app/db/init_local.py`, a separate idempotent step (safe to
-re-run; it only creates what's missing and never re-seeds). It refuses
+re-run; it applies any pending migrations and never re-seeds). Re-run it
+after pulling a change that adds a migration. It refuses
 to run with `USE_SSM` on. Docker Compose runs it for you.
 
 Then visit:
@@ -138,24 +139,65 @@ Postgres URL (e.g. `postgresql+psycopg://user:pass@host/db`) via
 `DATABASE_URL` with no code change, or from SSM when `USE_SSM` is on
 (see above). `psycopg[binary]` is already a dependency.
 
-Importing the app does no database work. Tables are created by a
-separate step: `init_local` (`python -m app.db.init_local`) locally, or
-`bootstrap_db.py` (`python -m app.bootstrap_db`, run as its own Lambda
-on every deploy) when deployed. Docker Compose runs both. Tests skip
-both and create tables on each test's in-memory database directly (see
-`tests/conftest.py`). All of these only create missing
-tables (`Base.metadata.create_all`); there's no Alembic yet, which is
-fine while the schema is still moving pre-launch. Once it stabilizes,
-that should become real Alembic migrations so future schema changes are
-tracked and reversible instead of implicit.
+Importing the app does no database work. The schema comes from Alembic
+migrations, applied by a separate step: `init_local`
+(`python -m app.db.init_local`) locally, or `bootstrap_db.py`
+(`python -m app.bootstrap_db`, run as its own Lambda on every deploy)
+when deployed. Docker Compose runs both. Unit tests skip both and create
+tables on each test's in-memory database directly (see
+`tests/conftest.py`); `tests/test_migrations.py` covers the migrations
+themselves, and the integration tests run them against real Postgres.
+
+### Migrations (Alembic)
+
+Scripts live in `alembic/versions/`; `app/db/migrations.py` runs them.
+`0001` is the baseline: exactly the schema the old `create_all()` built.
+
+```
+uv run alembic upgrade head                            # apply pending migrations
+uv run alembic current                                 # show the database's revision
+uv run alembic revision --autogenerate -m "add x to y" # new migration from orm.py
+uv run alembic check                                   # fail if orm.py has unmigrated changes
+uv run alembic upgrade head --sql                      # print the SQL, run nothing
+```
+
+The CLI targets the same database the app would: `alembic/env.py` loads
+`.env` and resolves the URL through `app/core/config.py`.
+
+To change the schema: edit `app/db/orm.py`, generate a revision, read
+it (autogenerate misses renames and data moves, and can't tell a rename
+from a drop plus an add), then run the tests.
+`tests/test_migrations.py::test_migrations_match_the_orm_models` fails
+whenever `orm.py` and the migrations disagree. The next deploy's
+bootstrap applies it.
+
+Databases created before Alembic (the deployed Neon databases, existing
+local `hub.db` files and Compose volumes) have the baseline tables but
+no `alembic_version` table. The first migration run stamps them at
+`0001` instead of re-running it, then upgrades normally; no data is
+touched and nothing needs doing by hand. A database with only some of
+the baseline tables is refused rather than guessed at.
+
+The stamp and every migration run in one transaction, so a failed
+migration rolls back completely (and fails the deploy's bootstrap
+step). That holds on SQLite too: `app/db/migrations.py` turns off the
+`sqlite3` driver's own transaction handling, which would otherwise
+commit DDL early and leave half a run behind. SQLite migrations use
+Alembic's batch mode (copy the table, drop the original, rename), since
+SQLite can't `ALTER` most things in place; foreign keys stay off while
+they run, or dropping `projects` would cascade-delete every note.
+
+Migrations so far: `0001` baseline schema; `0002` CHECK constraints for
+the text length limits (refuses to run if existing rows are already
+longer; see "Usage caps").
 
 ## Postgres and the database bootstrap
 
 Two ways to run this app locally:
 
 - **Plain `uv run`, no Docker**: stays on the SQLite default above. Zero
-  AWS; run `python -m app.db.init_local` once for tables (see "Run the
-  dev server").
+  AWS; run `python -m app.db.init_local` once for the schema, and
+  again after pulling a new migration (see "Run the dev server").
 - **Docker Compose, prod-parity**: runs the full stack against real
   Postgres. `docker compose up --build` from the repo root starts, in
   order: a `postgres` service (Postgres 17, matching Neon), a
@@ -164,10 +206,10 @@ Two ways to run this app locally:
   Compose sets all the env vars for you.
 
 `app/bootstrap_db.py`, run via `python -m app.bootstrap_db` (or its
-`lambda_handler` in AWS), owns table creation and has two modes:
+`lambda_handler` in AWS), owns the schema and has two modes:
 
 **Cloud (`USE_SSM` on).** Neon already provides the role and database,
-so the bootstrap only creates tables, connecting with the URL in
+so the bootstrap only runs the migrations, connecting with the URL in
 `DB_URL_PARAM_NAME`. The deployment points that at the direct
 (non-pooled) endpoint, since PgBouncer's transaction mode is a poor fit
 for DDL. No master credentials, no `CREATE ROLE`, no `CREATE DATABASE`.
@@ -187,7 +229,8 @@ demo account").
 3. Grants that role exactly `CONNECT` on the database plus `USAGE,
    CREATE` on the `public` schema. Nothing broader: no superuser, no
    `CREATEDB`/`CREATEROLE`, no ownership of the database itself.
-4. Creates the tables, connected as that role, so the role owns them.
+4. Runs the migrations, connected as that role, so the role owns the
+   tables (and can `ALTER` them in later migrations).
 
 Every step is idempotent, so re-running is always safe. A failure in
 either mode propagates: the CLI exits 1 and `lambda_handler` fails the
@@ -247,13 +290,46 @@ they stay `<timestamp>-<sha>`, unique per build.
 
 ## Run the tests
 
+Two kinds, told apart by the `integration` pytest marker (registered in
+`pyproject.toml`) and the `tests/integration/` directory:
+
 ```
-uv run pytest
+uv run pytest                  # unit tests (the default)
+uv run pytest -m integration   # integration tests, needs Postgres (below)
 ```
 
-Each test runs against its own fresh, isolated in-memory SQLite database
-(see `tests/conftest.py`), never the dev `hub.db` file, never shared
-across tests, never a real database.
+Or from the repo root: `make test-backend` and `make test-integration`.
+
+**Unit tests** (`tests/*.py`, the default run; integration tests are
+deselected by `addopts`). Each test runs against its own fresh, isolated
+in-memory SQLite database (see `tests/conftest.py`), never the dev
+`hub.db` file, never shared across tests, never a real database. No
+services needed. This is what CI's `test` job runs.
+
+**Integration tests** (`tests/integration/`, every module marked
+`pytestmark = pytest.mark.integration`). The same app and `Store`, but
+against real Postgres 17: the Docker Compose `postgres` service. Start
+it from the repo root with `docker compose up -d --wait postgres` (or
+let `make test-integration` do it). Each run:
+
+- creates a throwaway database (`hub_it_<random>`) as the Compose
+  superuser, builds its schema with the real Alembic migrations, and
+  drops it at the end, so the Compose app's own `hub_dev` data is never
+  touched;
+- truncates every table between tests;
+- runs the local bootstrap end to end once, against its own throwaway
+  role and database, to prove the least-privilege grants are enough for
+  the migrations.
+
+They cover what SQLite can't: the native `status` enum, case-insensitive
+email lookups on case-sensitive text, the unique email index under a
+racing insert, timezone-aware timestamps, foreign-key cascades, and the
+migrations' stamp, upgrade and downgrade paths on Postgres.
+`INTEGRATION_ADMIN_URL` points them at another Postgres (default
+`postgresql+psycopg://postgres:postgres@localhost:5432/postgres`, the
+Compose service). Without a reachable Postgres they fail with a message
+saying how to start it, rather than skipping silently. CI's
+`integration` job runs them.
 
 ## Auth
 
@@ -288,16 +364,22 @@ but the same site, so the cookie still flows; the frontend sends
 
 ## Rate limits
 
-Two layers:
+Two layers. The full picture, including what each layer does and doesn't
+protect against, is in `security/RATE_LIMITING.md`.
 
 | Layer | Threshold | Scope | Where |
 |---|---|---|---|
 | Login attempts | 5 per minute (sliding window) | Per client IP, `POST /auth/login` only, successful and failed attempts alike | `app/auth/rate_limit.py`, `LOGIN_RATE_LIMIT_PER_MINUTE` |
 | Sign-up attempts | 3 per minute (sliding window) | Per client IP, `POST /auth/register` only, counted separately from logins; successful, duplicate (409) and invalid (422) attempts alike | `app/auth/rate_limit.py`, `REGISTER_RATE_LIMIT_PER_MINUTE` |
+| Error reports | 30 per minute (sliding window) | Per client IP, `POST /client-errors` only, counted separately | `app/auth/rate_limit.py`, `CLIENT_ERROR_RATE_LIMIT_PER_MINUTE` |
 | API Gateway stage throttle | 50 requests/second steady, bursts up to 100 | All clients and routes together | `infra/hub/apigateway.tf` (`default_route_settings`) |
 
 How the client is identified: the address in `CLIENT_IP_HEADER`
-(`CloudFront-Viewer-Address` when deployed), else the TCP peer. The
+(`CloudFront-Viewer-Address` when deployed), else the TCP peer. If that
+address is in `TRUSTED_PROXY_IPS` (Cloudflare's ranges when deployed;
+empty, so off, by default), the client is taken from `X-Forwarded-For`
+instead, read from the right past trusted proxies; see
+`security/RATE_LIMITING.md` for why that can't be spoofed. The
 header may be `ip:port` (CloudFront's form, IPv6 unbracketed), a bare
 address, or `[ipv6]:port`; a suffix only counts as a port if it's
 numeric and at most 65535. A malformed value falls back to the peer
@@ -306,15 +388,15 @@ address instead of becoming a bucket of its own. IPv4-mapped IPv6
 per `/64` network, since one subscriber usually controls a whole `/64`
 and could otherwise rotate addresses to reset the count.
 
-Over any limit the response is `429 Too Many Requests`. The login and
-sign-up limits add a `Retry-After` header (seconds) and don't count the
+Over any limit the response is `429 Too Many Requests`. The per-IP
+limits add a `Retry-After` header (seconds) and don't count the
 rejected attempt, so a client that keeps retrying is let back in once
 its oldest attempt is a minute old. Both are off locally and on in dev
 and prod (`is_deployed()`).
 
 Known gaps:
 
-- The login limit is in-memory per process. Each warm Lambda container
+- The per-IP limits are in-memory per process. Each warm Lambda container
   counts separately, so with several running a client can get a few
   times the limit through. The API Gateway throttle is the global
   backstop. A shared counter (e.g. a database table) would close this
@@ -334,6 +416,61 @@ Known gaps:
   sent there directly could set `CloudFront-Viewer-Address` to anything.
   Closed by origin verification (below): without CloudFront's secret
   header, such a request gets 403 before the rate limit runs.
+
+## Usage caps
+
+`app/core/quotas.py`, configured in `app/core/config.py`. Over a cap the
+API answers `403` with a message the frontend shows as-is; `0` turns a
+cap off.
+
+| Cap | Default | Checked on |
+|---|---|---|
+| `MAX_ACCOUNTS` (total accounts) | 1000 when deployed, off locally | `POST /auth/register` |
+| `MAX_PROJECTS_PER_USER` | 500 | `POST /projects` |
+| `MAX_NOTES_PER_PROJECT` | 500 | `POST /projects/{project_id}/notes` |
+
+They're soft: the check counts, then inserts, with no lock between, so
+two requests racing at the boundary can both get through. Fine for what
+they're for, bounding how much one account (or a burst of sign-ups) can
+make the database hold. Accounts created outside sign-up (the
+bootstrap's demo account) count toward `MAX_ACCOUNTS` but are never
+blocked by it. Updates and deletes are never capped.
+
+Text fields are length-limited, in characters: project `name` 256,
+`pitch` 2000, `description` 5000, `nextAction` 1000, note `body`
+10000. Longer input is a `422` from the input models
+(`app/models/project.py`, `app/models/note.py`, where the limits are
+defined once), and the database backs it up with CHECK constraints
+(`app/db/orm.py`, migration `0002`), so nothing writing to the tables
+directly can exceed them either. Migration `0002` refuses to run over a
+database that already holds longer values, rather than truncating them;
+see `ops/TROUBLESHOOTING.md`.
+
+`POST /auth/login` also caps the password at 256 characters, the same
+maximum sign-up enforces: anything longer is a `422` before any argon2
+work, so one request can't burn seconds of Lambda CPU hashing a huge
+input. Those attempts still count toward the login rate limit.
+
+## Frontend error reports
+
+`POST /client-errors` (`app/routers/errors.py`) takes reports from the
+web app (`frontend/src/lib/error-reporting.ts`): uncaught errors,
+unhandled promise rejections, React render crashes, and API calls that
+got no response or a 5xx. Each is written as one JSON line on the
+`app.client_errors` logger, so CloudWatch Logs when deployed and the
+console locally; nothing goes in the database. The request itself shows
+up in the per-endpoint metrics as `client_errors_post_*`.
+
+```
+WARNING:app.client_errors:client_error {"endpoint": null, "kind": "error", "message": "TypeError: ...", "method": null, "stack": "...", "status": null, "url": "https://hub.dnls.dev/project/...", "user_agent": "...", "user_id": "..."}
+```
+
+Unauthenticated, because errors happen while signed out too; rate
+limited per IP (above) and length-capped per field instead. A valid
+session attaches the user id (never the email). URLs lose their query
+string and fragment. The browser side sends at most 20 reports per page
+load and each distinct one once. Getting these logs into Grafana is a
+separate step; see `ops/MONITORING.md`.
 
 ## Origin verification
 

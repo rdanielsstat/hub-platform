@@ -21,6 +21,57 @@ def test_register_password_over_max_length_is_rejected(client):
     assert res.status_code == 422
 
 
+def test_login_password_over_max_length_is_rejected_without_hashing(
+    client, monkeypatch
+):
+    def no_hashing(*args: object) -> bool:
+        raise AssertionError("an over-long password must not reach argon2")
+
+    monkeypatch.setattr("app.routers.auth.verify_password", no_hashing)
+
+    res = client.post(
+        "/auth/login", data={"username": "longpw@example.com", "password": "a" * 257}
+    )
+
+    assert res.status_code == 422
+    (error,) = res.json()["detail"]
+    assert error["loc"] == ["body", "password"]
+    assert error["type"] == "string_too_long"
+    assert "a" * 257 not in res.text
+
+
+def test_login_password_at_max_length_is_checked_normally(client):
+    password = "b" * 256
+    client.post(
+        "/auth/register", json={"email": "maxpw@example.com", "password": password}
+    )
+
+    ok = client.post(
+        "/auth/login", data={"username": "maxpw@example.com", "password": password}
+    )
+    wrong = client.post(
+        "/auth/login", data={"username": "maxpw@example.com", "password": "c" * 256}
+    )
+
+    assert ok.status_code == 200
+    assert wrong.status_code == 401
+
+
+def test_over_long_login_attempts_still_count_toward_the_rate_limit(
+    client, monkeypatch
+):
+    from app.auth import rate_limit
+
+    monkeypatch.setattr(
+        rate_limit, "login_rate_limiter", rate_limit.SlidingWindowRateLimiter(2)
+    )
+    form = {"username": "x@example.com", "password": "a" * 1000}
+
+    statuses = [client.post("/auth/login", data=form).status_code for _ in range(3)]
+
+    assert statuses == [422, 422, 429]
+
+
 def test_register_with_casing_variant_of_existing_email_is_rejected(client):
     client.post(
         "/auth/register", json={"email": "Case@Example.com", "password": "password123"}

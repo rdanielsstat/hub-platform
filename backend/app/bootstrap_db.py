@@ -1,12 +1,15 @@
-"""One-time-per-deploy database bootstrap. Owns table creation: the app
-itself does no database work at import (see app/main.py).
+"""One-time-per-deploy database bootstrap. Owns the schema: the app
+itself does no database work at import (see app/main.py). The schema
+comes from Alembic migrations (app/db/migrations.py, scripts in
+backend/alembic/versions/), applied with the equivalent of
+`alembic upgrade head`.
 
 Run standalone, separate from normal app startup: `python -m
 app.bootstrap_db`, or via lambda_handler below. Two modes, picked by
 USE_SSM:
 
   - Cloud (USE_SSM on): Neon already provides the role and database, so
-    this only creates tables, connecting with the URL in
+    this only migrates the schema, connecting with the URL in
     DB_URL_PARAM_NAME (the direct, non-pooled endpoint: PgBouncer's
     transaction mode is a poor fit for DDL). No master credentials, no
     CREATE ROLE, no CREATE DATABASE. Then seeds the demo account, if
@@ -15,12 +18,14 @@ USE_SSM:
     this environment's database and a least-privilege login role for
     the app, grants that role exactly what table creation and normal
     CRUD need (CONNECT on the database, USAGE + CREATE on the public
-    schema), then creates the tables connected as that role.
+    schema), then migrates the schema connected as that role.
 
 Fully idempotent: safe to run on every deploy. An existing role/database
 is left as-is (not recreated, not have its password changed); the GRANT
 statements always re-run, since GRANT is itself a no-op when the
-privilege is already held; table creation only creates what's missing.
+privilege is already held; a database already at the latest migration
+is left alone, and a pre-Alembic one (tables from the old create_all())
+is stamped at the baseline revision rather than recreated.
 Any failure propagates: lambda_handler fails the invocation and the CLI
 exits 1, never reporting success against an unreachable database.
 
@@ -56,7 +61,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from app.core import config
-from app.db.orm import Base
+from app.db.migrations import upgrade_to_head
 from app.db.seed import SEED_USER_EMAIL, seed
 from app.db.session import enable_sqlite_foreign_keys
 from app.db.store import Store
@@ -176,8 +181,9 @@ def _ensure_database(cur: psycopg.Cursor, dbname: str) -> None:
 
 def _grant_privileges(cur: psycopg.Cursor, dbname: str, role: str) -> None:
     """Least-privilege grant: CONNECT on the database, plus USAGE +
-    CREATE on the public schema, which is exactly what create_tables()
-    (CREATE TABLE/INDEX) and normal CRUD after that need. No superuser,
+    CREATE on the public schema, which is exactly what the migrations
+    (CREATE TABLE/INDEX/TYPE, ALTER on tables the role owns) and normal
+    CRUD after that need. No superuser,
     no CREATEDB/CREATEROLE, no ownership of the database itself. GRANT
     is idempotent (a no-op if already held), so this always runs."""
     cur.execute(
@@ -191,22 +197,17 @@ def _grant_privileges(cur: psycopg.Cursor, dbname: str, role: str) -> None:
     )
 
 
-def _create_tables(database_url: str) -> None:
-    """Create any missing tables, connected with database_url. A
-    dedicated engine, disposed afterwards, rather than the app's cached
-    one in app/db/session.py: this runs once and exits."""
-    engine = create_engine(database_url)
-    try:
-        Base.metadata.create_all(bind=engine)
-    finally:
-        engine.dispose()
-    print("Tables created (any that already existed were left as-is).")
+def _migrate_schema(database_url: str) -> None:
+    """Apply any pending migrations, connected with database_url, on a
+    dedicated engine rather than the app's cached one in
+    app/db/session.py: this runs once and exits."""
+    upgrade_to_head(database_url)
 
 
 @contextmanager
 def _store(database_url: str) -> Iterator[Store]:
     """A Store on its own engine, disposed afterwards, for the same
-    reason as _create_tables()."""
+    reason as _migrate_schema()."""
     engine = create_engine(database_url)
     enable_sqlite_foreign_keys(engine, database_url)
     db = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)()
@@ -252,7 +253,7 @@ def _seed_demo_account(database_url: str) -> None:
 def bootstrap() -> None:
     if config.USE_SSM:
         database_url = config.get_database_url()
-        _create_tables(database_url)
+        _migrate_schema(database_url)
         _seed_demo_account(database_url)
         return
 
@@ -291,8 +292,8 @@ def bootstrap() -> None:
         target_conn.close()
 
     # As the app's own role, so the tables belong to the role that will
-    # use them.
-    _create_tables(config.get_database_url())
+    # use them (and that role can ALTER them in later migrations).
+    _migrate_schema(config.get_database_url())
 
 
 def lambda_handler(event: object, context: object) -> dict[str, str]:

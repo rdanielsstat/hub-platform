@@ -99,6 +99,19 @@ variable "otel_headers_prod" {
   sensitive   = true
 }
 
+# Proxies the API trusts to report the client address in X-Forwarded-For
+# (TRUSTED_PROXY_IPS, backend/app/core/config.py): comma-separated IPs or
+# CIDR ranges. Cloudflare proxies the site, so set this to Cloudflare's
+# published ranges (ops/DEPLOYMENT.md); CI passes it as
+# TF_VAR_trusted_proxy_ips from the GitHub environment variable
+# TRUSTED_PROXY_IPS. Empty (the default) trusts no proxy, which is the
+# behaviour before this setting existed.
+variable "trusted_proxy_ips" {
+  description = "Comma-separated proxy IPs/CIDRs trusted for X-Forwarded-For (Cloudflare's ranges)."
+  type        = string
+  default     = ""
+}
+
 variable "cloudflare_api_token" {
   description = "Cloudflare API token for DNS management."
   type        = string

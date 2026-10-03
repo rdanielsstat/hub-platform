@@ -106,6 +106,11 @@ resource "aws_lambda_function" "backend" {
       # (frontend.tf). Without it the app falls back to the peer address,
       # which would make the limit per CloudFront edge, not per user.
       CLIENT_IP_HEADER = "CloudFront-Viewer-Address"
+
+      # Behind Cloudflare, that viewer is a Cloudflare edge, not the user.
+      # When it's in these ranges the app reads the user's address from
+      # X-Forwarded-For instead (security/RATE_LIMITING.md). Empty: off.
+      TRUSTED_PROXY_IPS = var.trusted_proxy_ips
     }, local.otel_env)
   }
 }

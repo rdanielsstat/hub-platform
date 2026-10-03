@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.auth.dependencies import get_current_user
+from app.core.quotas import enforce_note_cap
 from app.db.store import (
     Store,
     NoteRecord,
@@ -55,6 +56,7 @@ def add_note(
     store: Store = Depends(get_store),
 ) -> AddNoteResponse:
     _get_owned_project_or_404(project_id, current_user.id, store)
+    enforce_note_cap(store, project_id)
     note = store.create_note(project_id=project_id, body=payload.body)
     project = store.update_project(project_id, current_user.id)
     if project is None:
