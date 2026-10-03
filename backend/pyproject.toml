@@ -24,7 +24,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28.1",
+    "httpx2>=2.13.1",
     "pytest>=9.1.1",
     "pyyaml>=6.0.3",
 ]
@@ -39,4 +39,13 @@ testpaths = ["tests"]
 addopts = "-m 'not integration'"
 markers = [
     "integration: needs a real Postgres (Docker Compose); deselected by default",
+]
+filterwarnings = [
+    # Mangum 0.22.0 (latest as of 2026-10-02) calls asyncio.get_event_loop()
+    # and creates a loop itself when that raises RuntimeError, which is the
+    # behaviour newer Pythons switch to. Python 3.12 warns on the call first.
+    # Harmless, and nothing to upgrade to; scoped to this one message from
+    # mangum.adapter so any other deprecation still shows. Drop this once a
+    # Mangum release stops calling get_event_loop().
+    "ignore:There is no current event loop:DeprecationWarning:mangum.adapter",
 ]

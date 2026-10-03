@@ -71,6 +71,14 @@ Python base image's OS packages (`public.ecr.aws/lambda/python:3.12`).
 Added on 2026-10-02: `alembic` (backend runtime), for schema migrations.
 Brings in `mako` and `markupsafe`. Maintained by the SQLAlchemy project.
 
+Changed on 2026-10-02, to clear test-run deprecation warnings:
+`httpx` (dev only, used by FastAPI's `TestClient`) replaced by `httpx2`
+2.13.1, which Starlette now asks for; brings in `httpcore2` and
+`truststore`. `starlette` 1.6.0 to 1.7.0 (stops using anyio's deprecated
+`BlockingPortal` alias). pip-audit on the new lock: no known
+vulnerabilities. Mangum 0.22.0 is still the latest release; its one
+remaining warning is filtered in `pyproject.toml`, with the reason.
+
 ## Supply-chain notes and gaps
 
 - Image tags aren't pinned to digests. A compromised or broken upstream
