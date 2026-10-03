@@ -152,8 +152,9 @@ curl -sI https://hub-dev.dnls.dev/ | grep -iE "content-security|strict-transport
 ```
 
 The CSP allows scripts from the site itself only (no inline scripts),
-styles and fonts from the site and Google Fonts, and API calls to the
-same origin. A change that loads anything from another origin must add
+plus Cloudflare's Web Analytics beacon, which Cloudflare's proxy injects;
+styles and fonts from the site and Google Fonts; and API calls to the
+same origin, plus the beacon's report endpoint. A change that loads anything from another origin must add
 it to `local.content_security_policy`, or browsers block it.
 
 ## Trusted proxies: Cloudflare's IP ranges

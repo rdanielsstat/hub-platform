@@ -6,8 +6,10 @@ field, a log line with user data, or a third party, update this file in
 the same change.
 
 Hub is a personal idea tracker run as a portfolio project. There's no
-advertising, no analytics SDK, no tracking cookies, and no data is sold
-or shared beyond the processors listed below.
+advertising, no analytics SDK in the app, no tracking cookies, and no
+data is sold or shared beyond the processors listed below. The one form
+of analytics is Cloudflare Web Analytics (below), which Cloudflare's
+proxy adds to the pages itself.
 
 ## What's stored (Neon Postgres)
 
@@ -54,6 +56,7 @@ CloudWatch.
 | AWS (us-east-1) | Hosting: Lambda, API Gateway, CloudFront, S3, SSM, CloudWatch | All of the above in transit; logs at rest |
 | Neon | Postgres database | Everything in "What's stored" |
 | Cloudflare | DNS, and proxy for the site hostname (`proxied = true`) | All requests in transit (Cloudflare terminates TLS) |
+| Cloudflare Web Analytics | Page-view and performance analytics, injected into pages by Cloudflare's proxy (found 2026-10-03) | Cookieless: page URL, referrer, browser and device type, country, page timing. No account data. Allowed by the CSP (`infra/hub/frontend.tf`); to stop it, turn off Web Analytics for the hostname in Cloudflare and remove the two CSP entries |
 | Grafana Cloud | Traces and metrics | As in the table above |
 | GitHub | Code, CI | No user data |
 

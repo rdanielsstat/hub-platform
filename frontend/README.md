@@ -82,8 +82,9 @@ unit tests: reporting stays off until `installErrorReporting()` runs. See
 ## Content-Security-Policy
 
 Deployed, CloudFront sends a strict CSP (`infra/hub/frontend.tf`):
-scripts only from the site itself, with no inline `<script>`; styles and
-fonts from the site and Google Fonts; API calls same-origin. So:
+scripts only from the site itself, with no inline `<script>`, plus the
+Cloudflare Web Analytics beacon that Cloudflare's proxy injects; styles
+and fonts from the site and Google Fonts; API calls same-origin. So:
 
 - Don't add inline scripts to `index.html`. Code that has to run before
   React (like the theme, to avoid a flash) goes in a file under

@@ -127,6 +127,12 @@ resource "aws_cloudfront_origin_request_policy" "api" {
 #   - Google Fonts: the stylesheet (fonts.googleapis.com) and the font
 #     files (fonts.gstatic.com), loaded by index.html.
 #   - connect-src 'self': the API is same-origin (/api/*).
+#   - Cloudflare Web Analytics: Cloudflare's proxy (dns.tf, proxied) injects
+#     its beacon script (static.cloudflareinsights.com, with an integrity
+#     hash) into every HTML page, and the beacon reports to
+#     cloudflareinsights.com. Allowed so the zone's analytics keep working.
+#     To drop analytics, turn off Web Analytics for the hostname in
+#     Cloudflare and remove both entries. security/DATA_POLICY.md.
 #   - frame-ancestors 'none' (with X-Frame-Options DENY): no clickjacking.
 # A change that loads anything from a new origin must be added here, or
 # the browser blocks it (the console shows the CSP violation).
@@ -138,11 +144,11 @@ resource "aws_cloudfront_origin_request_policy" "api" {
 locals {
   content_security_policy = join("; ", [
     "default-src 'self'",
-    "script-src 'self'",
+    "script-src 'self' https://static.cloudflareinsights.com",
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
     "img-src 'self' data:",
-    "connect-src 'self'",
+    "connect-src 'self' https://cloudflareinsights.com",
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
