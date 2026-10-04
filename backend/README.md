@@ -3,7 +3,7 @@
 FastAPI backend for Hub. Implements auth, project, and note endpoints
 against a real database via SQLAlchemy: it uses SQLite locally, Neon
 Postgres when deployed (database-agnostic, so the same code runs on
-both). Attachments aren't built yet. See `../docs/specs.md` and
+both). Attachments aren't built yet. See `../product-spec.md` and
 `../openapi.yaml` for the full intended contract.
 
 ## Setup

@@ -1,7 +1,7 @@
 # Hub frontend
 
 Vite 6 + React 19 SPA. Stack, conventions and the rules for agents are in
-the repo root's `AGENTS.md`; the product spec is `docs/specs.md`.
+the repo root's `AGENTS.md`; the product spec is `product-spec.md` at the repo root.
 
 ## Setup
 

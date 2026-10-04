@@ -677,7 +677,7 @@ Hub-Platform was built using AI-native development practices: spec-driven develo
 
 ### How it was built
 
-1. **Specification**: Brainstormed with Claude to define the problem, users, features, and workflows (saved in `docs/specs.md`)
+1. **Specification**: Brainstormed with Claude to define the problem, users, features, and workflows (saved in `product-spec.md`)
 2. **Frontend first**: Created a React prototype with mocked backend calls using Claude Code
 3. **API contract**: Defined OpenAPI specification for frontend-backend communication
 4. **Backend from spec**: Built FastAPI backend from the OpenAPI contract

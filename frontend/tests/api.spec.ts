@@ -661,7 +661,7 @@ test.describe('projects', () => {
       request,
     }) => {
       // Current behavior: the API has no min length on name; the quick
-      // capture form is what enforces "name required" (docs/specs.md).
+      // capture form is what enforces "name required" (product-spec.md).
       for (const name of ['', '   ']) {
         const res = await post(request, { name })
         expect(res.status()).toBe(201)
@@ -1298,7 +1298,7 @@ test.describe('notes', () => {
   test('notes cannot be edited, and have no project-nested routes', async ({
     request,
   }) => {
-    // docs/specs.md: "a notes log with add and delete". No edit endpoint.
+    // product-spec.md: "a notes log with add and delete". No edit endpoint.
     const n = await addNoteViaApi(request, user, project.id, 'fixed')
     const h = { headers: bearer(user.token), data: { body: 'changed' } }
     expect((await request.patch(url(`/notes/${n.id}`), h)).status()).toBe(405)

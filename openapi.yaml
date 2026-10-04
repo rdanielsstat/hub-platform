@@ -4,7 +4,7 @@ info:
   description: >
     API contract for the Hub backend (FastAPI). Derived from the frontend's
     API client (frontend/src/services/api/) and the data model in
-    docs/specs.md. The backend implements this contract;
+    product-spec.md. The backend implements this contract;
     backend/tests/test_openapi_contract.py fails if the paths and methods
     here and in the FastAPI app drift apart.
 

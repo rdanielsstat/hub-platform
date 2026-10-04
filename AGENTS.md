@@ -5,7 +5,7 @@ Standing instructions for AI coding agents working in this repo.
 ## Project
 
 Hub: a personal platform to capture, organize, and triage project ideas, from
-small sparks to standalone builds. See `docs/specs.md` for the product spec
+small sparks to standalone builds. See `product-spec.md` (repo root) for the product spec
 and data model. That document is the source of truth; don't duplicate it
 here and don't let this file drift from it.
 

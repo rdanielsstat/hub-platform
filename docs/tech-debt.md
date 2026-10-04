@@ -127,7 +127,7 @@
 ## Project requirements
 
 - Root `README.md`: done.
-- `product-spec.md` at the repo root. The spec currently lives at `docs/specs.md`.
+- `product-spec.md` at the repo root: done (2026-10-04, moved from `docs/specs.md`).
 - Separate unit and integration tests with markers or subdirectories, and
   document the command for each: done (2026-10-02, the `integration` pytest
   marker; `backend/README.md`, `frontend/README.md`).
