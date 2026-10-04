@@ -17,9 +17,9 @@ from app.bootstrap_db import (
     _quote_literal,
     bootstrap,
     get_app_target,
-    main,
     get_master_credentials,
     lambda_handler,
+    main,
 )
 from app.core import config
 
@@ -174,7 +174,12 @@ def test_get_master_credentials_ssm_reads_from_master_param(monkeypatch):
     def fake_fetch(name: str) -> str:
         fetched.append(name)
         return json.dumps(
-            {"username": "master", "password": "s3cret", "host": "db.internal", "port": 5432}
+            {
+                "username": "master",
+                "password": "s3cret",
+                "host": "db.internal",
+                "port": 5432,
+            }
         )
 
     monkeypatch.setattr(config, "_fetch_ssm_parameter", fake_fetch)
@@ -215,7 +220,10 @@ def test_quote_identifier_rejects_unsafe_names():
 
 
 def test_quote_literal_escapes_embedded_quotes():
-    assert _quote_literal("p@ss'; DROP TABLE users; --") == "'p@ss''; DROP TABLE users; --'"
+    assert (
+        _quote_literal("p@ss'; DROP TABLE users; --")
+        == "'p@ss''; DROP TABLE users; --'"
+    )
 
 
 # ---- bootstrap() ----
@@ -236,7 +244,9 @@ def test_bootstrap_created_role_is_not_superuser(
     bootstrap()
 
     create_role_statements = [
-        query for query, _ in fake_pg_state["executed"] if query.startswith("CREATE ROLE")
+        query
+        for query, _ in fake_pg_state["executed"]
+        if query.startswith("CREATE ROLE")
     ]
     assert len(create_role_statements) == 1
     statement = create_role_statements[0]
@@ -254,7 +264,9 @@ def test_bootstrap_role_password_matches_app_database_url(
     bootstrap()
 
     create_role_statements = [
-        query for query, _ in fake_pg_state["executed"] if query.startswith("CREATE ROLE")
+        query
+        for query, _ in fake_pg_state["executed"]
+        if query.startswith("CREATE ROLE")
     ]
     assert create_role_statements == [
         "CREATE ROLE \"hub_dev_user\" WITH LOGIN PASSWORD 'hub_dev_password' "
@@ -267,7 +279,9 @@ def test_bootstrap_grants_only_connect_usage_and_create(
 ):
     bootstrap()
 
-    grants = [query for query, _ in fake_pg_state["executed"] if query.startswith("GRANT")]
+    grants = [
+        query for query, _ in fake_pg_state["executed"] if query.startswith("GRANT")
+    ]
 
     assert grants == [
         'GRANT CONNECT ON DATABASE "hub_dev" TO "hub_dev_user"',

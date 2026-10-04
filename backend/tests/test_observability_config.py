@@ -77,13 +77,25 @@ def test_disabled_initialization_does_nothing(capsys, monkeypatch) -> None:
 def test_dev_and_prod_get_otel_secrets() -> None:
     ci = yaml.safe_load(CI_PATH.read_text())
     env = ci["jobs"]["deploy-dev"]["env"]
-    assert env["TF_VAR_otel_endpoint_dev"] == "${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT_DEV }}"
-    assert env["TF_VAR_otel_headers_dev"] == "${{ secrets.OTEL_EXPORTER_OTLP_HEADERS_DEV }}"
+    assert (
+        env["TF_VAR_otel_endpoint_dev"]
+        == "${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT_DEV }}"
+    )
+    assert (
+        env["TF_VAR_otel_headers_dev"]
+        == "${{ secrets.OTEL_EXPORTER_OTLP_HEADERS_DEV }}"
+    )
 
     promote = yaml.safe_load(PROMOTE_PATH.read_text())
     env = promote["jobs"]["promote"]["env"]
-    assert env["TF_VAR_otel_endpoint_prod"] == "${{ secrets.TF_VAR_OTEL_EXPORTER_OTLP_ENDPOINT_PROD }}"
-    assert env["TF_VAR_otel_headers_prod"] == "${{ secrets.TF_VAR_OTEL_EXPORTER_OTLP_HEADERS_PROD }}"
+    assert (
+        env["TF_VAR_otel_endpoint_prod"]
+        == "${{ secrets.TF_VAR_OTEL_EXPORTER_OTLP_ENDPOINT_PROD }}"
+    )
+    assert (
+        env["TF_VAR_otel_headers_prod"]
+        == "${{ secrets.TF_VAR_OTEL_EXPORTER_OTLP_HEADERS_PROD }}"
+    )
 
 
 def test_deploy_dev_passes_semver_service_version() -> None:
@@ -96,7 +108,7 @@ def test_deploy_dev_passes_semver_service_version() -> None:
 
     (compute,) = [s for s in steps if s.get("id") == "tag"]
     assert ".github/scripts/service-version.sh" in compute["run"]
-    assert 'version=' in compute["run"]
+    assert "version=" in compute["run"]
 
     (apply,) = [s for s in steps if s.get("name") == "Apply"]
     assert '-var="service_version=${{ steps.tag.outputs.version }}"' in apply["run"]
@@ -120,7 +132,7 @@ def test_promote_passes_semver_service_version_for_prod() -> None:
     assert 'SHA="${SHA##*-}"' in derive["run"]
     assert 'git switch --detach "$SHA"' in derive["run"]
     assert ".github/scripts/service-version.sh" in derive["run"]
-    assert 'version=' in derive["run"]
+    assert "version=" in derive["run"]
 
     # Derived before prod is applied.
     names = [s.get("name") for s in steps]

@@ -30,16 +30,16 @@ Create Date: 2026-10-02 17:00:00.000000
 
 """
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "0002"
-down_revision: Union[str, Sequence[str], None] = "0001"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | Sequence[str] | None = "0001"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 # Fixed here rather than imported from app/models: a migration must keep
 # doing what it did when it was written, even if the app's limits change
@@ -65,7 +65,9 @@ def _check_existing_rows() -> None:
     for table, columns in LIMITS.items():
         for column, limit in columns.items():
             count = bind.execute(
-                sa.text(f"SELECT count(*) FROM {table} WHERE length({column}) > {limit}")
+                sa.text(
+                    f"SELECT count(*) FROM {table} WHERE length({column}) > {limit}"
+                )
             ).scalar_one()
             if count:
                 too_long.append(f"{table}.{column}: {count} row(s) over {limit}")

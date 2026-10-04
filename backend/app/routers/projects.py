@@ -12,9 +12,7 @@ def _to_project(record: ProjectRecord) -> Project:
     return Project.model_validate(record, from_attributes=True)
 
 
-def _get_owned_or_404(
-    project_id: str, owner_id: str, store: Store
-) -> ProjectRecord:
+def _get_owned_or_404(project_id: str, owner_id: str, store: Store) -> ProjectRecord:
     record = store.get_project(project_id, owner_id)
     if record is None:
         raise HTTPException(

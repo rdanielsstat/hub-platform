@@ -66,14 +66,17 @@ def test_update_rejects_over_long_values_and_keeps_the_old_one(
     )
 
     assert res.status_code == 422
-    assert client.get(f"/projects/{project['id']}", headers=headers).json()[field] == (
-        project[field]
+    assert (
+        client.get(f"/projects/{project['id']}", headers=headers).json()[field]
+        == (project[field])
     )
 
 
 def test_limits_count_characters_not_bytes(client, headers):
     """256 emoji are 1024 bytes in UTF-8 but 256 characters: allowed."""
-    res = client.post("/projects", json={"name": "🚀" * NAME_MAX_LENGTH}, headers=headers)
+    res = client.post(
+        "/projects", json={"name": "🚀" * NAME_MAX_LENGTH}, headers=headers
+    )
 
     assert res.status_code == 201
 
@@ -156,7 +159,11 @@ from app.models.user import DISPLAY_NAME_MAX_LENGTH  # noqa: E402
 
 def test_list_limits_are_the_agreed_values():
     assert (TAGS_MAX_ITEMS, TAG_MAX_LENGTH) == (50, 64)
-    assert (LINKS_MAX_ITEMS, LINK_URL_MAX_LENGTH, LINK_LABEL_MAX_LENGTH) == (50, 2048, 200)
+    assert (LINKS_MAX_ITEMS, LINK_URL_MAX_LENGTH, LINK_LABEL_MAX_LENGTH) == (
+        50,
+        2048,
+        200,
+    )
     assert DISPLAY_NAME_MAX_LENGTH == 100
 
 
@@ -207,13 +214,19 @@ def test_tag_and_link_limits_on_create_and_update(client, headers, ok, too_long,
 def test_display_name_limit(client):
     ok = client.post(
         "/auth/register",
-        json={"email": "dn-ok@example.com", "password": "password123",
-              "displayName": "d" * 100},
+        json={
+            "email": "dn-ok@example.com",
+            "password": "password123",
+            "displayName": "d" * 100,
+        },
     )
     too_long = client.post(
         "/auth/register",
-        json={"email": "dn-long@example.com", "password": "password123",
-              "displayName": "d" * 101},
+        json={
+            "email": "dn-long@example.com",
+            "password": "password123",
+            "displayName": "d" * 101,
+        },
     )
 
     assert ok.status_code == 201
@@ -232,7 +245,11 @@ def test_database_rejects_too_many_tags_or_links_written_directly(store):
 
 
 def test_database_rejects_long_display_name_written_directly(store):
-    store.create_user(email="dn1@example.com", password_hash="h", display_name="d" * 100)
+    store.create_user(
+        email="dn1@example.com", password_hash="h", display_name="d" * 100
+    )
 
     with pytest.raises(IntegrityError):
-        store.create_user(email="dn2@example.com", password_hash="h", display_name="d" * 101)
+        store.create_user(
+            email="dn2@example.com", password_hash="h", display_name="d" * 101
+        )

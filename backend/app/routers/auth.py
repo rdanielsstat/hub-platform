@@ -50,7 +50,7 @@ def register(
     except DuplicateEmailError:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Email already registered"
-        )
+        ) from None
     return _start_session(response, user.id)
 
 

@@ -69,9 +69,7 @@ def client(store: Store) -> Iterator[TestClient]:
 @pytest.fixture()
 def register_and_login(client: TestClient):
     def _do(email: str) -> dict[str, str]:
-        client.post(
-            "/auth/register", json={"email": email, "password": TEST_PASSWORD}
-        )
+        client.post("/auth/register", json={"email": email, "password": TEST_PASSWORD})
         res = client.post(
             "/auth/login", data={"username": email, "password": TEST_PASSWORD}
         )

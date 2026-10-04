@@ -55,7 +55,9 @@ def _get_engine() -> Engine:
         # different thread than the one that created it (FastAPI runs
         # sync routes in a threadpool); Postgres connections don't
         # have this restriction.
-        connect_args = {"check_same_thread": False} if database_url.startswith("sqlite") else {}
+        connect_args = (
+            {"check_same_thread": False} if database_url.startswith("sqlite") else {}
+        )
         # pool_pre_ping: test each pooled connection on checkout and
         # replace it if the server dropped it, instead of failing the
         # request. Neon's pooler closes idle connections and its compute

@@ -36,8 +36,18 @@ def test_create_and_read_back_every_field(client, register_and_login):
     assert created.status_code == 201
     project = client.get(f"/projects/{created.json()['id']}", headers=headers).json()
 
-    for field in ("name", "pitch", "description", "status", "tags", "excitement",
-                  "effort", "potential", "nextAction", "targetDate"):
+    for field in (
+        "name",
+        "pitch",
+        "description",
+        "status",
+        "tags",
+        "excitement",
+        "effort",
+        "potential",
+        "nextAction",
+        "targetDate",
+    ):
         assert project[field] == FULL_PROJECT[field], field
     assert project["links"] == [
         {"label": "Repo", "url": "https://example.com/repo"},
@@ -76,9 +86,12 @@ def test_projects_are_isolated_per_user(client, register_and_login):
 
     assert client.get("/projects", headers=bob).json() == []
     assert client.get(f"/projects/{project['id']}", headers=bob).status_code == 404
-    assert client.patch(
-        f"/projects/{project['id']}", json={"name": "x"}, headers=bob
-    ).status_code == 404
+    assert (
+        client.patch(
+            f"/projects/{project['id']}", json={"name": "x"}, headers=bob
+        ).status_code
+        == 404
+    )
     assert client.delete(f"/projects/{project['id']}", headers=bob).status_code == 404
     assert len(client.get("/projects", headers=alice).json()) == 1
 
@@ -87,7 +100,9 @@ def test_delete_removes_the_project(client, register_and_login):
     headers = register_and_login("delete@example.com")
     project = client.post("/projects", json={"name": "Doomed"}, headers=headers).json()
 
-    assert client.delete(f"/projects/{project['id']}", headers=headers).status_code == 204
+    assert (
+        client.delete(f"/projects/{project['id']}", headers=headers).status_code == 204
+    )
     assert client.get(f"/projects/{project['id']}", headers=headers).status_code == 404
 
 
@@ -98,9 +113,18 @@ def test_postgres_enum_rejects_unknown_status(store):
 
     with pytest.raises(DBAPIError):
         store.create_project(
-            owner_id=user.id, name="p", pitch="", description="", status="Bogus",
-            tags=[], excitement=3, effort=3, potential=3, next_action="",
-            target_date=None, links=[],
+            owner_id=user.id,
+            name="p",
+            pitch="",
+            description="",
+            status="Bogus",
+            tags=[],
+            excitement=3,
+            effort=3,
+            potential=3,
+            next_action="",
+            target_date=None,
+            links=[],
         )
     store._db.rollback()
 
@@ -121,9 +145,18 @@ def test_postgres_check_constraint_rejects_over_long_name(store):
 
     with pytest.raises(DBAPIError):
         store.create_project(
-            owner_id=user.id, name="n" * 257, pitch="", description="",
-            status="Inbox", tags=[], excitement=3, effort=3, potential=3,
-            next_action="", target_date=None, links=[],
+            owner_id=user.id,
+            name="n" * 257,
+            pitch="",
+            description="",
+            status="Inbox",
+            tags=[],
+            excitement=3,
+            effort=3,
+            potential=3,
+            next_action="",
+            target_date=None,
+            links=[],
         )
     store._db.rollback()
 
@@ -152,8 +185,16 @@ def test_postgres_check_constraint_counts_json_array_entries(store):
     """Migration 0003's json_array_length() constraints, on Postgres's json type."""
     user = store.create_user(email="many-tags@example.com", password_hash="h")
     fields = dict(
-        name="p", pitch="", description="", status="Inbox", links=[],
-        excitement=3, effort=3, potential=3, next_action="", target_date=None,
+        name="p",
+        pitch="",
+        description="",
+        status="Inbox",
+        links=[],
+        excitement=3,
+        effort=3,
+        potential=3,
+        next_action="",
+        target_date=None,
     )
     store.create_project(owner_id=user.id, tags=["t"] * 50, **fields)
 
@@ -162,7 +203,9 @@ def test_postgres_check_constraint_counts_json_array_entries(store):
     store._db.rollback()
 
 
-def test_api_rejects_too_many_tags_and_long_link_urls_on_postgres(client, register_and_login):
+def test_api_rejects_too_many_tags_and_long_link_urls_on_postgres(
+    client, register_and_login
+):
     headers = register_and_login("lists-api@example.com")
 
     too_many = client.post(

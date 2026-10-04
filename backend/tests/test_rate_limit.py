@@ -107,7 +107,14 @@ def test_client_ip_handles_bare_bracketed_and_mapped_addresses(value, expected):
 
 @pytest.mark.parametrize(
     "value",
-    ["not-an-ip", "garbage:443", "[2001:db8::1", "999.1.1.1:443", ":443", "203.0.113.7:99999"],
+    [
+        "not-an-ip",
+        "garbage:443",
+        "[2001:db8::1",
+        "999.1.1.1:443",
+        ":443",
+        "203.0.113.7:99999",
+    ],
 )
 def test_a_malformed_header_falls_back_to_the_peer_address(value):
     """Junk can't mint a fresh rate-limit bucket per request."""
@@ -176,7 +183,9 @@ def test_login_returns_429_after_five_attempts_per_minute(client, login_limit_of
 
     assert statuses == [401] * 5
     assert blocked.status_code == 429
-    assert blocked.json() == {"detail": "Too many login attempts. Try again in a minute."}
+    assert blocked.json() == {
+        "detail": "Too many login attempts. Try again in a minute."
+    }
     assert 1 <= int(blocked.headers["retry-after"]) <= 60
 
     # Even the right password is refused until the window passes.
@@ -223,9 +232,7 @@ def test_register_returns_429_after_three_attempts_per_minute(
     assert 1 <= int(blocked.headers["retry-after"]) <= 60
 
 
-def test_rejected_registrations_count_toward_the_limit(
-    client, register_limit_of_three
-):
+def test_rejected_registrations_count_toward_the_limit(client, register_limit_of_three):
     """Duplicate (409) and invalid (422) attempts count too, so probing
     which emails exist, or hammering argon2, is limited the same way."""
     first = {"email": "dupe@example.com", "password": TEST_PASSWORD}
@@ -260,7 +267,6 @@ def test_register_and_login_limits_are_counted_separately(
         "/auth/login", data={"username": "sep-0@example.com", "password": TEST_PASSWORD}
     )
     assert login.status_code == 200
-
 
 
 # ---- trusted proxies and X-Forwarded-For (TRUSTED_PROXY_IPS) ----
@@ -336,9 +342,10 @@ def test_missing_or_all_trusted_chain_falls_back_to_the_hop():
     assert client_ip(_behind_cloudflare(""), header=VIEWER, trusted=CLOUDFLARE) == (
         "173.245.48.10"
     )
-    assert client_ip(
-        _behind_cloudflare("173.245.50.1"), header=VIEWER, trusted=CLOUDFLARE
-    ) == "173.245.48.10"
+    assert (
+        client_ip(_behind_cloudflare("173.245.50.1"), header=VIEWER, trusted=CLOUDFLARE)
+        == "173.245.48.10"
+    )
 
 
 def test_ipv6_client_behind_ipv6_proxy_is_grouped_by_64():

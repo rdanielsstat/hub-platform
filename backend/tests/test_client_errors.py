@@ -125,7 +125,9 @@ def test_reports_are_rate_limited_per_client(client, monkeypatch):
         rate_limit, "client_error_rate_limiter", SlidingWindowRateLimiter(2)
     )
 
-    statuses = [client.post("/client-errors", json=REPORT).status_code for _ in range(3)]
+    statuses = [
+        client.post("/client-errors", json=REPORT).status_code for _ in range(3)
+    ]
 
     assert statuses == [204, 204, 429]
 
@@ -137,5 +139,7 @@ def test_client_error_limit_is_separate_from_login(client, monkeypatch):
     monkeypatch.setattr(rate_limit, "login_rate_limiter", SlidingWindowRateLimiter(1))
 
     assert client.post("/client-errors", json=REPORT).status_code == 204
-    login = client.post("/auth/login", data={"username": "a@b.co", "password": "wrong-pass"})
+    login = client.post(
+        "/auth/login", data={"username": "a@b.co", "password": "wrong-pass"}
+    )
     assert login.status_code == 401

@@ -67,8 +67,8 @@ def throwaway_database() -> Iterator[str]:
             pytrace=False,
         )
     try:
-        yield make_url(ADMIN_URL).set(database=name).render_as_string(
-            hide_password=False
+        yield (
+            make_url(ADMIN_URL).set(database=name).render_as_string(hide_password=False)
         )
     finally:
         with admin.connect() as conn:

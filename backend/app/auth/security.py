@@ -4,7 +4,7 @@ No security-relevant values live here — secret, algorithm, and expiry
 all come from app/core/config.py, the single settings source.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import jwt
 from argon2 import PasswordHasher, Type
@@ -53,9 +53,7 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 
 def create_access_token(subject: str) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(
-        minutes=ACCESS_TOKEN_EXPIRE_MINUTES
-    )
+    expire = datetime.now(UTC) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     payload = {"sub": subject, "exp": expire}
     return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
 

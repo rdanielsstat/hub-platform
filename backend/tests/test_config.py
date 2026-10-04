@@ -27,9 +27,7 @@ def test_local_with_dev_secret_does_not_raise():
 
 
 def test_local_with_missing_secret_does_not_raise():
-    require_safe_jwt_secret(
-        environment="local", secret="", dev_default=DEV_JWT_SECRET
-    )
+    require_safe_jwt_secret(environment="local", secret="", dev_default=DEV_JWT_SECRET)
 
 
 def test_development_alias_is_also_treated_as_local():
@@ -404,4 +402,3 @@ def test_origin_verify_secret_rejects_an_empty_value(monkeypatch):
 
     with pytest.raises(RuntimeError, match="is empty"):
         config.get_origin_verify_secret()
-

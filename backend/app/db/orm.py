@@ -12,9 +12,8 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import JSON, CheckConstraint, Date, DateTime
+from sqlalchemy import JSON, CheckConstraint, Date, DateTime, ForeignKey, String, Text
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from app.models.note import NOTE_BODY_MAX_LENGTH

@@ -28,6 +28,7 @@ dev = [
     "httpx2>=2.13.1",
     "pytest>=9.1.1",
     "pyyaml>=6.0.3",
+    "ruff>=0.15",
 ]
 
 [tool.pytest.ini_options]
@@ -50,3 +51,32 @@ filterwarnings = [
     # Mangum release stops calling get_event_loop().
     "ignore:There is no current event loop:DeprecationWarning:mangum.adapter",
 ]
+
+# Ruff: linter and formatter (`make lint-backend`, `make fmt`; CI fails on
+# any finding or unformatted file). Formatting is Ruff's Black-compatible
+# default style at 88 characters.
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+# pycodestyle, pyflakes, isort, bugbear, pyupgrade.
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = [
+    # Line length is the formatter's job; the few lines it can't wrap (long
+    # strings, URLs, comments) aren't worth breaking by hand.
+    "E501",
+    # `class Status(str, Enum)` stays: StrEnum changes str(Status.X), which
+    # could leak into serialization and stored values.
+    "UP042",
+]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency markers are meant to be called in default arguments.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Form", "fastapi.Query"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "observability", "oncall", "tests"]
+# backend/alembic/ holds the migration scripts; `alembic` imports are the
+# installed library.
+known-third-party = ["alembic"]

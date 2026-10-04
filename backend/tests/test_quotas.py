@@ -18,7 +18,9 @@ def caps(monkeypatch):
 
 
 def _register(client, email: str):
-    return client.post("/auth/register", json={"email": email, "password": TEST_PASSWORD})
+    return client.post(
+        "/auth/register", json={"email": email, "password": TEST_PASSWORD}
+    )
 
 
 def test_defaults_are_on_for_projects_and_notes():
@@ -73,13 +75,18 @@ def test_account_cap_of_zero_is_off(client, caps):
 # ---- projects ----
 
 
-def test_project_create_is_refused_at_the_per_user_cap(client, register_and_login, caps):
+def test_project_create_is_refused_at_the_per_user_cap(
+    client, register_and_login, caps
+):
     caps(MAX_PROJECTS_PER_USER=2)
     alice = register_and_login("alice@example.com")
     bob = register_and_login("bob@example.com")
 
     for name in ("a", "b"):
-        assert client.post("/projects", json={"name": name}, headers=alice).status_code == 201
+        assert (
+            client.post("/projects", json={"name": name}, headers=alice).status_code
+            == 201
+        )
     refused = client.post("/projects", json={"name": "c"}, headers=alice)
 
     assert refused.status_code == 403
@@ -94,11 +101,15 @@ def test_deleting_a_project_frees_a_slot(client, register_and_login, caps):
     caps(MAX_PROJECTS_PER_USER=1)
     headers = register_and_login("carol@example.com")
     first = client.post("/projects", json={"name": "a"}, headers=headers).json()
-    assert client.post("/projects", json={"name": "b"}, headers=headers).status_code == 403
+    assert (
+        client.post("/projects", json={"name": "b"}, headers=headers).status_code == 403
+    )
 
     client.delete(f"/projects/{first['id']}", headers=headers)
 
-    assert client.post("/projects", json={"name": "b"}, headers=headers).status_code == 201
+    assert (
+        client.post("/projects", json={"name": "b"}, headers=headers).status_code == 201
+    )
 
 
 def test_updates_are_allowed_at_the_project_cap(client, register_and_login, caps):
@@ -106,7 +117,9 @@ def test_updates_are_allowed_at_the_project_cap(client, register_and_login, caps
     headers = register_and_login("dave@example.com")
     project = client.post("/projects", json={"name": "a"}, headers=headers).json()
 
-    res = client.patch(f"/projects/{project['id']}", json={"name": "renamed"}, headers=headers)
+    res = client.patch(
+        f"/projects/{project['id']}", json={"name": "renamed"}, headers=headers
+    )
 
     assert res.status_code == 200
 
@@ -114,25 +127,35 @@ def test_updates_are_allowed_at_the_project_cap(client, register_and_login, caps
 # ---- notes ----
 
 
-def test_note_create_is_refused_at_the_per_project_cap(client, register_and_login, caps):
+def test_note_create_is_refused_at_the_per_project_cap(
+    client, register_and_login, caps
+):
     caps(MAX_NOTES_PER_PROJECT=2)
     headers = register_and_login("erin@example.com")
     full = client.post("/projects", json={"name": "full"}, headers=headers).json()
     other = client.post("/projects", json={"name": "other"}, headers=headers).json()
 
     for body in ("one", "two"):
-        res = client.post(f"/projects/{full['id']}/notes", json={"body": body}, headers=headers)
+        res = client.post(
+            f"/projects/{full['id']}/notes", json={"body": body}, headers=headers
+        )
         assert res.status_code == 201
-    refused = client.post(f"/projects/{full['id']}/notes", json={"body": "three"}, headers=headers)
+    refused = client.post(
+        f"/projects/{full['id']}/notes", json={"body": "three"}, headers=headers
+    )
 
     assert refused.status_code == 403
     assert refused.json()["detail"] == "Note limit reached for this project (2)."
     # Per project: another project has its own allowance.
-    res = client.post(f"/projects/{other['id']}/notes", json={"body": "x"}, headers=headers)
+    res = client.post(
+        f"/projects/{other['id']}/notes", json={"body": "x"}, headers=headers
+    )
     assert res.status_code == 201
 
 
-def test_note_cap_does_not_reveal_other_users_projects(client, register_and_login, caps):
+def test_note_cap_does_not_reveal_other_users_projects(
+    client, register_and_login, caps
+):
     """Ownership is checked first, so a full project that isn't yours is
     still a 404, not a 403."""
     caps(MAX_NOTES_PER_PROJECT=0)
@@ -142,7 +165,9 @@ def test_note_cap_does_not_reveal_other_users_projects(client, register_and_logi
     caps(MAX_NOTES_PER_PROJECT=1)
     client.post(f"/projects/{project['id']}/notes", json={"body": "n"}, headers=owner)
 
-    res = client.post(f"/projects/{project['id']}/notes", json={"body": "x"}, headers=intruder)
+    res = client.post(
+        f"/projects/{project['id']}/notes", json={"body": "x"}, headers=intruder
+    )
 
     assert res.status_code == 404
 
@@ -154,9 +179,18 @@ def test_store_counts(store):
     user = store.create_user(email="count@example.com", password_hash="x")
     other = store.create_user(email="other@example.com", password_hash="x")
     project = store.create_project(
-        owner_id=user.id, name="p", pitch="", description="", status="Inbox",
-        tags=[], excitement=3, effort=3, potential=3, next_action="",
-        target_date=None, links=[],
+        owner_id=user.id,
+        name="p",
+        pitch="",
+        description="",
+        status="Inbox",
+        tags=[],
+        excitement=3,
+        effort=3,
+        potential=3,
+        next_action="",
+        target_date=None,
+        links=[],
     )
     store.create_note(project_id=project.id, body="n1")
     store.create_note(project_id=project.id, body="n2")

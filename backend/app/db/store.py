@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 from fastapi import Depends
 from sqlalchemy import func, select
@@ -36,7 +36,7 @@ def _utc(value: datetime) -> datetime:
     columns; SQLite silently strips tzinfo on read. Everything is written
     as UTC, so reattach UTC only when it's missing rather than assuming
     either dialect's behavior."""
-    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
 @dataclass
@@ -139,7 +139,7 @@ class Store:
         # unique constraint (case-sensitive) can't stop Foo@x.com and
         # foo@x.com from both being created as separate accounts.
         email = email.lower()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         user = UserTable(
             id=str(uuid.uuid4()),
             email=email,
@@ -239,7 +239,7 @@ class Store:
         # created_at/updated_at overrides exist only for seeding varied,
         # realistic timestamps (see app/db/seed.py); routers never pass
         # them, so request-driven creates still just stamp "now".
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         row = ProjectTable(
             id=str(uuid.uuid4()),
             owner_id=owner_id,
@@ -259,7 +259,7 @@ class Store:
             return None
         for key, value in patch.items():
             setattr(row, key, value)
-        row.updated_at = datetime.now(timezone.utc)
+        row.updated_at = datetime.now(UTC)
         self._db.commit()
         return _project_record(row)
 
@@ -307,7 +307,7 @@ class Store:
             id=str(uuid.uuid4()),
             project_id=project_id,
             body=body,
-            created_at=created_at or datetime.now(timezone.utc),
+            created_at=created_at or datetime.now(UTC),
         )
         self._db.add(row)
         self._db.commit()

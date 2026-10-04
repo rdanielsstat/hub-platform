@@ -142,9 +142,7 @@ def test_openai_http_error_fails_without_leaking_key(capsys) -> None:
 
 def test_writes_step_summary(tmp_path, capsys) -> None:
     summary = tmp_path / "summary.md"
-    diagnose.main(
-        _env(GITHUB_STEP_SUMMARY=str(summary)), urlopen=_ok_urlopen([])
-    )
+    diagnose.main(_env(GITHUB_STEP_SUMMARY=str(summary)), urlopen=_ok_urlopen([]))
     text = summary.read_text()
     assert "Likely a DB constraint issue." in text
     assert "$5.00" in text

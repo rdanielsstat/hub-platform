@@ -30,7 +30,9 @@ def client_without_db():
 def test_session_check_is_503_not_401(client_without_db):
     token = create_access_token("user-1")
 
-    res = client_without_db.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+    res = client_without_db.get(
+        "/auth/me", headers={"Authorization": f"Bearer {token}"}
+    )
 
     assert res.status_code == 503
     assert res.headers["Retry-After"] == "2"
@@ -42,7 +44,9 @@ def test_session_check_is_503_not_401(client_without_db):
 def test_response_does_not_leak_the_database_error(client_without_db):
     token = create_access_token("user-1")
 
-    res = client_without_db.get("/projects", headers={"Authorization": f"Bearer {token}"})
+    res = client_without_db.get(
+        "/projects", headers={"Authorization": f"Bearer {token}"}
+    )
 
     assert res.status_code == 503
     assert "db.internal" not in res.text

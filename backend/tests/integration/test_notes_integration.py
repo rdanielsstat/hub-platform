@@ -64,12 +64,15 @@ def test_other_users_cannot_see_add_or_delete_notes(client, owner, register_and_
     note = _add(client, headers, project["id"], "private").json()["note"]
     intruder = register_and_login("intruder@example.com")
 
-    assert client.get(
-        f"/projects/{project['id']}/notes", headers=intruder
-    ).status_code == 404
+    assert (
+        client.get(f"/projects/{project['id']}/notes", headers=intruder).status_code
+        == 404
+    )
     assert _add(client, intruder, project["id"], "sneaky").status_code == 404
     assert client.delete(f"/notes/{note['id']}", headers=intruder).status_code == 404
-    assert len(client.get(f"/projects/{project['id']}/notes", headers=headers).json()) == 1
+    assert (
+        len(client.get(f"/projects/{project['id']}/notes", headers=headers).json()) == 1
+    )
 
 
 def test_deleting_a_project_cascades_to_its_notes(client, owner, store):
@@ -105,6 +108,8 @@ def test_note_cap_on_postgres(client, owner, monkeypatch):
     headers, project = owner
     monkeypatch.setattr(config, "MAX_NOTES_PER_PROJECT", 2)
 
-    statuses = [_add(client, headers, project["id"], f"n{i}").status_code for i in range(3)]
+    statuses = [
+        _add(client, headers, project["id"], f"n{i}").status_code for i in range(3)
+    ]
 
     assert statuses == [201, 201, 403]

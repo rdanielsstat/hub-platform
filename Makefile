@@ -16,7 +16,8 @@ SHELL := /bin/bash
 
 API_URL ?= http://localhost:8000
 
-.PHONY: help install check lint test test-unit test-backend test-frontend \
+.PHONY: help install check lint lint-backend lint-frontend fmt test test-unit \
+	test-backend test-frontend \
 	test-integration test-e2e test-e2e-docker docker-up docker-db-up \
 	docker-down docker-logs
 
@@ -31,8 +32,17 @@ install: ## Install backend and frontend dependencies
 check: lint test-unit ## Every local gate AGENTS.md requires before a task is done
 	cd frontend && pnpm build
 
-lint: ## Frontend lint and format check
+lint: lint-backend lint-frontend ## Lint and format checks, backend and frontend
+
+lint-backend: ## Backend: Ruff lint and format check
+	cd backend && uv run ruff check . && uv run ruff format --check .
+
+lint-frontend: ## Frontend: ESLint and Prettier check
 	cd frontend && pnpm lint && pnpm format:check
+
+fmt: ## Format and auto-fix: Ruff (backend), Prettier (frontend)
+	cd backend && uv run ruff check --fix . && uv run ruff format .
+	cd frontend && pnpm format
 
 test: test-unit ## Alias for test-unit
 

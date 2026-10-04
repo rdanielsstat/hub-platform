@@ -3,9 +3,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.auth.dependencies import get_current_user
 from app.core.quotas import enforce_note_cap
 from app.db.store import (
-    Store,
     NoteRecord,
     ProjectRecord,
+    Store,
     UserRecord,
     get_store,
 )

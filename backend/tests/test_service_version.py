@@ -13,7 +13,9 @@ from pathlib import Path
 
 import pytest
 
-SCRIPT = Path(__file__).resolve().parents[2] / ".github" / "scripts" / "service-version.sh"
+SCRIPT = (
+    Path(__file__).resolve().parents[2] / ".github" / "scripts" / "service-version.sh"
+)
 
 # Same pattern as infra/hub/main.tf's service_version validation.
 SEMVER = re.compile(r"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$")

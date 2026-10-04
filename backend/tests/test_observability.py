@@ -470,7 +470,8 @@ def test_client_error_reports_are_exported_as_otlp_logs(
 
     assert res.status_code == 204
     (record,) = [
-        r for r in log_exporter.get_finished_logs()
+        r
+        for r in log_exporter.get_finished_logs()
         if "client_error" in str(r.log_record.body)
     ]
     assert "GET /projects returned 503" in str(record.log_record.body)
@@ -485,7 +486,9 @@ def test_only_the_listed_loggers_are_exported(
 ) -> None:
     import logging
 
-    logging.getLogger("app.db").warning("database_unavailable method=GET path=/x error=E")
+    logging.getLogger("app.db").warning(
+        "database_unavailable method=GET path=/x error=E"
+    )
     logging.getLogger("app.somewhere_else").warning("not exported")
     logging.getLogger("app.client_errors").info("below WARNING, not exported")
 
@@ -535,10 +538,13 @@ def test_disabled_observability_attaches_no_log_handler() -> None:
 def test_report_without_status_exports_cleanly(
     instrumented_with_logs: TestClient, log_exporter: InMemoryLogRecordExporter
 ) -> None:
-    instrumented_with_logs.post("/client-errors", json={"kind": "error", "message": "boom"})
+    instrumented_with_logs.post(
+        "/client-errors", json={"kind": "error", "message": "boom"}
+    )
 
     (record,) = [
-        r for r in log_exporter.get_finished_logs()
+        r
+        for r in log_exporter.get_finished_logs()
         if "client_error" in str(r.log_record.body)
     ]
     assert record.log_record.attributes["client_error.kind"] == "error"

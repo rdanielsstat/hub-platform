@@ -1,7 +1,7 @@
 """Auth against real Postgres: sign-up, login, the session cookie, and
 the email uniqueness rules that depend on the database."""
 
-from datetime import timezone
+from datetime import UTC
 
 import pytest
 
@@ -92,7 +92,7 @@ def test_store_preserves_utc(store):
     again = store.get_user(user.id)
 
     assert again.created_at.tzinfo is not None
-    assert again.created_at.utcoffset() == timezone.utc.utcoffset(None)
+    assert again.created_at.utcoffset() == UTC.utcoffset(None)
 
 
 def test_account_cap_counts_postgres_rows(client, monkeypatch):
@@ -114,11 +114,19 @@ def test_over_long_login_password_is_422(client):
 def test_display_name_limit_on_postgres(client, store):
     ok = client.post(
         "/auth/register",
-        json={"email": "dn@example.com", "password": TEST_PASSWORD, "displayName": "d" * 100},
+        json={
+            "email": "dn@example.com",
+            "password": TEST_PASSWORD,
+            "displayName": "d" * 100,
+        },
     )
     too_long = client.post(
         "/auth/register",
-        json={"email": "dn2@example.com", "password": TEST_PASSWORD, "displayName": "d" * 101},
+        json={
+            "email": "dn2@example.com",
+            "password": TEST_PASSWORD,
+            "displayName": "d" * 101,
+        },
     )
 
     assert ok.status_code == 201
@@ -130,4 +138,6 @@ def test_check_violation_is_not_reported_as_a_duplicate_email(store):
     from sqlalchemy.exc import IntegrityError
 
     with pytest.raises(IntegrityError):
-        store.create_user(email="dn3@example.com", password_hash="h", display_name="d" * 101)
+        store.create_user(
+            email="dn3@example.com", password_hash="h", display_name="d" * 101
+        )

@@ -154,7 +154,9 @@ def test_patch_rejects_null_for_non_nullable_field(client, register_and_login, f
         "/projects", json={"name": "Idea", "tags": ["keep"]}, headers=headers
     ).json()
 
-    res = client.patch(f"/projects/{created['id']}", json={field: None}, headers=headers)
+    res = client.patch(
+        f"/projects/{created['id']}", json={field: None}, headers=headers
+    )
     assert res.status_code == 422
     assert res.json()["detail"][0]["loc"] == ["body", field]
 
@@ -196,13 +198,15 @@ def test_patch_404s_if_the_project_is_deleted_mid_request(
     client, register_and_login, store, monkeypatch
 ):
     headers = register_and_login("patch-race@example.com")
-    project_id = client.post("/projects", json={"name": "Idea"}, headers=headers).json()[
-        "id"
-    ]
+    project_id = client.post(
+        "/projects", json={"name": "Idea"}, headers=headers
+    ).json()["id"]
     # Ownership check passes, then the row is gone by the time of the update.
     monkeypatch.setattr(store, "update_project", lambda *args, **kwargs: None)
 
     res = client.patch(f"/projects/{project_id}", json={"name": "New"}, headers=headers)
 
     assert res.status_code == 404
-    assert res.json() == {"detail": "Project not found: it was deleted while being updated"}
+    assert res.json() == {
+        "detail": "Project not found: it was deleted while being updated"
+    }

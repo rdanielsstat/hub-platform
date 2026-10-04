@@ -61,7 +61,9 @@ def test_init_local_never_reseeds_an_existing_database(local_sqlite):
 
     init_local.init_local(use_ssm=False, seed_demo_data=True)
     with session.SessionLocal() as db:
-        second = Store(db).list_projects(Store(db).get_user_by_email(SEED_USER_EMAIL).id)
+        second = Store(db).list_projects(
+            Store(db).get_user_by_email(SEED_USER_EMAIL).id
+        )
 
     assert len(second) == len(first)
 

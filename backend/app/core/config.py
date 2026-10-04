@@ -160,8 +160,12 @@ MAX_ACCOUNTS = int(
     os.environ.get("MAX_ACCOUNTS", "").strip() or ("1000" if is_deployed() else "0")
 )
 # Projects per user, and notes per project: the same everywhere.
-MAX_PROJECTS_PER_USER = int(os.environ.get("MAX_PROJECTS_PER_USER", "").strip() or "500")
-MAX_NOTES_PER_PROJECT = int(os.environ.get("MAX_NOTES_PER_PROJECT", "").strip() or "500")
+MAX_PROJECTS_PER_USER = int(
+    os.environ.get("MAX_PROJECTS_PER_USER", "").strip() or "500"
+)
+MAX_NOTES_PER_PROJECT = int(
+    os.environ.get("MAX_NOTES_PER_PROJECT", "").strip() or "500"
+)
 
 # Request header that carries the real client IP, set by a proxy in front
 # of the app (in AWS: CloudFront-Viewer-Address, "ip:port"). Unset means

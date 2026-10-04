@@ -91,7 +91,9 @@ USER_SQL = (
 )
 
 
-def _project_sql(project_id: str = "p1", name: str = "Kept project", description: str = "") -> str:
+def _project_sql(
+    project_id: str = "p1", name: str = "Kept project", description: str = ""
+) -> str:
     return (
         "INSERT INTO projects (id, owner_id, name, pitch, description, status, tags, "
         "excitement, effort, potential, next_action, links, created_at, updated_at) "
@@ -174,7 +176,9 @@ def test_pre_alembic_database_is_stamped_not_recreated(db_url, capsys):
 
     upgrade_to_head(db_url)
 
-    assert f"stamped at baseline revision {BASELINE_REVISION}" in capsys.readouterr().out
+    assert (
+        f"stamped at baseline revision {BASELINE_REVISION}" in capsys.readouterr().out
+    )
     assert _revision(db_url) == _head()
     assert _scalars(db_url, "SELECT email FROM users") == ["kept@example.com"]
     assert _scalars(db_url, "SELECT name FROM projects") == ["Kept project"]
@@ -244,9 +248,7 @@ def test_0002_adds_the_named_check_constraints(db_url):
 def test_orm_declares_the_same_constraints_as_0002():
     """create_all() (unit tests) and the migrations build the same limits."""
     for table, names in LENGTH_CONSTRAINTS.items():
-        declared = {
-            c.name for c in Base.metadata.tables[table].constraints if c.name
-        }
+        declared = {c.name for c in Base.metadata.tables[table].constraints if c.name}
         assert names <= declared
 
 
@@ -255,7 +257,9 @@ def test_0002_keeps_notes_when_sqlite_rebuilds_the_projects_table(db_url):
     original and renaming the copy. With foreign keys on, that drop would
     cascade-delete every note; upgrade_to_head() keeps them off."""
     _migrate_to(db_url, BASELINE_REVISION)
-    _execute(db_url, USER_SQL, _project_sql(), _note_sql("n1"), _note_sql("n2", "second"))
+    _execute(
+        db_url, USER_SQL, _project_sql(), _note_sql("n1"), _note_sql("n2", "second")
+    )
 
     upgrade_to_head(db_url)
 
@@ -267,7 +271,9 @@ def test_0002_refuses_existing_over_long_data_and_changes_nothing(db_url):
     _migrate_to(db_url, BASELINE_REVISION)
     _execute(db_url, USER_SQL, _project_sql(description="d" * 5001))
 
-    with pytest.raises(RuntimeError, match=r"projects\.description: 1 row\(s\) over 5000"):
+    with pytest.raises(
+        RuntimeError, match=r"projects\.description: 1 row\(s\) over 5000"
+    ):
         upgrade_to_head(db_url)
 
     assert _revision(db_url) == BASELINE_REVISION
@@ -362,7 +368,9 @@ def test_0003_refuses_existing_violations_and_changes_nothing(db_url):
         upgrade_to_head(db_url)
 
     assert _revision(db_url) == "0002"
-    assert "ck_users_display_name_length" not in _check_constraint_names(db_url, "users")
+    assert "ck_users_display_name_length" not in _check_constraint_names(
+        db_url, "users"
+    )
 
 
 def test_0003_counts_json_array_entries(db_url):

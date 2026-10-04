@@ -76,7 +76,9 @@ def _stamp_pre_alembic_baseline(connection: Connection, cfg: Config) -> None:
             "`uv run alembic stamp <revision>`."
         )
     command.stamp(cfg, BASELINE_REVISION)
-    print(f"Pre-Alembic schema found: stamped at baseline revision {BASELINE_REVISION}.")
+    print(
+        f"Pre-Alembic schema found: stamped at baseline revision {BASELINE_REVISION}."
+    )
 
 
 def _migration_engine(database_url: str) -> Engine:

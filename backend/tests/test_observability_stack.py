@@ -76,9 +76,7 @@ def test_service_image_is_pinned(compose: dict, name: str) -> None:
 
 
 @pytest.mark.parametrize("name", sorted(EXPECTED_SERVICES))
-def test_service_publishes_expected_port_on_localhost(
-    compose: dict, name: str
-) -> None:
+def test_service_publishes_expected_port_on_localhost(compose: dict, name: str) -> None:
     _repo, port = EXPECTED_SERVICES[name]
     # Local only: nothing is reachable from outside this machine.
     assert _host_ports(compose["services"][name]) == [("127.0.0.1", port)]
@@ -124,7 +122,9 @@ def test_mounted_config_files_exist(compose: dict) -> None:
 
 def test_collector_routes_each_signal_to_its_backend() -> None:
     config = _load(STACK_DIR / "collector-config.yaml")
-    assert config["receivers"]["otlp"]["protocols"]["http"]["endpoint"] == "0.0.0.0:4318"
+    assert (
+        config["receivers"]["otlp"]["protocols"]["http"]["endpoint"] == "0.0.0.0:4318"
+    )
 
     exporters = config["exporters"]
     pipelines = config["service"]["pipelines"]

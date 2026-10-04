@@ -184,7 +184,10 @@ def test_empty_demo_param_name_seeds_nothing(ssm, monkeypatch, capsys):
 
 
 def test_absent_demo_param_lambda_result_is_unchanged(ssm):
-    assert lambda_handler({}, None) == {"status": "ok", "message": "Bootstrap complete."}
+    assert lambda_handler({}, None) == {
+        "status": "ok",
+        "message": "Bootstrap complete.",
+    }
 
 
 def test_demo_param_seeds_user_projects_and_notes(demo_env, local_seed_content):

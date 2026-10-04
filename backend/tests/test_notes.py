@@ -32,9 +32,7 @@ def test_deleting_a_project_cascades_to_its_notes(client, register_and_login, st
     project_id = client.post(
         "/projects", json={"name": "Idea"}, headers=headers
     ).json()["id"]
-    client.post(
-        f"/projects/{project_id}/notes", json={"body": "Note"}, headers=headers
-    )
+    client.post(f"/projects/{project_id}/notes", json={"body": "Note"}, headers=headers)
 
     res = client.delete(f"/projects/{project_id}", headers=headers)
     assert res.status_code == 204
@@ -65,9 +63,7 @@ def test_notes_are_returned_newest_first(client, register_and_login):
 
 def test_adding_a_note_bumps_the_parent_projects_updated_at(client, register_and_login):
     headers = register_and_login("notes-bump-add@example.com")
-    created = client.post(
-        "/projects", json={"name": "Idea"}, headers=headers
-    ).json()
+    created = client.post("/projects", json={"name": "Idea"}, headers=headers).json()
     project_id = created["id"]
     original_updated_at = created["updatedAt"]
 
@@ -83,7 +79,9 @@ def test_adding_a_note_bumps_the_parent_projects_updated_at(client, register_and
     assert res.json()["updatedAt"] != original_updated_at
 
 
-def test_deleting_a_note_bumps_the_parent_projects_updated_at(client, register_and_login):
+def test_deleting_a_note_bumps_the_parent_projects_updated_at(
+    client, register_and_login
+):
     headers = register_and_login("notes-bump-delete@example.com")
     project_id = client.post(
         "/projects", json={"name": "Idea"}, headers=headers
@@ -129,7 +127,9 @@ def test_user_cannot_list_notes_on_another_users_project(client, register_and_lo
     assert res.status_code == 404
 
 
-def test_user_gets_404_adding_a_note_to_another_users_project(client, register_and_login):
+def test_user_gets_404_adding_a_note_to_another_users_project(
+    client, register_and_login
+):
     headers_a = register_and_login("notes-iso-add-a@example.com")
     headers_b = register_and_login("notes-iso-add-b@example.com")
     project_b_id = client.post(
@@ -196,9 +196,9 @@ def test_adding_a_note_404s_if_the_project_is_deleted_mid_request(
     client, register_and_login, store, monkeypatch
 ):
     headers = register_and_login("note-add-race@example.com")
-    project_id = client.post("/projects", json={"name": "Idea"}, headers=headers).json()[
-        "id"
-    ]
+    project_id = client.post(
+        "/projects", json={"name": "Idea"}, headers=headers
+    ).json()["id"]
     monkeypatch.setattr(store, "update_project", lambda *args, **kwargs: None)
 
     res = client.post(
@@ -215,9 +215,9 @@ def test_deleting_a_note_404s_if_the_project_is_deleted_mid_request(
     client, register_and_login, store, monkeypatch
 ):
     headers = register_and_login("note-delete-race@example.com")
-    project_id = client.post("/projects", json={"name": "Idea"}, headers=headers).json()[
-        "id"
-    ]
+    project_id = client.post(
+        "/projects", json={"name": "Idea"}, headers=headers
+    ).json()["id"]
     note_id = client.post(
         f"/projects/{project_id}/notes", json={"body": "Hi"}, headers=headers
     ).json()["note"]["id"]

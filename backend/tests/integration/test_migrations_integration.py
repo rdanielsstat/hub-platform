@@ -68,13 +68,17 @@ def test_status_is_a_native_postgres_enum(pg_url):
     engine = create_engine(pg_url)
     try:
         with engine.connect() as conn:
-            labels = conn.execute(
-                text(
-                    "SELECT e.enumlabel FROM pg_type t "
-                    "JOIN pg_enum e ON e.enumtypid = t.oid "
-                    "WHERE t.typname = 'status' ORDER BY e.enumsortorder"
+            labels = (
+                conn.execute(
+                    text(
+                        "SELECT e.enumlabel FROM pg_type t "
+                        "JOIN pg_enum e ON e.enumtypid = t.oid "
+                        "WHERE t.typname = 'status' ORDER BY e.enumsortorder"
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
     finally:
         engine.dispose()
 
@@ -266,9 +270,7 @@ def test_local_bootstrap_migrates_as_the_least_privilege_role(bootstrap_target):
         with engine.connect() as conn:
             owners = set(
                 conn.execute(
-                    text(
-                        "SELECT tableowner FROM pg_tables WHERE schemaname = 'public'"
-                    )
+                    text("SELECT tableowner FROM pg_tables WHERE schemaname = 'public'")
                 ).scalars()
             )
             is_superuser = conn.execute(

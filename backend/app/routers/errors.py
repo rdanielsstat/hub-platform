@@ -86,4 +86,6 @@ def report_client_error(report: ClientErrorReport, request: Request) -> None:
     attributes: dict[str, str | int] = {"client_error.kind": report.kind}
     if report.status is not None:
         attributes["client_error.status"] = report.status
-    logger.warning("client_error %s", json.dumps(entry, sort_keys=True), extra=attributes)
+    logger.warning(
+        "client_error %s", json.dumps(entry, sort_keys=True), extra=attributes
+    )

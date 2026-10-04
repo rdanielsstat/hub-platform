@@ -84,7 +84,8 @@ def test_register_with_casing_variant_of_existing_email_is_rejected(client):
 
 def test_login_works_regardless_of_registered_or_submitted_casing(client):
     client.post(
-        "/auth/register", json={"email": "MixedCase@Example.com", "password": "password123"}
+        "/auth/register",
+        json={"email": "MixedCase@Example.com", "password": "password123"},
     )
     res = client.post(
         "/auth/login",

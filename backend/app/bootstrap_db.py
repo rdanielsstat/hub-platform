@@ -192,8 +192,7 @@ def _grant_privileges(cur: psycopg.Cursor, dbname: str, role: str) -> None:
     )
     cur.execute(f"GRANT USAGE, CREATE ON SCHEMA public TO {_quote_identifier(role)}")
     print(
-        f"Granted CONNECT on {dbname!r} and USAGE, CREATE on schema public "
-        f"to {role!r}."
+        f"Granted CONNECT on {dbname!r} and USAGE, CREATE on schema public to {role!r}."
     )
 
 
@@ -318,7 +317,7 @@ def main() -> None:
         bootstrap()
     except Exception as exc:
         print(f"Bootstrap failed: {exc!r}", file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(1) from exc
     print("Bootstrap complete.")
 
 

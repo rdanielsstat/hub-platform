@@ -124,9 +124,7 @@ def test_missing_jwt_secret_with_use_ssm_refuses_to_start():
 def test_unfetchable_jwt_secret_with_use_ssm_refuses_to_start():
     """The parameter is named but the fetch fails (here: the fake SSM has
     no such parameter, raising like a real outage would)."""
-    result = _import_app(
-        {"USE_SSM": "true", "JWT_PARAM_NAME": "/hub-prod/jwt-secret"}
-    )
+    result = _import_app({"USE_SSM": "true", "JWT_PARAM_NAME": "/hub-prod/jwt-secret"})
 
     assert result.returncode != 0
     assert "FAKE_SSM_hub_prod_jwt_secret" in result.stderr
@@ -368,4 +366,3 @@ def test_empty_origin_verify_secret_with_use_ssm_refuses_to_start():
 
     assert result.returncode != 0
     assert "is empty" in result.stderr
-

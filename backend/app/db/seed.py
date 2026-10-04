@@ -12,7 +12,7 @@ overwritten:
     SSM. It never falls back to SEED_USER_PASSWORD.
 """
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 from app.auth.security import hash_password
 from app.db.store import Store
@@ -23,19 +23,19 @@ SEED_USER_PASSWORD = "demo1234"
 
 
 def _days_ago(n: float) -> datetime:
-    return datetime.now(timezone.utc) - timedelta(days=n)
+    return datetime.now(UTC) - timedelta(days=n)
 
 
 def _hours_ago(n: float) -> datetime:
-    return datetime.now(timezone.utc) - timedelta(hours=n)
+    return datetime.now(UTC) - timedelta(hours=n)
 
 
 def _days_from_now(n: int) -> date:
-    return (datetime.now(timezone.utc) + timedelta(days=n)).date()
+    return (datetime.now(UTC) + timedelta(days=n)).date()
 
 
 def _end_of_this_year() -> date:
-    return date(datetime.now(timezone.utc).year, 12, 31)
+    return date(datetime.now(UTC).year, 12, 31)
 
 
 def seed(store: Store, password: str = SEED_USER_PASSWORD) -> None:
@@ -251,8 +251,7 @@ def seed(store: Store, password: str = SEED_USER_PASSWORD) -> None:
         name="Read 24 books this year",
         pitch="Two books a month, actually finished, not just started.",
         description=(
-            "I buy books faster than I read them. A visible count might "
-            "keep me honest."
+            "I buy books faster than I read them. A visible count might keep me honest."
         ),
         status=Status.ACTIVE,
         tags=["reading", "habit"],
