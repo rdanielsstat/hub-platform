@@ -25,7 +25,7 @@ backend/                90 tracked files
   alembic/        env.py, versions/0001..0003 (migrations); alembic.ini
   observability/  OTel setup (traces, metrics, logs), metrics registry, local stack
   oncall/         diagnose.py (on-call diagnostic agent)
-  tests/          26 unit test files, integration/ (4 files, real Postgres)
+  tests/          27 unit test files, integration/ (4 files, real Postgres)
   Dockerfile pyproject.toml uv.lock .python-version .env.example README.md
 frontend/               93 tracked files
   src/  App.tsx main.tsx auth*.ts(x) store*.ts(x) use-*.ts test-setup.ts

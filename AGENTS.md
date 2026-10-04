@@ -281,7 +281,7 @@ OTLP logs from `app.client_errors`, `app.db` and `app.security` (Loki). `SERVICE
 prod Lambdas from git tags.
 Local dev: off by default; optional local Grafana/Tempo/Prometheus/Loki stack in `backend/observability/`.
 
-**Versioning**: SemVer `SERVICE_VERSION` from git tags (v0.1.0, etc.) via
+**Versioning**: SemVer `SERVICE_VERSION` from git tags (latest release v1.0.0) via
 `.github/scripts/service-version.sh`.
 
 ## Deployment and Release Gates
@@ -317,7 +317,7 @@ Local dev: off by default; optional local Grafana/Tempo/Prometheus/Loki stack in
 **Not yet wired:**
 - bandit, trivy and the IaC scans still run by hand (`security-scanning` skill); CI runs
   the dependency scan and gitleaks
-- Version sync: `pyproject.toml` and `package.json` are hardcoded; should sync with git tags
+- Version sync: `pyproject.toml` and `package.json` are hardcoded (1.0.0, bumped by hand for v1.0.0); should sync with git tags
 - Package registry publishing (PyPI, npm) is not set up
 - Full backlog: `docs/tech-debt.md`
 

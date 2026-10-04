@@ -24,7 +24,7 @@ Inspect the current version:
 git describe --tags --long --match 'v[0-9]*.[0-9]*.[0-9]*'
 ```
 
-This shows the current tag and how many commits past it you are (e.g., `v0.1.0-5-g629aa29`).
+This shows the current tag and how many commits past it you are (e.g., `v1.0.0-5-g629aa29`).
 
 Suggest the next semantic version based on the changes since the last tag:
 - Patch release (0.1.1): bug fixes, small improvements, no API changes
@@ -114,9 +114,8 @@ Next: when ready to promote to prod, run promote.yml workflow manually.
 This workflow does not yet:
 - Run E2E tests before releasing (planned: `e2e-testing` skill)
 - Run security scans before releasing (planned: `security-scanning` skill)
-- Sync version in `backend/pyproject.toml` and `frontend/package.json` with the git tag
-- Publish to PyPI, npm, or GitHub Releases
-- Set SERVICE_VERSION on the prod Lambda (it remains off)
+- Sync version in `backend/pyproject.toml` and `frontend/package.json` with the git tag (bumped by hand; 1.0.0 as of v1.0.0)
+- Publish to PyPI or npm (GitHub Releases are created by hand with `gh release create`; v1.0.0 was the first)
 
 ## Troubleshooting
 
