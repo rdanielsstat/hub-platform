@@ -114,6 +114,13 @@ after the trivy findings in `security/IAC_SCANS.md`.
 - The `security-scanning` skill runs `uvx pip-audit`, `uvx bandit` and
   installs trufflehog with Homebrew without version pins (see
   `security/AGENT_SECURITY.md`).
-- None of the scans run in CI yet. Adding pip-audit and pnpm audit as a
-  CI job is cheap; trivy needs the built image, so it belongs after the
-  build step in `deploy-dev`.
+- pip-audit and pnpm audit run in CI since 2026-10-04 (`dependency-scan`
+  job in `ci.yml`, after the unit tests), and gate the dev deploy on HIGH
+  and CRITICAL; MODERATE and LOW show as warnings on the run. pip-audit
+  reports no severities, so `.github/scripts/pip_audit_gate.py` looks each
+  finding up in OSV (GitHub advisory severity) and fails on HIGH, CRITICAL,
+  or a severity it can't determine. Tested against a known HIGH (jinja2
+  2.10: fails), a MODERATE-only set (requests 2.31.0: passes with
+  warnings), an unknown severity (fails) and the real lock (passes); the
+  pnpm gate against lodash 4.17.20 (2 high: fails at `high`). trivy still
+  runs by hand (it needs the built image); ECR scans every pushed image.

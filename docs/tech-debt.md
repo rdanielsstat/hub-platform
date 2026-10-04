@@ -54,9 +54,15 @@
 - Observability: done. Metrics, traces and an alert in dev and prod.
   Frontend error reporting: done (2026-10-02, `POST /client-errors`), and
   exported to Grafana Cloud (Loki) as OTLP logs since 2026-10-03.
-- Still open: test a restore from Neon's point-in-time history; run the
-  dependency scans in CI; alerts beyond the registration error rate;
-  self-service account deletion and export (`security/SECURITY_CHECKLIST.md`).
+- Neon point-in-time restore test: done (2026-10-04, pass;
+  `ops/DEPLOYMENT.md`, "Backup Testing"). History window is 6 hours on the
+  free plan.
+- Dependency scans in CI: done (2026-10-04, `dependency-scan` job, gates
+  the deploy on HIGH and CRITICAL).
+- Protect `main` against force-pushes and deletion: open (found
+  2026-10-04 in the PR audit); a repository setting.
+- Still open, not blockers: alerts beyond the registration error rate;
+  self-service account deletion and export (not in the product spec).
 
 ## Migrations
 
@@ -138,8 +144,8 @@
   - deterministic security scan output (checkov and tfsec over `infra/`,
     pip-audit over backend deps, trivy over the image): done (2026-10-03,
     `IAC_SCANS.md`, `DEPENDENCIES.md`)
-  - PR audit output: still to do
-  - operational diagnosis output: still to do
+  - PR audit output: done (2026-10-04, `PR_AUDIT.md`)
+  - operational diagnosis output: done (2026-10-04, `OPERATIONAL_DIAGNOSIS.md`)
 - `agent-capabilities/`, `agent-hooks/`, `mcp-server/`, and either `plugins/`
   or `custom-agent/`, plus `docs/agent-extension-pack.md` and
   `docs/permissions.md`. Needs a reusable workflow, a subagent, an MCP tool or

@@ -106,6 +106,51 @@ jobs:
           path: frontend/playwright-report/
           retention-days: 7
 
+  # Known vulnerabilities in the locked dependencies, after the unit tests.
+  # Gates the deploy on HIGH and CRITICAL; MODERATE and LOW only warn.
+  # Backend: pip-audit over uv.lock (exported exactly as the image build
+  # does); pip-audit gives no severities, so .github/scripts/pip_audit_gate.py
+  # looks each finding up in OSV and fails on HIGH, CRITICAL, or a severity
+  # it can't determine. Frontend: pnpm audit of production dependencies.
+  dependency-scan:
+    needs: [test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - name: Backend (pip-audit, fails on HIGH and above)
+        working-directory: backend
+        run: |
+          uv export --frozen --no-hashes --format requirements-txt -o "$RUNNER_TEMP/requirements.txt"
+          # pip-audit exits 1 when it finds anything; the gate decides what
+          # blocks. Any other exit, or no report, means it didn't run.
+          set +e
+          uvx pip-audit==2.10.1 --disable-pip --no-deps \
+            -r "$RUNNER_TEMP/requirements.txt" --format json -o "$RUNNER_TEMP/pip-audit.json"
+          status=$?
+          set -e
+          if [ "$status" -gt 1 ] || [ ! -s "$RUNNER_TEMP/pip-audit.json" ]; then
+            echo "pip-audit did not complete (exit $status)"
+            exit 1
+          fi
+          python3 ../.github/scripts/pip_audit_gate.py "$RUNNER_TEMP/pip-audit.json"
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 12
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - name: Frontend (pnpm audit, fails on high and above)
+        working-directory: frontend
+        run: |
+          # Full report at every severity, for the log; never fails the job.
+          pnpm audit --prod || true
+          # The gate: non-zero only for high or critical (or if the audit can't run).
+          pnpm audit --prod --audit-level high
+
   # Scan the whole git history for committed secrets on every PR and push.
   # The pre-commit hook only runs where someone installed it; this can't be
   # skipped. Reviewed false positives live in .gitleaksignore. Full history
@@ -136,9 +181,9 @@ jobs:
         run: gitleaks git --redact --no-banner --verbose .
 
   deploy-dev:
-    # Every check gates the deploy: unit tests, the secrets scan, the
-    # Postgres integration tests and the Playwright E2E suite.
-    needs: [test, secrets-scan, integration, e2e]
+    # Every check gates the deploy: unit tests, the dependency scan, the
+    # secrets scan, the Postgres integration tests and the Playwright E2E suite.
+    needs: [test, dependency-scan, secrets-scan, integration, e2e]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: dev

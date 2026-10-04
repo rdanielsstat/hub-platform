@@ -38,8 +38,9 @@ Nobody deploys from a laptop, and agents never deploy (`AGENTS.md`).
 7. Smoke test: `GET /api/health` through the site URL until it returns
    200 (5 tries, 10 s apart).
 
-`deploy-dev` waits for every check: `test`, `secrets-scan`,
-`integration` (Postgres) and `e2e` (Playwright against Docker Compose).
+`deploy-dev` waits for every check: `test`, `dependency-scan` (pip-audit
+and pnpm audit; fails on HIGH and CRITICAL), `secrets-scan`, `integration`
+(Postgres) and `e2e` (Playwright against Docker Compose).
 Any failure means no deploy.
 
 ## Prod: promote.yml

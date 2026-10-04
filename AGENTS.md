@@ -164,9 +164,10 @@ are off. See `frontend/README.md`.
 - TypeScript build must be clean (`pnpm build` from `frontend/`)
 - Format must pass (`pnpm format:check` from `frontend/`)
 
-Note: CI runs the unit tests, a gitleaks secret scan of the full git
+Note: CI runs the unit tests, a dependency scan (pip-audit and pnpm audit,
+failing on HIGH and CRITICAL), a gitleaks secret scan of the full git
 history, the backend integration tests and the Playwright suite (against
-the Compose stack) on every PR and push; all four must pass before the
+the Compose stack) on every PR and push; all five must pass before the
 dev deploy runs. Actions in `.github/workflows/` are pinned to commit SHAs
 (version in a trailing comment); keep it that way when adding or bumping one. Lint, format, and build checks are enforced
 locally before committing; they do not run in the GitHub Actions workflow on
@@ -254,8 +255,8 @@ GitHub secrets to the dev and prod Lambdas' environments (`TF_VAR_otel_headers_d
 in `ci.yml`, `TF_VAR_otel_headers_prod` in `promote.yml`); they are not stored in SSM.
 
 **CI/CD** (`.github/workflows/`):
-- `ci.yml`: on PR, run unit tests, integration tests, Playwright E2E against
-  Docker Compose, and the gitleaks history scan; on push to main, run them,
+- `ci.yml`: on PR, run unit tests, the dependency scan, integration tests,
+  Playwright E2E against Docker Compose, and the gitleaks history scan; on push to main, run them,
   then (only if all of them pass) deploy to dev (build
   image, apply infra, bootstrap, build frontend, sync to S3, invalidate CloudFront,
   smoke-test `/api/health`).
@@ -275,6 +276,7 @@ Local dev: off by default; optional local Grafana/Tempo/Prometheus/Loki stack in
 
 **Per-commit CI/CD (runs on every push to main):**
 - Unit tests (frontend + backend; lint, format, and build are enforced locally, not in CI)
+- Dependency scan (pip-audit and pnpm audit; HIGH and CRITICAL fail it)
 - Backend integration tests against Postgres and Playwright E2E against Docker Compose
 - Gitleaks scan of the full history (`secrets-scan` job)
 - The deploy waits on all of the above

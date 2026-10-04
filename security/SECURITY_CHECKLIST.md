@@ -2,7 +2,7 @@
 
 Pre-launch security validation: what's been checked, with evidence, and
 what's still open. Update the date and the status column whenever an
-item changes. Last reviewed: 2026-10-03.
+item changes. Last reviewed: 2026-10-04.
 
 Legend: **Done** (implemented, and tested or configured in code),
 **Verified** (also confirmed by hand on a deployed environment),
@@ -66,7 +66,7 @@ Legend: **Done** (implemented, and tested or configured in code),
 | Migrations run before the new API code goes live | Done | `ci.yml` and `promote.yml`: targeted bootstrap apply, bootstrap, then full apply (`ops/DEPLOYMENT.md`) |
 | No raw SQL built from user input | Done | SQLAlchemy throughout; the bootstrap's dynamic identifiers are validated and quoted |
 | Unique email enforced by the database, not just the app | Done | Unique index; `test_unique_index_catches_a_duplicate_the_precheck_missed` |
-| Backups / restore tested | **Open** | Relies on Neon's point-in-time restore; never exercised |
+| Backups / restore tested | Done | 2026-10-04: prod restored to a point 4 minutes before migration 0003 on a test branch; schema and data matched that moment. 6-hour window on the free plan. `ops/DEPLOYMENT.md`, "Backup Testing" |
 
 ## Supply chain and secrets
 
@@ -78,7 +78,10 @@ Legend: **Done** (implemented, and tested or configured in code),
 | GitHub Actions pinned to commit SHAs | Done | Every `uses:` in `.github/workflows/` since 2026-10-03 |
 | Every CI check gates the dev deploy | Done | `deploy-dev` needs `test`, `secrets-scan`, `integration`, `e2e` |
 | ECR image tags immutable | Done | `infra/hub/ecr.tf`; `promote.yml` skips re-copying an existing tag |
-| Dependency scans in CI | **Open** | Run by hand only |
+| Dependency scans in CI | Done | `dependency-scan` job, gates the deploy on HIGH and CRITICAL (`security/DEPENDENCIES.md`) |
+| PR audit | Done | `security/PR_AUDIT.md` (PR #5, ec830d6, f34d327) |
+| Operational diagnosis run | Done | `security/OPERATIONAL_DIAGNOSIS.md` (drill, run 37164038288) |
+| Branch protection on `main` (no force-push or deletion) | **Open** | No protection or ruleset (found 2026-10-04, `security/PR_AUDIT.md`). A repository setting for the maintainer |
 
 ## Monitoring and response
 
@@ -100,9 +103,6 @@ Legend: **Done** (implemented, and tested or configured in code),
 
 ## Highest-priority open items
 
-1. Exercise a restore from Neon's point-in-time history once, so backups
-   are known to work.
-2. Run the dependency scans (pip-audit, pnpm audit) in CI rather than by
-   hand.
-3. Alerts beyond the registration error rate (`ops/MONITORING.md`).
-4. Self-service account deletion and data export.
+1. Protect `main`: block force-pushes and deletion (`security/PR_AUDIT.md`).
+2. Alerts beyond the registration error rate (`ops/MONITORING.md`).
+3. Self-service account deletion and data export.
