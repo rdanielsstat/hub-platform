@@ -5,6 +5,7 @@ import { useStore } from '@/use-store'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { formatRelative } from '@/lib/project-utils'
+import { NOTE_MAX_LENGTH } from '@/lib/limits'
 
 export function NotesPanel({ projectId }: { projectId: string }) {
   const { addNote, deleteNote } = useStore()
@@ -64,6 +65,7 @@ export function NotesPanel({ projectId }: { projectId: string }) {
       <div className="flex flex-col gap-2">
         <Textarea
           value={body}
+          maxLength={NOTE_MAX_LENGTH}
           onChange={(e) => setBody(e.target.value)}
           placeholder="Add a note, thought, or update…"
           rows={3}

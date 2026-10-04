@@ -5,6 +5,11 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { AuthProvider } from '@/auth'
 import { HttpError } from '@/services/api'
 import { SignupPage } from './signup'
+import {
+  DISPLAY_NAME_MAX_LENGTH,
+  EMAIL_MAX_LENGTH,
+  PASSWORD_MAX_LENGTH,
+} from '@/lib/limits'
 
 const mockAuthApi = vi.hoisted(() => ({
   register: vi.fn(),
@@ -47,6 +52,23 @@ describe('SignupPage', () => {
     expect(screen.getByLabelText(/display name/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/^password/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /sign up/i })).toBeInTheDocument()
+  })
+
+  it('caps each field at the API limit', async () => {
+    const user = userEvent.setup()
+    renderSignupPage()
+    const fields: [RegExp, number][] = [
+      [/email/i, EMAIL_MAX_LENGTH],
+      [/display name/i, DISPLAY_NAME_MAX_LENGTH],
+      [/^password/i, PASSWORD_MAX_LENGTH],
+    ]
+    for (const [label, limit] of fields) {
+      const input = screen.getByLabelText(label) as HTMLInputElement
+      expect(input).toHaveAttribute('maxLength', String(limit))
+      await user.click(input)
+      await user.paste('x'.repeat(limit + 10))
+      expect(input.value).toHaveLength(limit)
+    }
   })
 
   it('requires email and an 8+ character password before enabling submit', async () => {

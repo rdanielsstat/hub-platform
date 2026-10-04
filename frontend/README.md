@@ -99,9 +99,20 @@ trimmed and lowercased; link URLs get `https://` added when there's no
 scheme. Everything else is validated by the API: over-long fields, too
 many tags or links, bad scores or URLs come back as `422`, and the
 backend's message (for example "String should have at most 256
-characters") is shown as a toast (`src/lib/errors.ts`). The inputs don't
-set `maxLength` yet, so a user only learns a limit on save; the limits
-are in `backend/README.md` ("Usage caps").
+characters") is shown as a toast (`src/lib/errors.ts`).
+
+Every text field also has a `maxLength` matching the API's limit, from
+`src/lib/limits.ts` (email 254, password 256, display name 100, project
+name 256, pitch 2000, description 5000, next action 1000, note 10000, tag
+64, link URL 2048, link label 200), so the browser stops typing and
+pasting at the limit instead of the user finding out on save.
+`backend/tests/test_frontend_limits.py` fails if `limits.ts` and the API
+disagree. Two fields can still reach a 422: the quick-capture tags field
+takes comma-separated tags, so it's capped as a whole (room for 50
+full-length tags) rather than per tag; and a link URL typed without a
+scheme gets `https://` added, so one at the full 2048 ends up 8 over.
+`maxLength` counts UTF-16 units, so emoji-heavy text stops slightly
+before the API's character limit, never after.
 
 ## Error reporting
 

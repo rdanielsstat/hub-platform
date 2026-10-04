@@ -333,6 +333,26 @@ origin verification when deployed), `404`, `409` (email taken), `422`
 (validation, including every length limit), `429` (rate limit, with
 `Retry-After`), `503` (database unavailable, with `Retry-After`).
 
+## Lint and format
+
+[Ruff](https://docs.astral.sh/ruff/) does both, configured in
+`pyproject.toml` (`[tool.ruff]`): Black-compatible formatting at 88
+characters, and the pycodestyle, pyflakes, isort, bugbear and pyupgrade
+rule sets. The two exceptions are written next to the config: line
+length is left to the formatter, and `class Status(str, Enum)` stays as
+it is. FastAPI's `Depends(...)` defaults are allowed.
+
+```
+uv run ruff check .            # lint
+uv run ruff format --check .   # formatting check
+uv run ruff check --fix .      # apply safe fixes
+uv run ruff format .           # format
+```
+
+From the repo root: `make lint-backend` (check) and `make fmt` (fix, both
+backend and frontend). CI runs the check in the `test` job, so a lint
+finding or an unformatted file fails the build and blocks the deploy.
+
 ## Run the tests
 
 Two kinds, told apart by the `integration` pytest marker (registered in

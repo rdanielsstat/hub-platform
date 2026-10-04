@@ -5,6 +5,15 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { StoreProvider } from '@/store'
 import type { Project } from '@/services/api'
 import { ProjectDetailPage } from './project-detail'
+import {
+  DESCRIPTION_MAX_LENGTH,
+  LINK_LABEL_MAX_LENGTH,
+  LINK_URL_MAX_LENGTH,
+  NEXT_ACTION_MAX_LENGTH,
+  PITCH_MAX_LENGTH,
+  PROJECT_NAME_MAX_LENGTH,
+  TAG_MAX_LENGTH,
+} from '@/lib/limits'
 
 const mockApi = vi.hoisted(() => ({
   listProjects: vi.fn(),
@@ -83,6 +92,30 @@ describe('ProjectDetailPage rendering', () => {
     )
     expect(screen.getByText('#chess')).toBeInTheDocument()
     expect(screen.getByText('No links yet.')).toBeInTheDocument()
+  })
+
+  it('caps every editable field at the API limit', async () => {
+    mockApi.listProjects.mockResolvedValueOnce([project()])
+    renderDetail()
+
+    const expected: [HTMLElement, number][] = [
+      [
+        await screen.findByDisplayValue('Chess analytics'),
+        PROJECT_NAME_MAX_LENGTH,
+      ],
+      [screen.getByDisplayValue('Track my chess games'), PITCH_MAX_LENGTH],
+      [
+        screen.getByDisplayValue('A longer brain dump about chess analytics.'),
+        DESCRIPTION_MAX_LENGTH,
+      ],
+      [screen.getByDisplayValue('Set up the database'), NEXT_ACTION_MAX_LENGTH],
+      [screen.getByPlaceholderText('Add a tag…'), TAG_MAX_LENGTH],
+      [screen.getByPlaceholderText('Label (optional)'), LINK_LABEL_MAX_LENGTH],
+      [screen.getByPlaceholderText('https://…'), LINK_URL_MAX_LENGTH],
+    ]
+    for (const [field, limit] of expected) {
+      expect(field).toHaveAttribute('maxLength', String(limit))
+    }
   })
 
   it('shows a not-found state for an id that does not exist', async () => {

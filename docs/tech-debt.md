@@ -80,6 +80,12 @@
   (2026-10-02, `backend/tests/integration/`).
 - Makefile for the common commands: done (2026-10-02).
 - Integration and E2E jobs gate the dev deploy: done (2026-10-03).
+- Backend formatter and linter: done (2026-10-04). Ruff (lint and format),
+  configured in `backend/pyproject.toml`; `make lint-backend`, `make fmt`;
+  CI fails on any finding.
+- Form `maxLength` matching the API limits: done (2026-10-04, every text
+  field, from `frontend/src/lib/limits.ts`; a backend test keeps the two in
+  step).
 - Deprecation warnings in the test run (httpx, anyio, Mangum): done
   (2026-10-02). `httpx2`, Starlette 1.7.0; Mangum's one warning filtered with
   the reason, since 0.22.0 is the latest release.

@@ -25,6 +25,15 @@ import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import { formatDate, formatRelative, isSafeLinkUrl } from '@/lib/project-utils'
+import {
+  DESCRIPTION_MAX_LENGTH,
+  LINK_LABEL_MAX_LENGTH,
+  LINK_URL_MAX_LENGTH,
+  NEXT_ACTION_MAX_LENGTH,
+  PITCH_MAX_LENGTH,
+  PROJECT_NAME_MAX_LENGTH,
+  TAG_MAX_LENGTH,
+} from '@/lib/limits'
 
 export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -215,6 +224,7 @@ export function ProjectDetailPage() {
         <textarea
           ref={nextActionRef}
           rows={1}
+          maxLength={NEXT_ACTION_MAX_LENGTH}
           value={nextAction}
           onChange={(e) => setNextAction(e.target.value)}
           onBlur={async () => {
@@ -231,6 +241,7 @@ export function ProjectDetailPage() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <Input
             value={name}
+            maxLength={PROJECT_NAME_MAX_LENGTH}
             onChange={(e) => setName(e.target.value)}
             onBlur={async () => {
               const trimmed = name.trim()
@@ -259,6 +270,7 @@ export function ProjectDetailPage() {
         </div>
         <Input
           value={pitch}
+          maxLength={PITCH_MAX_LENGTH}
           onChange={(e) => setPitch(e.target.value)}
           onBlur={async () => {
             if (pitch === project.pitch) return
@@ -277,6 +289,7 @@ export function ProjectDetailPage() {
             <Textarea
               id="description"
               rows={6}
+              maxLength={DESCRIPTION_MAX_LENGTH}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               onBlur={async () => {
@@ -357,6 +370,7 @@ export function ProjectDetailPage() {
             <div className="flex gap-2">
               <Input
                 value={tagInput}
+                maxLength={TAG_MAX_LENGTH}
                 onChange={(e) => setTagInput(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
@@ -426,6 +440,7 @@ export function ProjectDetailPage() {
             <div className="flex gap-2">
               <Input
                 value={linkLabelInput}
+                maxLength={LINK_LABEL_MAX_LENGTH}
                 onChange={(e) => setLinkLabelInput(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
@@ -438,6 +453,7 @@ export function ProjectDetailPage() {
               />
               <Input
                 value={linkInput}
+                maxLength={LINK_URL_MAX_LENGTH}
                 onChange={(e) => setLinkInput(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {

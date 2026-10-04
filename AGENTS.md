@@ -72,9 +72,10 @@ FastAPI 0.141 app in `backend/`, Python 3.12, dependencies managed with `uv`.
 
 ```
 uv sync                              # install, from inside backend/
-SEED_DEMO_DATA=true uv run python -m app.db.init_local  # tables + demo data, once
+SEED_DEMO_DATA=true uv run python -m app.db.init_local  # migrations + demo data
 uv run uvicorn app.main:app --reload # start the dev server (http://localhost:8000)
-uv run pytest                        # run the test suite
+uv run pytest                        # run the unit tests
+uv run ruff check . && uv run ruff format --check .  # lint and format check
 ```
 
 - Storage: SQLAlchemy 2.0 (`app/db/`), database-agnostic. SQLite locally and in tests
@@ -126,7 +127,7 @@ See `backend/README.md` for the full setup, config table, and details.
 ## Testing
 
 Frontend: Vitest 5.0, React Testing Library 16, jsdom. `pnpm test`
-(from inside `frontend/`) runs `vitest run`; 197 tests in 22 files as of
+(from inside `frontend/`) runs `vitest run`; 202 tests in 22 files as of
 October 2026.
 
 - Vitest runs with `test.globals` off (tests import from vitest explicitly);
@@ -135,8 +136,8 @@ October 2026.
   queries to a landmark rather than the whole document to avoid matching hidden content.
 
 Backend: pytest 9.1, two layers told apart by the `integration` marker.
-`uv run pytest` (from inside `backend/`) runs the unit tests only: 432 tests in
-26 files as of October 2026, each with its own in-memory SQLite database.
+`uv run pytest` (from inside `backend/`) runs the unit tests only: 435 tests in
+27 files as of October 2026, each with its own in-memory SQLite database.
 `uv run pytest -m integration` runs `tests/integration/` (38 tests in 4 files)
 against the Docker Compose Postgres (`docker compose up -d --wait postgres`, or
 `make test-integration`), in a throwaway database built by the real
@@ -160,7 +161,10 @@ are off. See `frontend/README.md`.
 - Backend unit tests (`uv run pytest` from `backend/`)
 - Backend integration tests (`uv run pytest -m integration`) when a change
   touches the database layer or migrations, and Docker is available
-- Lint checks must be 0 errors / 0 warnings (`pnpm lint` from `frontend/`)
+- Lint checks must be 0 errors / 0 warnings (`pnpm lint` from `frontend/`, and
+  `uv run ruff check .` from `backend/`)
+- Backend formatting must pass (`uv run ruff format --check .` from `backend/`;
+  `make fmt` fixes it)
 - TypeScript build must be clean (`pnpm build` from `frontend/`)
 - Format must pass (`pnpm format:check` from `frontend/`)
 
@@ -169,9 +173,10 @@ failing on HIGH and CRITICAL), a gitleaks secret scan of the full git
 history, the backend integration tests and the Playwright suite (against
 the Compose stack) on every PR and push; all five must pass before the
 dev deploy runs. Actions in `.github/workflows/` are pinned to commit SHAs
-(version in a trailing comment); keep it that way when adding or bumping one. Lint, format, and build checks are enforced
-locally before committing; they do not run in the GitHub Actions workflow on
-PRs. Reviewed gitleaks false positives go in `.gitleaksignore` (by
+(version in a trailing comment); keep it that way when adding or bumping one.
+CI also runs the backend's Ruff lint and format check (in the `test` job);
+the frontend's lint, format, and build checks are enforced locally before
+committing (`make check`) and don't run in CI. Reviewed gitleaks false positives go in `.gitleaksignore` (by
 fingerprint); never add a real secret there.
 
 ## Working Conventions
@@ -180,7 +185,8 @@ fingerprint); never add a real secret there.
 - Run lint, typecheck, build, and both test suites, and confirm they're
   clean before considering a task done.
 - Match the existing code style. ESLint + Prettier are configured in
-  `frontend/`; lint must stay at 0 errors / 0 warnings.
+  `frontend/`, Ruff (lint and format) in `backend/`; lint must stay at
+  0 errors / 0 warnings on both.
 - No em dashes in any prose you write here, in commit messages, in code
   comments, or in chat responses. Use a period, comma, or colon instead; or 
   rephrase.
@@ -281,7 +287,8 @@ Local dev: off by default; optional local Grafana/Tempo/Prometheus/Loki stack in
 ## Deployment and Release Gates
 
 **Per-commit CI/CD (runs on every push to main):**
-- Unit tests (frontend + backend; lint, format, and build are enforced locally, not in CI)
+- Unit tests (frontend + backend) and the backend's Ruff lint and format check
+  (frontend lint, format, and build are enforced locally, not in CI)
 - Dependency scan (pip-audit and pnpm audit; HIGH and CRITICAL fail it)
 - Backend integration tests against Postgres and Playwright E2E against Docker Compose
 - Gitleaks scan of the full history (`secrets-scan` job)

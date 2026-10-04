@@ -237,6 +237,7 @@ Mangum 0.22                     ASGI to Lambda adapter
 boto3                           AWS SDK
 OTel Python SDK 1.45            Traces, metrics and logs
 pytest 9.1 + httpx2             Testing
+Ruff 0.16                       Linter and formatter
 ```
 
 ### Infrastructure Stack
@@ -650,7 +651,7 @@ frontend/
     helpers.ts                Shared setup
 ```
 
-Backend unit tests each get their own in-memory SQLite database, so they don't need a running server. The integration tests need the Compose Postgres, and the Playwright tests need a backend (see below). As of October 2026: 432 backend unit and 38 integration tests, 197 frontend unit tests, 201 Playwright tests. CI runs all of them on every push and pull request.
+Backend unit tests each get their own in-memory SQLite database, so they don't need a running server. The integration tests need the Compose Postgres, and the Playwright tests need a backend (see below). As of October 2026: 435 backend unit and 38 integration tests, 202 frontend unit tests, 201 Playwright tests. CI runs all of them on every push and pull request.
 
 ### Running tests
 
@@ -838,13 +839,19 @@ The project owner pushes directly to `main` (protected against force-push and de
 
 ### Code style
 
+Both are configured and required; CI fails on any finding.
+
 **Backend:**
-- No formatter or linter is configured yet; match the style of the surrounding code
+- [Ruff](https://docs.astral.sh/ruff/) for linting and formatting, configured in `backend/pyproject.toml`
+- Check: `make lint-backend` (or `uv run ruff check .` and `uv run ruff format --check .` from `backend/`)
+- Fix: `make fmt` (or `uv run ruff check --fix .` and `uv run ruff format .`)
 
 **Frontend:**
 - Run `prettier` for formatting (`pnpm format`)
 - Run `eslint` for linting (`pnpm lint`)
 - TypeScript strict mode required
+
+`make lint` checks both; `make fmt` formats both; `make check` runs every local gate (lint, format, unit tests, build).
 
 ---
 

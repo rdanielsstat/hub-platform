@@ -5,6 +5,13 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { StoreProvider } from '@/store'
 import { QuickCaptureDialog } from './quick-capture-dialog'
+import {
+  DESCRIPTION_MAX_LENGTH,
+  NEXT_ACTION_MAX_LENGTH,
+  PITCH_MAX_LENGTH,
+  PROJECT_NAME_MAX_LENGTH,
+  TAG_LIST_INPUT_MAX_LENGTH,
+} from '@/lib/limits'
 
 const mockApi = vi.hoisted(() => ({
   listProjects: vi.fn(),
@@ -79,6 +86,30 @@ describe('QuickCaptureDialog', () => {
 
     const name = await screen.findByLabelText(/^name$/i)
     expect(name).toHaveFocus()
+  })
+
+  it('caps every field at the API limit', async () => {
+    const user = userEvent.setup()
+    renderDialog()
+    await user.click(screen.getByRole('button', { name: /open capture/i }))
+
+    const name = (await screen.findByLabelText(/^name$/i)) as HTMLInputElement
+    await user.paste('n'.repeat(PROJECT_NAME_MAX_LENGTH + 10))
+    expect(name.value).toHaveLength(PROJECT_NAME_MAX_LENGTH)
+
+    await user.click(screen.getByRole('button', { name: /more details/i }))
+    const expected: [string, number][] = [
+      ['qc-pitch', PITCH_MAX_LENGTH],
+      ['qc-desc', DESCRIPTION_MAX_LENGTH],
+      ['qc-tags', TAG_LIST_INPUT_MAX_LENGTH],
+      ['qc-next', NEXT_ACTION_MAX_LENGTH],
+    ]
+    for (const [id, limit] of expected) {
+      expect(document.getElementById(id)).toHaveAttribute(
+        'maxLength',
+        String(limit),
+      )
+    }
   })
 
   it('disables both capture buttons until a name is entered', async () => {

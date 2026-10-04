@@ -13,6 +13,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { EMAIL_MAX_LENGTH, PASSWORD_MAX_LENGTH } from '@/lib/limits'
 
 export function LoginPage() {
   const { login } = useAuth()
@@ -56,6 +57,7 @@ export function LoginPage() {
               <Label htmlFor="login-email">Email</Label>
               <Input
                 id="login-email"
+                maxLength={EMAIL_MAX_LENGTH}
                 type="email"
                 autoComplete="email"
                 autoFocus
@@ -68,6 +70,7 @@ export function LoginPage() {
               <Label htmlFor="login-password">Password</Label>
               <Input
                 id="login-password"
+                maxLength={PASSWORD_MAX_LENGTH}
                 type="password"
                 autoComplete="current-password"
                 required

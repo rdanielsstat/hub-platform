@@ -13,6 +13,11 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import {
+  DISPLAY_NAME_MAX_LENGTH,
+  EMAIL_MAX_LENGTH,
+  PASSWORD_MAX_LENGTH,
+} from '@/lib/limits'
 
 export function SignupPage() {
   const { register } = useAuth()
@@ -63,6 +68,7 @@ export function SignupPage() {
               <Label htmlFor="signup-email">Email</Label>
               <Input
                 id="signup-email"
+                maxLength={EMAIL_MAX_LENGTH}
                 type="email"
                 autoComplete="email"
                 autoFocus
@@ -75,6 +81,7 @@ export function SignupPage() {
               <Label htmlFor="signup-name">Display name (optional)</Label>
               <Input
                 id="signup-name"
+                maxLength={DISPLAY_NAME_MAX_LENGTH}
                 autoComplete="name"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
@@ -84,6 +91,7 @@ export function SignupPage() {
               <Label htmlFor="signup-password">Password</Label>
               <Input
                 id="signup-password"
+                maxLength={PASSWORD_MAX_LENGTH}
                 type="password"
                 autoComplete="new-password"
                 required

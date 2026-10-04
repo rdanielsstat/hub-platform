@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { AuthProvider } from '@/auth'
 import { HttpError } from '@/services/api'
 import { LoginPage } from './login'
+import { EMAIL_MAX_LENGTH, PASSWORD_MAX_LENGTH } from '@/lib/limits'
 
 const mockAuthApi = vi.hoisted(() => ({
   register: vi.fn(),
@@ -44,6 +45,18 @@ describe('LoginPage', () => {
     expect(screen.getByLabelText(/email/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/password/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /log in/i })).toBeInTheDocument()
+  })
+
+  it('caps email and password at the API limits', () => {
+    renderLoginPage()
+    expect(screen.getByLabelText(/email/i)).toHaveAttribute(
+      'maxLength',
+      String(EMAIL_MAX_LENGTH),
+    )
+    expect(screen.getByLabelText(/password/i)).toHaveAttribute(
+      'maxLength',
+      String(PASSWORD_MAX_LENGTH),
+    )
   })
 
   it('disables submit until both fields are filled', async () => {

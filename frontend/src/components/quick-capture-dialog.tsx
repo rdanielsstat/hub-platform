@@ -16,6 +16,13 @@ import { ScorePicker } from '@/components/score-meter'
 import { useStore } from '@/use-store'
 import { STATUSES, type Status } from '@/services/api'
 import { cn } from '@/lib/utils'
+import {
+  DESCRIPTION_MAX_LENGTH,
+  NEXT_ACTION_MAX_LENGTH,
+  PITCH_MAX_LENGTH,
+  PROJECT_NAME_MAX_LENGTH,
+  TAG_LIST_INPUT_MAX_LENGTH,
+} from '@/lib/limits'
 
 interface Props {
   open: boolean
@@ -91,6 +98,7 @@ export function QuickCaptureDialog({ open, onClose }: Props) {
           <Label htmlFor="qc-name">Name</Label>
           <Input
             id="qc-name"
+            maxLength={PROJECT_NAME_MAX_LENGTH}
             autoFocus
             placeholder="e.g. Chess improvement analytics"
             value={form.name}
@@ -112,6 +120,7 @@ export function QuickCaptureDialog({ open, onClose }: Props) {
           <Label htmlFor="qc-pitch">One-line pitch</Label>
           <Input
             id="qc-pitch"
+            maxLength={PITCH_MAX_LENGTH}
             placeholder="The scannable version"
             value={form.pitch}
             onChange={(e) => setForm({ ...form, pitch: e.target.value })}
@@ -138,6 +147,7 @@ export function QuickCaptureDialog({ open, onClose }: Props) {
               <Label htmlFor="qc-desc">Brain dump</Label>
               <Textarea
                 id="qc-desc"
+                maxLength={DESCRIPTION_MAX_LENGTH}
                 placeholder="Everything you're thinking about this…"
                 value={form.description}
                 onChange={(e) =>
@@ -167,6 +177,7 @@ export function QuickCaptureDialog({ open, onClose }: Props) {
                 <Label htmlFor="qc-tags">Tags</Label>
                 <Input
                   id="qc-tags"
+                  maxLength={TAG_LIST_INPUT_MAX_LENGTH}
                   placeholder="stats, chess"
                   value={form.tags}
                   onChange={(e) => setForm({ ...form, tags: e.target.value })}
@@ -178,6 +189,7 @@ export function QuickCaptureDialog({ open, onClose }: Props) {
               <Label htmlFor="qc-next">Next action</Label>
               <Input
                 id="qc-next"
+                maxLength={NEXT_ACTION_MAX_LENGTH}
                 placeholder="The single next concrete step"
                 value={form.nextAction}
                 onChange={(e) =>

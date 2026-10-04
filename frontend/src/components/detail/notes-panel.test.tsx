@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { StoreProvider } from '@/store'
 import type { Note } from '@/services/api'
 import { NotesPanel } from './notes-panel'
+import { NOTE_MAX_LENGTH } from '@/lib/limits'
 
 const mockApi = vi.hoisted(() => ({
   listProjects: vi.fn(),
@@ -66,6 +67,20 @@ describe('NotesPanel', () => {
     renderPanel()
 
     expect(await screen.findByText(/no notes yet/i)).toBeInTheDocument()
+  })
+
+  it('caps a note at the API limit', async () => {
+    const user = userEvent.setup()
+    mockApi.listNotes.mockResolvedValueOnce([])
+    renderPanel()
+    const box = (await screen.findByPlaceholderText(
+      /add a note/i,
+    )) as HTMLTextAreaElement
+
+    expect(box).toHaveAttribute('maxLength', String(NOTE_MAX_LENGTH))
+    await user.click(box)
+    await user.paste('b'.repeat(NOTE_MAX_LENGTH + 10))
+    expect(box.value).toHaveLength(NOTE_MAX_LENGTH)
   })
 
   it('adds a note via the button and clears the draft', async () => {
