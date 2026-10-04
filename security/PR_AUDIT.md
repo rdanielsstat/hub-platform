@@ -79,8 +79,9 @@ Result: **approve**.
    was also merged with no review, and the two later commits bypassed PRs.
    Recommended minimum, which keeps the current direct-push workflow:
    block force-pushes and deletion of `main`. Stronger, if the workflow
-   moves to PRs: require the four CI checks to pass before merge. This is
-   a repository setting, left for the maintainer to apply.
+   moves to PRs: require the CI checks to pass before merge. **Resolved
+   2026-10-04:** the maintainer approved, and ruleset `protect-main`
+   (id 24435773) now blocks force-pushes and deletion of `main`.
 2. **Self-review.** The agent that wrote these changes also audited them.
    Every claim above links to CI runs or checks that were performed, but an
    independent reviewer would catch what the author can't. The QA subagent

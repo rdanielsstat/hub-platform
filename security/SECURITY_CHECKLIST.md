@@ -81,7 +81,7 @@ Legend: **Done** (implemented, and tested or configured in code),
 | Dependency scans in CI | Done | `dependency-scan` job, gates the deploy on HIGH and CRITICAL (`security/DEPENDENCIES.md`) |
 | PR audit | Done | `security/PR_AUDIT.md` (PR #5, ec830d6, f34d327) |
 | Operational diagnosis run | Done | `security/OPERATIONAL_DIAGNOSIS.md` (drill, run 37164038288) |
-| Branch protection on `main` (no force-push or deletion) | **Open** | No protection or ruleset (found 2026-10-04, `security/PR_AUDIT.md`). A repository setting for the maintainer |
+| Branch protection on `main` (no force-push or deletion) | Done | Repository ruleset `protect-main` (id 24435773), active since 2026-10-04: blocks force-pushes and deletion of the default branch; direct pushes still allowed |
 
 ## Monitoring and response
 
@@ -103,6 +103,7 @@ Legend: **Done** (implemented, and tested or configured in code),
 
 ## Highest-priority open items
 
-1. Protect `main`: block force-pushes and deletion (`security/PR_AUDIT.md`).
-2. Alerts beyond the registration error rate (`ops/MONITORING.md`).
-3. Self-service account deletion and data export.
+1. Alerts beyond the registration error rate (`ops/MONITORING.md`).
+2. Self-service account deletion and data export.
+3. Optionally, require the CI checks before merging into `main` (would
+   mean moving to pull requests for every change).

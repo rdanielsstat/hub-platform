@@ -59,8 +59,8 @@
   free plan.
 - Dependency scans in CI: done (2026-10-04, `dependency-scan` job, gates
   the deploy on HIGH and CRITICAL).
-- Protect `main` against force-pushes and deletion: open (found
-  2026-10-04 in the PR audit); a repository setting.
+- Protect `main` against force-pushes and deletion: done (2026-10-04,
+  ruleset `protect-main`; found in the PR audit).
 - Still open, not blockers: alerts beyond the registration error rate;
   self-service account deletion and export (not in the product spec).
 
