@@ -241,6 +241,73 @@ the job stops, and the old API keeps serving until the rows are dealt
 with (`ops/TROUBLESHOOTING.md`). The same goes for a stamp refused over
 a partial schema.
 
+## Backup Testing
+
+Backups are Neon's point-in-time restore (PITR): Neon keeps the write-ahead
+log for the project's history window and can create a new branch showing
+the database exactly as it was at any moment inside it. There are no
+separate dump files.
+
+**History window: 6 hours** on the current Neon free plan
+(`history_retention_seconds = 21600` on both `hub-dev` and `hub-prod`).
+A restore further back than that isn't possible; a longer window needs a
+paid Neon plan.
+
+### Test on 2026-10-04 (prod): pass
+
+Restored prod (`hub-prod`, project `soft-frost-13927168`, branch
+`production`) to **2026-10-03 23:30:00 UTC**, four minutes before the
+prod bootstrap ran migration `0003` (23:34:03 UTC). A point-in-time
+restore must therefore show the schema at `0002`, which current prod no
+longer is: a check a plain copy of prod would fail.
+
+| | Prod (now) | Restored to 23:30 UTC |
+|---|---|---|
+| users | 2 | 2 |
+| projects | 10 | 10 |
+| notes | 19 | 19 |
+| Alembic revision | `0003` | **`0002`** |
+| `0003` constraints | 3 | **0** |
+| `0002` constraints | 5 | 5 |
+| Newest user update / note | 2026-10-02 01:42 / 2026-10-01 05:39 | same |
+
+Result: the restore reproduced the database as of the requested moment,
+schema included. Row counts match because nothing was written to prod
+between the restore point and the test (the newest rows are from
+2026-10-01 and 2026-10-02). Neon reported the branch's point as
+15:00:41 UTC: it resolves the requested time to the log position at that
+moment and reports the last commit before it; nothing was written in
+between. The test branch (read-only endpoint) was deleted afterwards;
+only `production` remains.
+
+### How to repeat it
+
+With a Neon API key (`NEON_API_KEY`) and `jq`:
+
+```
+N=https://console.neon.tech/api/v2; A="Authorization: Bearer $NEON_API_KEY"
+P=<project id>; B=<production branch id>; T=2026-10-03T23:30:00Z   # inside the history window
+# 1. Branch from the point in time, with a read-only compute
+curl -s -X POST -H "$A" -H 'Content-Type: application/json' "$N/projects/$P/branches" \
+  -d "{\"branch\":{\"parent_id\":\"$B\",\"parent_timestamp\":\"$T\",\"name\":\"restore-test\"},\"endpoints\":[{\"type\":\"read_only\"}]}"
+# 2. Connection URI for the new branch (contains a password: don't log it)
+curl -s -H "$A" "$N/projects/$P/connection_uri?branch_id=<new branch id>&database_name=neondb&role_name=neondb_owner&pooled=false" | jq -r .uri
+# 3. Compare with prod: counts of users, projects, notes; SELECT version_num FROM alembic_version
+# 4. Delete the test branch (never the production branch)
+curl -s -X DELETE -H "$A" "$N/projects/$P/branches/<new branch id>"
+```
+
+Pick a restore point just before a known change (a deploy's migration,
+from the bootstrap log), so the result proves it's point-in-time and not
+a copy of the current state. To actually restore after an incident,
+restore the `production` branch itself from the Neon console (Branches,
+Restore), which keeps a backup of the pre-restore state, or point the
+SSM database URLs at a restored branch; either is a manual,
+maintainer-only operation.
+
+Run this test after any change to the Neon plan or project, and at least
+before each prod promotion that includes a migration.
+
 ## Rolling back
 
 There's no rollback workflow. Options, fastest first:
