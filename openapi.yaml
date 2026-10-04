@@ -12,6 +12,14 @@ info:
     with a Retry-After header and an HTTPError body when the database
     can't be reached (for example while Neon resumes from suspend).
     Clients should retry; it never means the session is invalid.
+
+    Deployed (behind CloudFront), every response also carries
+    Content-Security-Policy, Strict-Transport-Security (one year,
+    includeSubDomains, preload), X-Frame-Options DENY,
+    X-Content-Type-Options nosniff and Referrer-Policy
+    strict-origin-when-cross-origin, and a request that didn't come through
+    CloudFront gets 403 (origin verification). Rate limits (429) and usage
+    caps (403) are described on the operations they apply to.
   version: 0.1.0
 servers:
   - url: https://hub.dnls.dev/api
@@ -442,7 +450,9 @@ components:
 
   responses:
     Unauthorized:
-      description: Missing or invalid bearer token
+      description: >
+        No valid session: the bearer token or the hub_token cookie is missing,
+        invalid or expired. An invalid cookie is cleared in the same response.
       content:
         application/json:
           schema:

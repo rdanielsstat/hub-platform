@@ -203,11 +203,11 @@ fingerprint); never add a real secret there.
 
 Skills are discoverable workflows that agents load automatically. They live in `.claude/skills/<NAME>/SKILL.md` with frontmatter. When a task matches a skill, the agent loads and follows it without needing an explicit "use this file" instruction.
 
-Current skills (under construction):
+Current skills:
 
 - **release**: Document and execute the release workflow: tag a version, push the tag and code to main, verify dev deployment, and document what was released. Based on the current workflow (tag only affects next dev deploy; no automated package registry publishing yet).
-- **e2e-testing**: Run Playwright E2E tests, validate test fixtures, report results and edge cases. Planned for pre-release gates and feature validation (not yet wired to CI).
-- **security-scanning**: Run static security checks (dependencies, secrets, code patterns). Planned for pre-release gates (not yet wired to CI).
+- **e2e-testing**: Run Playwright E2E tests, validate test fixtures, report results and edge cases. For local runs and feature validation; CI runs the same suites on every push.
+- **security-scanning**: Run static security checks (dependencies, secrets, code patterns). CI already runs the dependency scan and gitleaks on every push; the skill adds bandit, trivy and the IaC scans, run by hand before releases (results in `security/`).
 - **design-review**: Audit current UI/UX against best practices; review component library, layout efficiency, and data presentation; research emerging design tools and frameworks; report improvements, new affordances (buttons, controls), layout reorganization, and tool swap recommendations. Run on demand or periodically (quarterly suggested).
 
 ## Subagents
@@ -235,19 +235,25 @@ run once by hand) and hub (dev/prod workspaces). Region: us-east-1.
 
 **Backend**: Lambda container image (ECR), Python 3.12. API Gateway HTTP API v2.
 Requests routed via Mangum, which strips `/api` prefix. A separate bootstrap Lambda
-creates schema and seeds demo account on every deploy.
+(same image) applies the Alembic migrations and seeds the demo account on every
+deploy, before the API Lambda switches to the new image. The image applies OS
+security updates at build and ships without pip; ECR tags are immutable.
 
 **Frontend**: React SPA built with Vite, served from S3 with Origin Access Control,
 behind CloudFront. CloudFront Function routes SPA paths; forwards `/api/*` to API
 Gateway through a custom origin request policy (allowlisted headers plus
 `CloudFront-Viewer-Address` for the per-IP login limit, never `Host`) and adds a
-secret `X-Origin-Verify` header the backend requires. API Gateway's stage
-throttles at 50 rps, burst 100. Same-origin setup (no CORS needed). DNS and ACM
-in Cloudflare.
+secret `X-Origin-Verify` header the backend requires. A response headers policy
+adds CSP, HSTS, X-Frame-Options, nosniff and Referrer-Policy to every response.
+API Gateway's stage throttles at 50 rps, burst 100. Same-origin setup (no CORS
+needed). DNS in Cloudflare, proxied, so the rate limiter reads the client from
+`X-Forwarded-For` when the hop is in `TRUSTED_PROXY_IPS` (Cloudflare's ranges,
+a GitHub environment variable). ACM validation records in Cloudflare.
 
 **Database**: Neon Postgres (deployed). Connection via `DATABASE_URL` read from SSM
 when `USE_SSM=true`. The app uses the pooled URL, bootstrap uses the direct URL.
-Local dev uses SQLite or Postgres 17 via Docker Compose.
+Local dev uses SQLite or Postgres 17 via Docker Compose. Backups: Neon point-in-time
+restore (6-hour window on the current plan), tested 2026-10-04.
 
 **Secrets**: The JWT secret, database URLs, and origin-verify secret are stored in
 SSM SecureStrings and read at startup with `USE_SSM=true` in Lambda, via boto3. OTEL tokens are passed from
@@ -258,14 +264,14 @@ in `ci.yml`, `TF_VAR_otel_headers_prod` in `promote.yml`); they are not stored i
 - `ci.yml`: on PR, run unit tests, the dependency scan, integration tests,
   Playwright E2E against Docker Compose, and the gitleaks history scan; on push to main, run them,
   then (only if all of them pass) deploy to dev (build
-  image, apply infra, bootstrap, build frontend, sync to S3, invalidate CloudFront,
-  smoke-test `/api/health`).
+  image, update and run the bootstrap Lambda (migrations), apply infra, build
+  frontend, sync to S3, invalidate CloudFront, smoke-test `/api/health`).
 - `promote.yml`: manual promotion of exact image tag from dev to prod (no rebuild).
 - `observability-alert-handler.yml`: manual on-call diagnostic (started manually after a Grafana alert).
 
 **Observability**: Grafana Cloud over OTLP/HTTP (dev and prod Lambdas). Traces and
-metrics exported via OpenTelemetry SDK + FastAPI and SQLAlchemy instrumentation. Prod
-sends OTEL traces and metrics to Grafana. `SERVICE_VERSION` is set for both dev and
+metrics exported via OpenTelemetry SDK + FastAPI and SQLAlchemy instrumentation, plus
+OTLP logs from `app.client_errors`, `app.db` and `app.security` (Loki). `SERVICE_VERSION` is set for both dev and
 prod Lambdas from git tags.
 Local dev: off by default; optional local Grafana/Tempo/Prometheus/Loki stack in `backend/observability/`.
 
@@ -281,7 +287,7 @@ Local dev: off by default; optional local Grafana/Tempo/Prometheus/Loki stack in
 - Gitleaks scan of the full history (`secrets-scan` job)
 - The deploy waits on all of the above
 - Build and push backend image to dev ECR (timestamp-sha tag, e.g., 20260930-123456-abc123)
-- Deploy to dev Lambda (applies infra, bootstraps, rebuilds frontend, smoke-tests /api/health)
+- Deploy to dev Lambda (runs migrations via the bootstrap Lambda first, then applies infra, rebuilds frontend, smoke-tests /api/health)
 
 **Tagging a release (manual, semantic versioning):**
 - From main at the commit you want to release: `git tag -a vX.Y.Z -m "Release vX.Y.Z"`
@@ -293,18 +299,20 @@ Local dev: off by default; optional local Grafana/Tempo/Prometheus/Loki stack in
   `SERVICE_VERSION=X.Y.Z+N.g<sha>`.
 
 **Promoting to prod (manual, workflow_dispatch):**
-- Copies the current backend image from dev ECR to prod ECR (no rebuild, exact bytes)
+- Copies the current backend image from dev ECR to prod ECR (no rebuild, exact bytes; skipped if prod already has the tag)
+- Runs the prod migrations (bootstrap) before applying prod infra
 - Rebuilds and deploys frontend from current main checkout
 - Smoke-tests prod /api/health
 - Requires typing "promote" to confirm, then approval through the GitHub `prod`
   environment (required reviewers plus a wait timer). Prod is live at
   https://hub.dnls.dev.
 
-**Tech debt (not yet wired):**
-- E2E test automation on tagged releases (planned via `e2e-testing` skill)
-- Security scanning on releases (planned via `security-scanning` skill)
+**Not yet wired:**
+- bandit, trivy and the IaC scans still run by hand (`security-scanning` skill); CI runs
+  the dependency scan and gitleaks
 - Version sync: `pyproject.toml` and `package.json` are hardcoded; should sync with git tags
 - Package registry publishing (PyPI, npm) is not set up
+- Full backlog: `docs/tech-debt.md`
 
 ## Do Not
 

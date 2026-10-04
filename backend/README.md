@@ -1,9 +1,10 @@
 # Hub API
 
-FastAPI backend for Hub. Implements auth, project, and note endpoints
-against a real database via SQLAlchemy: it uses SQLite locally, Neon
-Postgres when deployed (database-agnostic, so the same code runs on
-both). Attachments aren't built yet. See `../product-spec.md` and
+FastAPI backend for Hub. Implements auth, project, note and
+frontend-error-report endpoints against a real database via SQLAlchemy
+and Alembic migrations: it uses SQLite locally, Neon Postgres when
+deployed (database-agnostic, so the same code runs on both). Attachments
+aren't built yet. See `../product-spec.md` and
 `../openapi.yaml` for the full intended contract.
 
 ## Setup
@@ -74,9 +75,14 @@ of it.
 | `AUTH_COOKIE_SECURE` | on when deployed (`is_deployed()`), off locally | No. Whether the `hub_token` session cookie gets the `Secure` flag (HTTPS only). Off locally because the dev servers are plain `http://localhost`. See "Auth". |
 | `LOGIN_RATE_LIMIT_PER_MINUTE` | `5` when deployed (`is_deployed()`, dev Lambda included), `0` (off) locally | No. Login attempts allowed per client IP per minute on `POST /auth/login`; `0` turns the limit off. Off locally because the Playwright suite logs in many times from 127.0.0.1. See "Rate limits". |
 | `REGISTER_RATE_LIMIT_PER_MINUTE` | `3` when deployed (`is_deployed()`), `0` (off) locally | No. Sign-up attempts allowed per client IP per minute on `POST /auth/register`, counted separately from logins; `0` turns the limit off. Off locally because the E2E suite registers a user per test. See "Rate limits". |
-| `CLIENT_IP_HEADER` | unset (use the TCP peer address) | No. Request header holding the real client IP, for the login rate limit. The Lambdas set `CloudFront-Viewer-Address`. Only set it when every request comes through the proxy that writes it, since a client can send any header. |
+| `CLIENT_ERROR_RATE_LIMIT_PER_MINUTE` | `30` when deployed, `0` (off) locally | No. Frontend error reports allowed per client IP per minute on `POST /client-errors`. See "Frontend error reports". |
+| `CLIENT_IP_HEADER` | unset (use the TCP peer address) | No. Request header holding the real client IP, for the rate limits. The Lambdas set `CloudFront-Viewer-Address`. Only set it when every request comes through the proxy that writes it, since a client can send any header. |
+| `TRUSTED_PROXY_IPS` | unset (trust no proxy) | No. Comma-separated IPs or CIDR ranges of proxies allowed to report the client in `X-Forwarded-For`; read only when the hop from `CLIENT_IP_HEADER` (or the peer) is in the list. Deployed: Cloudflare's ranges, from the GitHub environment variable of the same name. An invalid entry stops the app at startup. See "Rate limits". |
+| `MAX_ACCOUNTS` | `1000` when deployed, `0` (off) locally | No. Total accounts; over it, sign-up answers 403. See "Usage caps". |
+| `MAX_PROJECTS_PER_USER` | `500` | No. `0` turns it off. |
+| `MAX_NOTES_PER_PROJECT` | `500` | No. `0` turns it off. |
 | `SEED_DEMO_DATA` | off | No. Local only: lets `python -m app.db.init_local` seed the demo account. Must be off with `USE_SSM` on; the app refuses to start otherwise. |
-| `OTEL_ENABLED` | off | No. On exports traces and metrics via OpenTelemetry (`observability/`). Set for the dev and prod Lambdas by OpenTofu, which export to Grafana Cloud. Prod sends OTEL data to Grafana via OTLP endpoint. See `observability/README.md` for local use. |
+| `OTEL_ENABLED` | off | No. On exports traces, metrics and selected logs (`app.client_errors`, `app.db`, `app.security`) via OpenTelemetry (`observability/`). Set for the dev and prod Lambdas by OpenTofu, which export to Grafana Cloud. See `observability/README.md` for local use. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | No. OTLP/HTTP base URL (Grafana Cloud's, in dev and prod). Unset with `OTEL_ENABLED` on means a local collector at `http://localhost:4318`. Only read when `OTEL_ENABLED` is on. Set for the dev and prod Lambdas by OpenTofu. |
 | `OTEL_EXPORTER_OTLP_HEADERS` | unset | No. Comma-separated `key=value` pairs, values URL-encoded (carries the Grafana Cloud `Authorization` token). Only read when `OTEL_ENABLED` is on. Set for the dev and prod Lambdas by OpenTofu. |
 | `OTEL_SDK_DISABLED` | unset | No. `true` turns observability off entirely, even with `OTEL_ENABLED` on. |
@@ -240,6 +246,19 @@ invocation, rather than reporting success.
 The app's own runtime (`app/main.py`, `app/db/session.py`) never reads
 the `MASTER_DB_*` vars and never holds master credentials.
 
+## Database outages
+
+If the database can't be reached (Neon still resuming, Postgres down, a
+dropped connection), SQLAlchemy raises `OperationalError`. A handler in
+`app/main.py` answers it with `503`, `Retry-After: 2` and a generic
+message, and logs `database_unavailable method=... path=...
+error=<exception type>` on the `app.db` logger (exported to Grafana). It
+runs inside the CORS middleware, so the response keeps its CORS headers;
+an unhandled 500 wouldn't, and a cross-origin browser would see only a
+network error. `/health` doesn't touch the database and keeps answering.
+The web app treats a 503 as "try again", never as signed out. Tests:
+`tests/test_database_unavailable.py`.
+
 ## Seeded demo account
 
 One user, `demo@hub.dev`, with ten varied projects and their notes
@@ -288,6 +307,31 @@ Pushing a tag doesn't deploy anything by itself; the version shows up on
 the next deploy of that commit or a later one. Prod reports the same
 version dev did for the image it promotes. Image tags are unaffected:
 they stay `<timestamp>-<sha>`, unique per build.
+
+## API
+
+Routers in `app/routers/`; the contract is `../openapi.yaml`
+(`tests/test_openapi_contract.py` fails if the two disagree on paths and
+methods, and `tests/test_observability.py` if the metrics registry falls
+behind).
+
+| Method and path | Router | Auth | Notes |
+|---|---|---|---|
+| `GET /health` | `health.py` | none | No database access |
+| `POST /auth/register` | `auth.py` | none | 3/min per IP deployed; account cap (403) |
+| `POST /auth/login` | `auth.py` | none | OAuth2 form; 5/min per IP deployed; password over 256 is 422 |
+| `POST /auth/logout` | `auth.py` | none | Clears the cookie |
+| `GET /auth/me` | `auth.py` | JWT | The web app's session check |
+| `GET`, `POST /projects` | `projects.py` | JWT | Project cap (403) on create |
+| `GET`, `PATCH`, `DELETE /projects/{project_id}` | `projects.py` | JWT | Another user's project is 404 |
+| `GET`, `POST /projects/{project_id}/notes` | `notes.py` | JWT | Note cap (403) on create |
+| `DELETE /notes/{note_id}` | `notes.py` | JWT | Returns the updated project |
+| `POST /client-errors` | `errors.py` | none | Frontend error reports; 30/min per IP deployed |
+
+Errors across all of them: `401` (no or bad token), `403` (cap, or
+origin verification when deployed), `404`, `409` (email taken), `422`
+(validation, including every length limit), `429` (rate limit, with
+`Retry-After`), `503` (database unavailable, with `Retry-After`).
 
 ## Run the tests
 

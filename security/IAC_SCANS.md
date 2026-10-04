@@ -64,6 +64,11 @@ binary is AWS's Runtime Interface Emulator, used only when the image is
 run outside Lambda, and the affected function is Windows-only code; this
 is a Linux image. It goes away when AWS rebuilds the emulator.
 
+**Confirmed on prod (2026-10-04):** the image prod runs,
+`hub-prod-backend:20261003-230501-f34d327` (built by CI from the patched
+Dockerfile), scanned by digest: no findings in the OS packages or Python
+packages; the same single UNKNOWN in `aws-lambda-rie`.
+
 ## tfsec: infra/hub (2026-10-03, HIGH and CRITICAL)
 
 tfsec 1.28 (now maintained as part of trivy). No CRITICAL findings.

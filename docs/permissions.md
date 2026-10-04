@@ -146,7 +146,7 @@ Custom agents are run by people in response to external events, with a human app
 
 **Manual workflows**:
 - `observability-alert-handler.yml`: On-call agent, started by hand by the on-call person (workflow_dispatch)
-- `ci.yml`: Tests run automatically on PR/push (no agent involved)
+- `ci.yml`: Unit tests, dependency scan, gitleaks, integration and E2E tests run automatically on PR/push (no agent involved)
 - `promote.yml`: Human-triggered promotion to prod
 
 **Agent permissions in CI**:
@@ -157,14 +157,15 @@ Custom agents are run by people in response to external events, with a human app
 ### Deployment gates
 
 **Dev deployment** (automatic on main push):
-- CI runs, tests pass
+- CI runs; every check passes (unit, dependency scan, gitleaks, integration, E2E)
 - No agent approval needed
 - CI role has IAM permission to push images to ECR, apply OpenTofu
 
 **Prod promotion** (manual, human-triggered):
 - Human reviews CI results and on-call diagnostics
 - Human runs promote.yml and types "promote" to confirm
-- The workflow targets a GitHub `prod` environment, but that environment doesn't exist yet, so no reviewer approval gates promotion today. It will once the environment is created with required reviewers.
+- The job then waits in the GitHub `prod` environment for a required reviewer's approval and a wait timer
+- `main` is protected by the `protect-main` ruleset: no force-pushes, no deletion
 
 ## Data and Privacy
 
@@ -275,9 +276,9 @@ To audit what an agent did:
 
 ## Future Enhancements
 
-- **Automated testing gates**: E2E tests run automatically before release (currently manual)
-- **Automated security gates**: Security scanning runs before release, blocks if HIGH/CRITICAL found
+- **Automated testing gates**: done. Unit, integration and E2E tests run in CI and gate the dev deploy.
+- **Automated security gates**: partly done. The dependency scan blocks on HIGH/CRITICAL and gitleaks blocks on any secret; bandit, trivy and the IaC scans still run by hand.
 - **Webhook-triggered on-call**: Grafana alerts trigger on-call agent automatically (currently manual dispatch)
 - **Automated remediation**: On-call agent can perform known-safe fixes (requires approval first, high risk)
 - **Feedback loop**: On-call engineer rates diagnoses (correct/incorrect); feedback used to improve future diagnoses
-- **Cost controls**: Monthly budget for API calls, with alerts if exceeded
+- **Cost controls**: partly done. The on-call diagnostic estimates monthly spend and skips the call above $5; no billing alert yet.

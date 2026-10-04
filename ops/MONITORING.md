@@ -151,10 +151,19 @@ it), plus the attributes `client_error.kind` and, for failed API calls,
 logged (Lambda freezes between invocations), with a 2-second timeout and
 a 60-second back-off after a failed export, like spans.
 
-Checked locally against the repo's collector and Loki
-(`backend/observability/docker-compose.yml`): a report sent to
-`/client-errors` appears in Loki with `service_name=hub-platform`,
-`client_error_kind`, `severity_text=WARN`.
+Verified on 2026-10-03: a report sent to dev's `/api/client-errors`
+appeared in Grafana Cloud Loki (data source
+`grafanacloud-blackpoplar56-logs`) with `service_name=hub-platform`,
+`deployment_environment=dev`, `client_error_kind`, `severity_text=WARN`,
+and the request's `trace_id` and `span_id`, so a report links to its
+trace in Tempo. Prod exports the same way (its token was checked to have
+logs-write access). The same check works locally against the repo's
+collector and Loki (`backend/observability/docker-compose.yml`).
+
+If reports don't show up in Explore: pick the `...-logs` Loki data
+source (not `usage-insights` or `alert-state-history`), widen the time
+range, and check CloudWatch for `log export ... failed` warnings, which
+the exporter prints when a send to Grafana fails.
 
 ## Local
 

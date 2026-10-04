@@ -54,8 +54,9 @@ Python base image's OS packages (`public.ecr.aws/lambda/python:3.12`).
 - **Base images**: `public.ecr.aws/lambda/python:3.12` (prod) and
   `python:3.12-slim` (local Compose) by tag, not digest, so each build
   picks up the latest patch of that tag.
-- **CI tooling**: GitHub Actions by major version tag (`@v4`, `@v5`);
-  gitleaks by version plus a SHA-256 check of the download.
+- **CI tooling**: every GitHub Action pinned to a full commit SHA, with
+  the version in a trailing comment; gitleaks by version plus a SHA-256
+  check of the download; pip-audit pinned (`pip-audit==2.10.1`).
 
 ## Adding a dependency
 

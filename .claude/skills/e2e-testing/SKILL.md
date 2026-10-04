@@ -16,7 +16,7 @@ Run Hub-Platform's Playwright end-to-end suite against the real local backend an
 
 ## The suite
 
-All tests live in `frontend/tests/` (189 tests as of October 2026; the count grows as tests are added):
+All tests live in `frontend/tests/` (201 tests as of October 2026; the count grows as tests are added):
 
 ```
 frontend/tests/
@@ -29,10 +29,18 @@ frontend/tests/
                 endpoint, with success cases, 401/404/409/422 errors, field
                 validation, response shapes, cascading deletes, and isolation
                 between users
+  integration.spec.ts
+                The Docker Compose stack (Playwright project `docker-compose`):
+                a full journey on Postgres, browser error reporting, and backend
+                and database outages. Its outage tests stop and pause the Compose
+                Postgres, so they run only with E2E_DOCKER=1 and --workers=1
+                (`make test-e2e-docker`)
   helpers.ts    Shared setup: register users and create projects or notes
                 through the API, sign the browser in (session cookie), wait for API calls,
                 hold requests to test in-flight states, forge test tokens
 ```
+
+`playwright.config.ts` defines two projects: `chromium` (`app.spec.ts`, `api.spec.ts`; any backend on :8000) and `docker-compose` (`integration.spec.ts`). Playwright starts the Vite dev server itself, or reuses one already on :5173; the backend must already be running. CI runs both projects against the Compose stack on every push.
 
 How the tests stay independent:
 

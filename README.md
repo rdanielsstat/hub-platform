@@ -17,10 +17,14 @@ A personal idea management system for capturing, triaging, and tracking ideas fr
 - Production: https://hub.dnls.dev
 
 **Documentation:**
+- [product-spec.md](product-spec.md) - Product spec and data model (the source of truth)
 - [AGENTS.md](AGENTS.md) - Project instructions for AI agents and developers
+- [openapi.yaml](openapi.yaml) - API contract (hand-written; a backend test checks the app matches it)
+- [ops/](ops/) - Runbooks: [deployment](ops/DEPLOYMENT.md), [health checks](ops/HEALTH_CHECKS.md), [monitoring](ops/MONITORING.md), [troubleshooting](ops/TROUBLESHOOTING.md)
+- [security/](security/) - [Security checklist](security/SECURITY_CHECKLIST.md), [rate limiting](security/RATE_LIMITING.md), [scan results](security/IAC_SCANS.md), [dependencies](security/DEPENDENCIES.md), [data policy](security/DATA_POLICY.md), [PR audit](security/PR_AUDIT.md), and more
 - [docs/agent-extension-pack.md](docs/agent-extension-pack.md) - AI skills and subagent workflows
 - [docs/permissions.md](docs/permissions.md) - Agent security boundaries and permissions
-- [openapi.yaml](openapi.yaml) - API contract (hand-written; a backend test checks the app matches it)
+- [docs/tech-debt.md](docs/tech-debt.md) - What's done, what's left
 
 ## Demo Account
 
@@ -47,7 +51,10 @@ Hub-Platform is a personal hub for capturing ideas, scoring them, and tracking t
 - **Dashboard filtering**: Filter by status or tag, search by text, and sort by recently updated, scores, target date, or name
 - **Notes and links**: Add notes to ideas and link to external resources
 - **Personal workspace**: Individual signup and login; your ideas, your rules
-- **Deployed**: Runs on AWS, with separate dev and prod environments, both live, OpenTelemetry tracing and metrics in dev and prod, and a manual AI-assisted alert diagnostic
+- **Deployed**: Runs on AWS, with separate dev and prod environments, both live, OpenTelemetry traces, metrics and logs in Grafana Cloud for dev and prod, and a manual AI-assisted alert diagnostic
+- **Hardened**: Security headers (strict CSP, HSTS), per-IP rate limits, usage caps and length limits, origin verification, scanned images and dependencies (see [security/SECURITY_CHECKLIST.md](security/SECURITY_CHECKLIST.md))
+- **Resilient sign-in**: A slow or unreachable backend shows a retry screen instead of signing you out
+- **Frontend error reporting**: Browser errors and failed API calls are reported to the backend and land in Grafana Cloud
 - **AI-native development**: Built with Claude Code using spec-driven development, AI skills, and specialized subagents
 
 ### Typical workflow
@@ -86,7 +93,8 @@ cd hub-platform/backend
 # Install dependencies
 uv sync
 
-# Create the tables and the demo account (once)
+# Apply the database migrations and create the demo account
+# (again after pulling a change that adds a migration)
 SEED_DEMO_DATA=true uv run python -m app.db.init_local
 
 # Start the API on http://localhost:8000
@@ -117,8 +125,8 @@ docker compose up --build
 
 This starts:
 - Postgres 17
-- `bootstrap`: creates the database and a least-privilege login role
-- `init_local`: creates the tables and seeds the demo account
+- `bootstrap`: creates the database and a least-privilege login role, then applies the Alembic migrations as that role
+- `init_local`: checks the schema is at the latest migration and seeds the demo account
 - `app`: the FastAPI backend on `http://localhost:8000`
 
 It doesn't include the frontend (run `pnpm dev` as above) or the observability stack, which is a separate compose file (see [Observability](#observability)).
@@ -131,7 +139,7 @@ It doesn't include the frontend (run `pnpm dev` as above) or the observability s
 
 [**ARCHITECTURE DIAGRAM PLACEHOLDER**]
 
-Visual description: A user opens Hub-Platform in a web browser at CloudFront (HTTPS). CloudFront serves the built React app from a private S3 bucket and forwards `/api/*` requests to an API Gateway HTTP API, so the frontend and API share one origin. API Gateway invokes the backend Lambda, a container image from ECR running FastAPI through Mangum, which strips the `/api` prefix. The Lambda stores data in Neon Postgres. A separate bootstrap Lambda creates the schema and seeds the demo account on every deploy. In both dev and prod, OpenTelemetry sends traces and metrics from the backend to Grafana Cloud.
+Visual description: A user opens Hub-Platform in a web browser. Requests go through Cloudflare (DNS and proxy) to CloudFront (HTTPS), which adds security headers (CSP, HSTS and related) to every response. CloudFront serves the built React app from a private S3 bucket and forwards `/api/*` requests to an API Gateway HTTP API, adding a secret origin-verification header, so the frontend and API share one origin. API Gateway invokes the backend Lambda, a container image from ECR running FastAPI through Mangum, which strips the `/api` prefix. The Lambda stores data in Neon Postgres. A separate bootstrap Lambda applies the Alembic migrations (and seeds the demo account) on every deploy, before the API Lambda switches to new code. In both dev and prod, OpenTelemetry sends traces, metrics and selected logs (including frontend error reports) from the backend to Grafana Cloud.
 
 Locally, the frontend runs on the Vite dev server (`http://localhost:5173`) and calls the backend directly on `http://localhost:8000`, which uses SQLite.
 
@@ -158,31 +166,36 @@ Locally, the frontend runs on the Vite dev server (`http://localhost:5173`) and 
 **Database**
 - SQLite for local development and testing
 - Postgres 17 for production (via Neon)
-- SQLAlchemy 2.0, no migrations: tables are created by `init_local` locally and by the bootstrap Lambda on each deploy. The app itself does no database work at startup.
-- Schema: users, auth_identities (auth), projects (ideas), notes
+- SQLAlchemy 2.0 with Alembic migrations (`backend/alembic/versions/`): applied by `init_local` locally and by the bootstrap Lambda on each deploy, before the new API code goes live. The app itself does no database work at startup.
+- Schema: users, auth_identities (auth), projects (ideas), notes; length and count limits enforced by CHECK constraints as well as the API
+- Backups: Neon point-in-time restore (6-hour window on the current plan), tested 2026-10-04 (`ops/DEPLOYMENT.md`, "Backup Testing")
 
 **Infrastructure**
 - AWS Lambda (compute)
 - API Gateway HTTP API (routes `/api/*` to Lambda)
-- AWS ECR (container registry)
+- AWS ECR (container registry; immutable tags, scan on push)
 - Neon Postgres (managed database)
-- CloudFront (CDN + HTTPS)
+- CloudFront (CDN + HTTPS, security headers)
+- Cloudflare (DNS, and proxy in front of CloudFront)
 - S3 (frontend static assets)
 - OpenTofu 1.12.6 (IaC)
-- GitHub Actions (CI/CD)
+- GitHub Actions (CI/CD; actions pinned to commit SHAs)
 
 **Security controls (deployed)**
 - Session cookie `hub_token`: HttpOnly, SameSite=Strict, Secure
-- Rate limits per client IP: login 5 attempts per minute, sign-up 3 per minute (429 over either); API Gateway throttles at 50 rps, burst 100
-- CloudFront forwards the viewer's IP (`CloudFront-Viewer-Address`) through a custom origin request policy, so the login limit is per user, not per CloudFront edge
+- Security headers on every response (CloudFront): a strict Content-Security-Policy (no inline scripts), HSTS (one year, includeSubDomains, preload), `X-Frame-Options: DENY`, nosniff, Referrer-Policy
+- Rate limits per client IP: login 5 attempts per minute, sign-up 3, frontend error reports 30 (429 over any); API Gateway throttles at 50 rps, burst 100
+- The real client IP behind Cloudflare and CloudFront: `CloudFront-Viewer-Address`, then `X-Forwarded-For` when that hop is one of Cloudflare's ranges (`TRUSTED_PROXY_IPS`), so the limits are per user; verified from two networks
+- Usage caps (1000 accounts, 500 projects per user, 500 notes per project) and length limits on every text field and list (422 over them, backed by CHECK constraints)
+- Login passwords capped at 256 characters before argon2 hashing
 - Origin verification: CloudFront adds a per-environment secret `X-Origin-Verify` header; the API answers 403 without it, so the public `execute-api` URL can't bypass CloudFront
 - Dev and prod both count as deployed (`USE_SSM` on), so both get these controls and hide the API docs
-- Gitleaks secret scanning: a pre-commit hook locally, and a full-history scan in CI that blocks the dev deploy; plus GitHub secret scanning with push protection
-- Details: `backend/README.md` ("Auth", "Rate limits", "Origin verification")
+- Supply chain: gitleaks (pre-commit and full history in CI), pip-audit and pnpm audit in CI (HIGH and above block the deploy), trivy image scans, GitHub Actions pinned to commit SHAs, `main` protected against force-push and deletion
+- Details: [security/SECURITY_CHECKLIST.md](security/SECURITY_CHECKLIST.md), `backend/README.md` ("Auth", "Rate limits", "Usage caps", "Origin verification")
 
 **Observability**
-- OpenTelemetry SDK (Python): traces and metrics, with FastAPI and SQLAlchemy instrumentation
-- Grafana Cloud (dev and prod environments)
+- OpenTelemetry SDK (Python): traces and metrics, with FastAPI and SQLAlchemy instrumentation, plus selected logs (frontend error reports, database outages, rejected direct API calls)
+- Grafana Cloud (dev and prod): Tempo for traces, Prometheus for metrics, Loki for logs
 - Optional local stack: OTel Collector, Prometheus, Tempo, Loki, Grafana
 
 ---
@@ -203,6 +216,7 @@ react-router-dom 7.18           Client-side routing
 pnpm 12.3                       Package manager
 Vitest 5.0                      Unit test runner
 @testing-library/react 16       Component testing
+Playwright 1.63                 End-to-end tests
 Prettier 3                      Code formatter
 ESLint 10                       Linter
 ```
@@ -210,18 +224,19 @@ ESLint 10                       Linter
 ### Backend Stack
 
 ```
-FastAPI 0.141                   Web framework
+FastAPI 0.141                   Web framework (Starlette 1.7)
 Uvicorn 0.53                    ASGI server
 Pydantic 2.13                   Data validation
 SQLAlchemy 2.0                  ORM
+Alembic 1.20                    Schema migrations
 psycopg 3.3.6                   Postgres driver
 argon2-cffi 25.1                Password hashing
-PyJWT 2.14                      JWT tokens
+PyJWT 2.15                      JWT tokens
 python-multipart                Form parsing
 Mangum 0.22                     ASGI to Lambda adapter
 boto3                           AWS SDK
-OTel Python SDK                 Observability
-pytest 9.1                      Testing
+OTel Python SDK 1.45            Traces, metrics and logs
+pytest 9.1 + httpx2             Testing
 ```
 
 ### Infrastructure Stack
@@ -230,9 +245,12 @@ pytest 9.1                      Testing
 AWS Lambda                      Compute
 AWS API Gateway (HTTP API)      Routes /api/* to Lambda
 AWS ECR                         Container registry
-AWS CloudFront                  CDN / HTTPS
+AWS CloudFront                  CDN / HTTPS / security headers
 AWS S3                          Static asset storage
+AWS SSM Parameter Store         Secrets (SecureString)
+Cloudflare                      DNS and proxy
 Neon Postgres                   Managed database
+Grafana Cloud                   Traces, metrics, logs, alerting
 OpenTofu 1.12.6                 Infrastructure as code
 GitHub Actions                  CI/CD
 Docker                          Containerization
@@ -332,13 +350,15 @@ Details: `backend/README.md` ("Run the tests") and `frontend/README.md`.
 
 ### Database Management
 
-**Create tables and seed demo data** (from `backend/`):
+**Apply migrations and seed demo data** (from `backend/`):
 
 ```bash
 SEED_DEMO_DATA=true uv run python -m app.db.init_local
 ```
 
-This creates the tables in the local SQLite file `backend/hub.db`, and, if the database has no users yet, one demo account (`demo@hub.dev` / `demo1234`) with ten sample projects and their notes. It's safe to run again: an existing database is never re-seeded.
+This brings the local SQLite file `backend/hub.db` up to the latest Alembic migration, and, if the database has no users yet, creates one demo account (`demo@hub.dev` / `demo1234`) with ten sample projects and their notes. It's safe to run again: it only applies pending migrations, and an existing database is never re-seeded. Schema changes and the `uv run alembic ...` commands are in `backend/README.md` ("Migrations").
+
+A migration that adds a limit refuses to run over existing data that already breaks it, rather than truncating it; old local test data can trigger that. See `ops/TROUBLESHOOTING.md`.
 
 **Reset the database:**
 
@@ -358,7 +378,7 @@ To run the backend against Postgres, as it does when deployed (from the repo roo
 docker compose up --build
 ```
 
-This starts Postgres 17 (with a persistent volume), creates the database, role, tables and demo account, then serves the API on `http://localhost:8000`. The frontend isn't part of it: start it with `pnpm dev` from `frontend/` and open `http://localhost:5173`. Stop the API from Terminal 1 first if it's running, since both use port 8000.
+This starts Postgres 17 (with a persistent volume), creates the database and role, applies the migrations, seeds the demo account, then serves the API on `http://localhost:8000`. `make docker-up` does the same in the background and waits until the API answers. The frontend isn't part of it: start it with `pnpm dev` from `frontend/` and open `http://localhost:5173`. Stop the API from Terminal 1 first if it's running, since both use port 8000.
 
 **Test the workflow:**
 1. Sign up with an email and password
@@ -378,7 +398,7 @@ This starts Postgres 17 (with a persistent volume), creates the database, role, 
 
 [**CI/CD DIAGRAM PLACEHOLDER**]
 
-Visual description: A developer pushes code to main. GitHub Actions runs the backend and frontend unit tests in one job, alongside a gitleaks history scan, backend integration tests against Postgres, and Playwright E2E tests against the Docker Compose stack (pull requests run only these checks). The unit tests and the gitleaks scan gate the deploy. If they pass, CI builds a Docker image, tags it with a timestamp and short SHA (e.g., 20261001-163457-83242da), and pushes it to the dev ECR repository. It then applies the dev infrastructure with OpenTofu, runs the bootstrap Lambda, builds the frontend and uploads it to S3, and smoke-tests `/api/health`. After testing in dev, a release owner manually runs the promote workflow, which copies the same image from dev ECR to prod ECR (no rebuild), deploys it to the production Lambda, and builds and uploads the frontend.
+Visual description: A developer pushes code to main. GitHub Actions runs five checks: backend and frontend unit tests, a dependency scan (pip-audit and pnpm audit; HIGH and CRITICAL fail it) after the unit tests, a gitleaks history scan, backend integration tests against Postgres, and Playwright E2E tests against the Docker Compose stack (pull requests run only these checks). All five gate the deploy. If they pass, CI builds a Docker image, tags it with a timestamp and short SHA (e.g., 20261001-163457-83242da), and pushes it to the dev ECR repository (tags are immutable). It then points the bootstrap Lambda at the new image and runs it, which applies any database migrations; only then does it apply the rest of the dev infrastructure with OpenTofu, which switches the API Lambda to the new code. Finally it builds the frontend, uploads it to S3, and smoke-tests `/api/health`. After testing in dev, a release owner manually runs the promote workflow (typed confirmation plus a reviewer's approval), which copies the same image from dev ECR to prod ECR (no rebuild), runs the prod migrations the same way, deploys the image to the production Lambda, and builds and uploads the frontend. Every action is pinned to a commit SHA. Details: `ops/DEPLOYMENT.md`.
 
 ### Environments
 
@@ -437,13 +457,15 @@ The backend is instrumented with OpenTelemetry (`backend/observability/`):
 - **Traces** for every API request (FastAPI) and database query (SQLAlchemy)
 - **Per-endpoint metrics**: request count, error count, and latency for each API route (for example `projects_create_total`, `projects_create_errors_total`, `projects_create_latency_ms`)
 - **Account and activity counters**: logins and signups (with their errors), accounts created, projects created, notes created
+- **Logs**: frontend error reports (`POST /client-errors`: uncaught browser errors, render crashes, failed API calls), database outages, and rejected direct API calls, each linked to its trace
 
-Every metric and trace is tagged with the deployed version (`SERVICE_VERSION`, from git tags).
+Every metric, trace and log is tagged with the deployed version (`SERVICE_VERSION`, from git tags). Queries and alerts: `ops/MONITORING.md`.
 
 ### Where telemetry goes
 
-- **Dev** (`hub-dev.dnls.dev`): the dev Lambda exports traces and metrics to Grafana Cloud over OTLP/HTTP.
-- **Production** (`hub.dnls.dev`): the prod Lambda exports traces and metrics to Grafana Cloud over OTLP/HTTP.
+- **Dev** (`hub-dev.dnls.dev`): the dev Lambda exports traces, metrics and logs to Grafana Cloud over OTLP/HTTP.
+- **Production** (`hub.dnls.dev`): the prod Lambda exports traces, metrics and logs to Grafana Cloud over OTLP/HTTP.
+- **CloudWatch Logs** also keeps every Lambda's output for 14 days.
 - **Local**: off by default. Turn it on to send to the optional local stack below.
 
 ### Local Observability (optional)
@@ -466,7 +488,7 @@ OTEL_ENABLED=true uv run uvicorn app.main:app --reload
 | Tempo          | http://localhost:3200   |
 | Loki           | http://localhost:3100   |
 
-There are no prebuilt dashboards: use Grafana's **Explore** view to query metrics (Prometheus) and traces (Tempo, service name `hub-platform`). The backend doesn't export logs, so Loki stays empty. See `backend/observability/README.md` for details.
+There are no prebuilt dashboards: use Grafana's **Explore** view to query metrics (Prometheus), traces (Tempo) and logs (Loki), all under service name `hub-platform`. See `backend/observability/README.md` for details.
 
 ---
 
@@ -479,6 +501,8 @@ A Grafana Cloud alert rule, "Registration Error Rate > 10%", fires when more tha
 3. `backend/oncall/diagnose.py` estimates the monthly cost and skips the call, with a warning, if it would exceed $5/month.
 4. Otherwise it makes one OpenAI API call (GPT-4o-mini by default) for a short diagnosis of the alert text.
 5. The diagnosis is written to the run log and the job summary.
+
+A recorded drill run, with the output and a human review of it: [security/OPERATIONAL_DIAGNOSIS.md](security/OPERATIONAL_DIAGNOSIS.md).
 
 ---
 
@@ -525,9 +549,14 @@ DELETE /notes/{id}                Delete a note
 
 Notes can be added and deleted, not edited.
 
+**Frontend error reports:**
+```
+POST   /client-errors             Report a browser error (no login needed; rate limited)
+```
+
 ### Authentication
 
-Every endpoint except `/health`, `/auth/register`, `/auth/login`, and `/auth/logout` needs a JWT. The web app sends it as the httpOnly `hub_token` cookie that register and login set (`HttpOnly`, `SameSite=Strict`, and `Secure` when deployed); API clients send it as an `Authorization: Bearer` header. If both are present, the header wins.
+Every endpoint except `/health`, `/auth/register`, `/auth/login`, `/auth/logout` and `/client-errors` needs a JWT. The web app sends it as the httpOnly `hub_token` cookie that register and login set (`HttpOnly`, `SameSite=Strict`, and `Secure` when deployed); API clients send it as an `Authorization: Bearer` header. If both are present, the header wins.
 
 ```bash
 # Sign up (JSON)
@@ -551,12 +580,17 @@ curl http://localhost:8000/projects \
 
 ### Field limits
 
-- **Password:** 8 to 256 characters, enforced by the API.
+- **Password:** 8 to 256 characters, at sign-up and at login.
 - **Email:** must be a valid address.
-- **Text fields:** no length limits. Display names, project names, pitches, descriptions, next actions, tags, and notes accept any length. The API also accepts empty or whitespace-only project names and notes; the UI is what stops you from saving those.
+- **Display name:** up to 100 characters.
+- **Project text fields:** name up to 256 characters, pitch 2000, description 5000, next action 1000. Lengths count characters, not bytes.
+- **Notes:** up to 10000 characters each.
+- **Tags:** up to 50 per project, each up to 64 characters.
+- **Links:** up to 50 per project; URLs must start with `http://` or `https://` and be at most 2048 characters; labels up to 200.
+- Over any limit: `422`. The database enforces the same limits (CHECK constraints), except per-tag and per-link lengths, which only the API checks. The API accepts empty or whitespace-only project names and notes; the UI is what stops you from saving those.
 - **Scores** (`excitement`, `effort`, `potential`): whole numbers from 1 to 5.
-- **Links:** URLs must start with `http://` or `https://`.
-- **Rate limiting (deployed only):** per client IP, 5 login attempts and 3 sign-ups per minute; over that, `429` with a `Retry-After` header. API Gateway also caps the whole API at 50 requests/second (bursts to 100). Off for local runs.
+- **Usage caps:** 500 projects per user, 500 notes per project, and (deployed) 1000 accounts in total; over a cap, `403`.
+- **Rate limiting (deployed only):** per client IP, 5 login attempts, 3 sign-ups and 30 error reports per minute; over that, `429` with a `Retry-After` header. API Gateway also caps the whole API at 50 requests/second (bursts to 100). Off for local runs.
 
 ### Error responses
 
@@ -582,7 +616,7 @@ Validation errors (`422`) return `detail` as a list, one entry per invalid field
 }
 ```
 
-Status codes: `401` for a missing, invalid, or expired token (or a wrong login), `404` for a project or note that doesn't exist or belongs to another user (the two look the same on purpose), `409` for an email that's already registered, `422` for invalid input, and `429` when a rate limit is hit. Deployed, a request sent straight to the API Gateway URL instead of through the site gets `403` (origin verification; see `backend/README.md`).
+Status codes: `401` for a missing, invalid, or expired token (or a wrong login), `403` for a usage cap (with a message saying which), `404` for a project or note that doesn't exist or belongs to another user (the two look the same on purpose), `409` for an email that's already registered, `422` for invalid input, `429` when a rate limit is hit, and `503` with `Retry-After` when the database can't be reached (for example while Neon resumes; retry, it never means you're signed out). Deployed, a request sent straight to the API Gateway URL instead of through the site gets `403 {"detail": "Forbidden"}` (origin verification; see `backend/README.md`).
 
 For the full API contract, see `openapi.yaml`. It's written by hand, and `backend/tests/test_openapi_contract.py` fails if its endpoints and the app's drift apart.
 
@@ -598,9 +632,12 @@ backend/
     test_auth.py              Signup, login, tokens
     test_projects.py          Project CRUD, validation, per-user isolation
     test_notes.py             Notes
+    test_text_limits.py       Length limits (API and database)
+    test_migrations.py        Alembic migrations, including a drift check
     test_openapi_contract.py  App and openapi.yaml declare the same endpoints
-    test_*.py                 Config, startup, database setup, observability,
-                              on-call agent, service versioning, and more
+    test_*.py                 Config, startup, rate limits, caps, error reports,
+                              observability, on-call agent, and more
+    integration/              Same app against real Postgres (Docker Compose)
 
 frontend/
   src/
@@ -609,10 +646,11 @@ frontend/
   tests/
     app.spec.ts               Playwright: browser flows
     api.spec.ts               Playwright: live API tests
-    helpers.ts                Shared setup for both
+    integration.spec.ts       Playwright: the Compose stack, error reporting, outages
+    helpers.ts                Shared setup
 ```
 
-Backend tests each get their own in-memory SQLite database, so they don't need a running server. The Playwright tests do (see below).
+Backend unit tests each get their own in-memory SQLite database, so they don't need a running server. The integration tests need the Compose Postgres, and the Playwright tests need a backend (see below). As of October 2026: 432 backend unit and 38 integration tests, 197 frontend unit tests, 201 Playwright tests. CI runs all of them on every push and pull request.
 
 ### Running tests
 
@@ -621,8 +659,11 @@ Backend tests each get their own in-memory SQLite database, so they don't need a
 ```bash
 cd backend
 
-# All tests
+# Unit tests (the default)
 uv run pytest
+
+# Integration tests against the Compose Postgres
+uv run pytest -m integration
 
 # Specific test file
 uv run pytest tests/test_projects.py
@@ -657,12 +698,14 @@ The suite covers two areas:
 
 Together they cover everyday use, error cases, unusual input such as very long text or emoji, and making sure each user only ever sees their own data.
 
-To run them, start the backend (port 8000) and the frontend dev server (port 5173) as described in Quick Start, then:
+To run them, start a backend on port 8000 (uvicorn as in Quick Start, or `make docker-up` for the Postgres stack); Playwright starts the frontend dev server itself, or reuses one already on port 5173. Then:
 
 ```bash
 cd frontend
-pnpm exec playwright test
+pnpm exec playwright test --project=chromium   # browser and API tests
 ```
+
+The `docker-compose` project (`integration.spec.ts`) is meant for the Compose stack and includes tests that stop and pause its Postgres; run it with `make test-e2e-docker`. Details: `frontend/README.md`.
 
 Two optional environment variables (read in `frontend/tests/helpers.ts`) point the tests elsewhere:
 
@@ -777,18 +820,18 @@ Hub-Platform uses an AI-native development workflow with reusable skills and spe
 
 **During implementation:**
 
-The project owner pushes directly to `main`; contributors use a branch and pull request:
+The project owner pushes directly to `main` (protected against force-push and deletion); contributors use a branch and pull request:
 
 1. Create a feature branch
 2. Implement the changes
-3. Run tests locally: `uv run pytest` (backend), `pnpm test` (frontend)
+3. Run the local gates: `make check` (lint, format, unit tests, build), plus `make test-integration` for database changes
 4. Commit with conventional message format: `feat:`, `fix:`, `refactor:`, etc.
 5. Push to your branch
 
 **Before merge:**
 
 1. Open a pull request
-2. GitHub Actions runs tests automatically
+2. GitHub Actions runs every check automatically (unit, dependency scan, gitleaks, integration, E2E)
 3. Request QA subagent to validate the feature
 4. Address QA findings
 5. Merge when QA approves
@@ -807,9 +850,11 @@ The project owner pushes directly to `main`; contributors use a branch and pull 
 
 ## Troubleshooting
 
+Deployed issues (slow first requests, failed deploys, CSP, 429s): see [ops/TROUBLESHOOTING.md](ops/TROUBLESHOOTING.md).
+
 ### Backend not responding
 
-If the frontend can't connect to the backend, check:
+If the frontend can't connect to the backend (the app shows "Can't reach the server"), check:
 
 1. Backend is running: `http://localhost:8000/health` should return `{"status":"ok"}`
 2. `frontend/.env` exists (copied from `.env.example`) so the frontend calls `http://localhost:8000`; restart `pnpm dev` after creating it

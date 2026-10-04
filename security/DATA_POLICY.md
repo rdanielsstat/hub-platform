@@ -73,6 +73,30 @@ CloudWatch.
 
 Gaps worth closing: self-service account deletion and data export.
 
+## Privacy law (GDPR and similar)
+
+This hasn't had a formal GDPR assessment, and it isn't claimed to be
+compliant. Where it stands against the main principles:
+
+- **Data minimisation**: only email, an optional display name, a password
+  hash and what users type into projects and notes. No tracking cookies,
+  no ad or behavioural analytics; Cloudflare Web Analytics is cookieless.
+- **Purpose and retention**: stored data is used only to run the app.
+  Logs are kept 14 days in CloudWatch; Grafana Cloud per its plan; Neon
+  restore history 6 hours.
+- **Processors**: listed above (AWS, Neon, Cloudflare, Grafana Cloud).
+  No data processing agreements are recorded here.
+- **Data subject rights**: access, export and deletion are possible, but
+  only by request, handled by a maintainer by hand (deleting the user row
+  cascades to everything they own). No self-service yet.
+- **Security of processing**: `security/SECURITY_CHECKLIST.md`.
+- **Not in place**: a user-facing privacy notice in the app, a contact
+  for data requests, records of processing, breach-notification
+  procedure.
+
+For a deployment with real users beyond reviewers, those gaps (above all
+the privacy notice and self-service deletion and export) come first.
+
 ## Caps on what's stored
 
 Usage caps bound how much one account can store: 500 projects per user,

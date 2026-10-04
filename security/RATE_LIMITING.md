@@ -153,7 +153,9 @@ current ranges. Both workflows pass it to OpenTofu
 `infra/hub/main.tf`), which sets it on the API Lambda
 (`infra/hub/lambda.tf`). Commands, and how to check it works from two
 networks: `ops/DEPLOYMENT.md`, "Trusted proxies: Cloudflare's IP
-ranges". Until it's set, the limits are per Cloudflare edge.
+ranges". Set on both environments since 2026-10-03; verified from two
+networks on 2026-10-04 (the second network got `401`, not `429`). If the
+variable is ever unset, the limits fall back to per Cloudflare edge.
 
 The alternative of making the DNS record DNS-only (`proxied = false`)
 would also fix the keying with no app change, at the cost of

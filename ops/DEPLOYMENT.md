@@ -86,9 +86,11 @@ Before running `promote.yml`:
 - [ ] If the release has a migration: the dev bootstrap log shows it
       applied (`Schema migrated from revision X to Y`), and the release
       tolerates the deploy order (below).
-- [ ] Integration and E2E jobs are green for that commit.
-- [ ] No open HIGH or CRITICAL dependency findings
-      (`security/DEPENDENCIES.md`).
+- [ ] Every CI check is green for that commit (they gate the dev
+      deploy, so a successful dev deploy implies it): unit, dependency
+      scan, gitleaks, integration, E2E.
+- [ ] If the release adds a limit or constraint: the existing-data
+      check below returns zeros on prod.
 - [ ] For a tagged release, the tag is pushed (`release` skill), so
       `SERVICE_VERSION` is a clean `X.Y.Z`.
 
@@ -124,22 +126,27 @@ The targeted apply prints OpenTofu's usual warning about `-target`
 being for exceptional use; it's expected here. The full apply right
 after brings everything else in line.
 
-## Migration 0003: check existing data first
+## Migrations that add limits: check existing data first
 
-`0003` adds limits on tags (50 per project), links (50 per project) and
-display names (100 characters), and, like `0002`, refuses to run over
-rows that already exceed them. Before the first deploy that includes it,
-in the Neon SQL editor for each environment:
+A migration that adds a limit (`0002`, `0003`) refuses to run over rows
+that already exceed it, rather than truncating anyone's data, and the
+deploy stops at the bootstrap with the counts, before any code changes
+(`ops/TROUBLESHOOTING.md`). Before promoting one, run the matching check
+in the Neon SQL editor. For the current limits:
 
 ```
 SELECT
+  (SELECT count(*) FROM projects WHERE length(name) > 256)            AS names,
+  (SELECT count(*) FROM projects WHERE length(pitch) > 2000)          AS pitches,
+  (SELECT count(*) FROM projects WHERE length(description) > 5000)    AS descriptions,
+  (SELECT count(*) FROM projects WHERE length(next_action) > 1000)    AS next_actions,
+  (SELECT count(*) FROM notes    WHERE length(body) > 10000)          AS notes,
   (SELECT count(*) FROM users    WHERE length(display_name) > 100)    AS display_names,
   (SELECT count(*) FROM projects WHERE json_array_length(tags) > 50)  AS tag_lists,
   (SELECT count(*) FROM projects WHERE json_array_length(links) > 50) AS link_lists;
 ```
 
-All zeros: deploy. Otherwise the bootstrap stops the deploy with the
-counts, before any code changes (`ops/TROUBLESHOOTING.md`).
+All zeros: deploy.
 
 ## Security headers
 
@@ -202,6 +209,10 @@ headers the Lambda receives (CloudFront normally appends the viewer to
 `X-Forwarded-For` on its own, but if not, it has to be added to the
 `/api/*` origin request policy in `infra/hub/frontend.tf`).
 
+Status: set on the `dev` and `prod` environments (2026-10-03), deployed
+to both, and verified from two networks (2026-10-04): the second network
+got `401`, not `429`.
+
 Cloudflare changes these ranges rarely and announces it in advance.
 Re-run the command when it does, or every few months, and update both
 variables.
@@ -215,32 +226,17 @@ variables.
   `Schema migrated from revision X to Y.`
 - Watch error rates in Grafana for a few minutes (`ops/MONITORING.md`).
 
-## The first deploy after the move to Alembic
+## Migration history
 
-Dev and prod Neon were created by `create_all()` and have no
-`alembic_version` table. The first bootstrap that runs the new image
-detects that, stamps the database at baseline revision `0001` (no
-tables are created, altered or dropped, no rows are touched), and
-prints `Pre-Alembic schema found: stamped at baseline revision 0001.`
-The same run then applies `0002` (text length limits). Nothing to do by
-hand, with one caveat: `0002` refuses to run if any existing row is
-already longer than the new limits (it never truncates user data). The
-API never limited these before, so on dev and prod check first, in the
-Neon SQL editor:
+| Revision | What | Dev | Prod |
+|---|---|---|---|
+| `0001` | Baseline: the old `create_all()` schema. Existing databases were stamped, not recreated (`Pre-Alembic schema found: stamped at baseline revision 0001.`) | 2026-10-03 | 2026-10-03 |
+| `0002` | CHECK constraints: project text lengths, note body length | 2026-10-03 | 2026-10-03 |
+| `0003` | CHECK constraints: display name length, tag and link counts | 2026-10-03 | 2026-10-03 |
 
-```
-SELECT
-  (SELECT count(*) FROM projects WHERE length(name) > 256)          AS names,
-  (SELECT count(*) FROM projects WHERE length(pitch) > 2000)        AS pitches,
-  (SELECT count(*) FROM projects WHERE length(description) > 5000)  AS descriptions,
-  (SELECT count(*) FROM projects WHERE length(next_action) > 1000)  AS next_actions,
-  (SELECT count(*) FROM notes    WHERE length(body) > 10000)        AS notes;
-```
-
-All zeros: deploy. Otherwise the bootstrap fails with the same counts,
-the job stops, and the old API keeps serving until the rows are dealt
-with (`ops/TROUBLESHOOTING.md`). The same goes for a stamp refused over
-a partial schema.
+Both databases are at `0003`. Every deploy's bootstrap log says
+`Schema already at head (revision N).` or
+`Schema migrated from revision X to Y.`
 
 ## Backup Testing
 
@@ -315,8 +311,10 @@ There's no rollback workflow. Options, fastest first:
 
 - **Backend only, prod**: re-run `tofu apply` on the prod workspace
   with the previous image tag (`-var=lambda_image_tag=<old tag>`). The
-  previous tags stay in ECR (`aws_ecr_lifecycle_policy` keeps recent
-  ones).
+  previous tags stay in ECR (`aws_ecr_lifecycle_policy` keeps the 10
+  newest images; tags are immutable, so a tag always names the same
+  image). Older code runs fine on the newer schema as long as migrations
+  stay additive (see "Deploy order and migrations").
 - **Frontend**: rebuild from the older commit and sync it to the bucket,
   then invalidate.
 - **Revert on main**: `git revert`, push, let CI deploy dev, then

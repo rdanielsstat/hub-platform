@@ -242,13 +242,38 @@ write data migrations.
 
 From `/auth/login`, `/auth/register` or `/client-errors`: the per-IP
 limit (`security/RATE_LIMITING.md`). Wait for `Retry-After` seconds.
-Behind Cloudflare, the limit is per user only once `TRUSTED_PROXY_IPS`
-holds Cloudflare's ranges; until then it's per Cloudflare edge, so other
-users' attempts can count against you (`ops/DEPLOYMENT.md`, "Trusted
-proxies").
+Behind Cloudflare the limit is per user because `TRUSTED_PROXY_IPS`
+holds Cloudflare's ranges (verified from two networks, 2026-10-04). If
+unrelated users start sharing a limit, check that the variable is still
+set on the GitHub environment and that Cloudflare hasn't changed its
+ranges (`ops/DEPLOYMENT.md`, "Trusted proxies").
 
 From every route at once: the API Gateway stage throttle (50 rps,
 burst 100).
+
+## CI fails in dependency-scan
+
+The job fails on a HIGH or CRITICAL advisory, or on one whose severity
+can't be determined (the job log has an `::error` line per finding, with
+the package, advisory id and fixed version). MODERATE and LOW only warn.
+
+- Upgrade the package to the fixed version: `uv lock --upgrade-package
+  <name>` in `backend/`, or `pnpm update <name>` in `frontend/`. Run the
+  tests, push.
+- No fix yet, or it doesn't apply to how the package is used: there's no
+  ignore list, by design. Decide with the maintainer; options are pinning
+  around it, replacing the package, or adding a reviewed `--ignore-vuln`
+  to the pip-audit command in `ci.yml` with a comment saying why.
+- `pip-audit did not complete`: the scan itself failed (PyPI or OSV
+  unreachable). Re-run the job.
+
+## Promote fails pushing the image: tag already exists
+
+ECR tags are immutable. `promote.yml` skips the copy when prod already has
+the tag, so this shouldn't happen; if it does, the tag in prod is a
+different image under the same name, which immutability is there to
+prevent. Investigate before doing anything else; never delete the prod
+image to force it.
 
 ## Getting 403
 

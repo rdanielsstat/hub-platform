@@ -15,8 +15,8 @@
 - Rate limits keyed on the real client behind Cloudflare: done (2026-10-02).
   `TRUSTED_PROXY_IPS` (Cloudflare's ranges, set on the dev and prod GitHub
   environments) lets the limiter read the client from `X-Forwarded-For`.
-  Still open: confirm from two different networks that six bad logins from
-  one, then one from another, give 401 for the second, not 429.
+  Verified from two networks (2026-10-04): the second network got 401, not
+  429.
 - Block direct calls to the public `execute-api` endpoint: done (2026-10-02).
   CloudFront sends a secret `X-Origin-Verify` header and the backend answers
   403 without it. Verified on dev and prod: direct calls get 403, the site
@@ -62,7 +62,8 @@
 - Protect `main` against force-pushes and deletion: done (2026-10-04,
   ruleset `protect-main`; found in the PR audit).
 - Still open, not blockers: alerts beyond the registration error rate;
-  self-service account deletion and export (not in the product spec).
+  self-service account deletion and export (not in the product spec); a
+  privacy notice and data-request contact (`security/DATA_POLICY.md`).
 
 ## Migrations
 

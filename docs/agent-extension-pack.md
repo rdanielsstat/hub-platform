@@ -88,7 +88,7 @@ Skills are discoverable workflows that agents load automatically when they match
 
 **Test scope**: Auth and sessions, dashboard states, project create/edit/delete, filtering, sorting and search, notes, error states, multiple tabs, rapid sequences, responsive layouts, and every API endpoint with its error cases and user isolation.
 
-**Key point**: The suite is done: 189 Playwright tests in `frontend/tests/` cover all workflows, run against the real local backend. Not yet wired into CI.
+**Key point**: The suite is done: 201 Playwright tests in `frontend/tests/` cover all workflows, run against a real backend (local uvicorn, or the Docker Compose stack with Postgres). CI runs them against the Compose stack on every PR and push, and they gate the dev deploy.
 
 ### design-review
 
@@ -167,11 +167,11 @@ Custom agents are run by a person in response to an external event, with a revie
 
 1. **Develop a feature**: Write code, commit regularly
 2. **Self-review**: Use Claude Code interactively to iterate and refine
-3. **Run tests locally**: Verify all tests pass (unit, lint, format, build)
+3. **Run tests locally**: `make check` (unit, lint, format, build), plus `make test-integration` for database changes
 4. **Request QA**: Launch QA subagent to validate independently
 5. **Address QA findings**: Fix issues if QA reports problems
 6. **Commit and push**: Human commits and pushes to main
-7. **CI runs**: GitHub Actions runs tests and deploys to dev
+7. **CI runs**: GitHub Actions runs unit tests, the dependency scan, gitleaks, integration and E2E tests, and deploys to dev only if all pass
 8. **Verify dev**: Check dev Lambda logs and dashboards
 9. **Release**: Use release skill to tag, push, verify dev deployment
 10. **Promote to prod**: Manual workflow_dispatch for promote.yml
@@ -227,8 +227,7 @@ Agents expect:
 
 ## Future Work
 
-- **E2E automation in CI**: Wire e2e-testing skill into GitHub Actions on releases
-- **Security scanning in releases**: Wire security-scanning skill into release gate
+- **Security scanning in releases**: The dependency scan (pip-audit, pnpm audit) and gitleaks already gate every deploy; the rest of the security-scanning skill (bandit, trivy, IaC scans) still runs by hand. Done: E2E tests in CI (2026-10-02).
 - **Design review on schedule**: Quarterly design audits via GitHub Actions scheduled job
 - **Multi-agent orchestration**: Formal PM/SWE/QA workflow with git worktrees for feature backlogs
 - **Custom agents for other events**: Extend on-call agent to handle other production scenarios (deployment rollback, database alerts, etc.)

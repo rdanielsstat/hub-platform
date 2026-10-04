@@ -52,13 +52,13 @@ Nothing here is per-environment. Never run `tofu workspace` in this folder.
 | `providers.tf` | LONG. aws + cloudflare + random, HAS the us_east_1 alias |
 | `backend.tf` | `key = "hub/terraform.tfstate"` |
 | `apigateway.tf` | no custom domain, no api mapping |
-| `bootstrap.tf` | the schema bootstrap LAMBDA, not the same thing as `infra/bootstrap/` |
+| `bootstrap.tf` | the schema bootstrap LAMBDA (runs the Alembic migrations), not the same thing as `infra/bootstrap/` |
 | `certs.tf` | one certificate only (frontend) |
-| `database.tf` | three SSM parameters, no Secrets Manager |
+| `database.tf` | five SSM parameters (pooled and direct database URLs, JWT secret, origin-verify secret, demo password), no Secrets Manager |
 | `dns.tf` | one Cloudflare record only |
-| `ecr.tf` | two lifecycle rules |
-| `frontend.tf` | two CloudFront origins, `aws_cloudfront_function` |
-| `lambda.tf` | no `vpc_config`, has `aws_cloudwatch_log_group` |
+| `ecr.tf` | `IMMUTABLE` tags, scan on push, two lifecycle rules |
+| `frontend.tf` | two CloudFront origins, `aws_cloudfront_function`, the `/api/*` origin request policy, the security response headers policy (CSP, HSTS), S3 encryption |
+| `lambda.tf` | no `vpc_config`, has `aws_cloudwatch_log_group`, sets `TRUSTED_PROXY_IPS` |
 | `outputs.tf` | outputs `site_url`, `cloudfront_distribution_id`, `deployed_image_tag` |
 | `terraform.tfvars.example` | has the `neon_urls` block |
 
@@ -72,7 +72,7 @@ Nothing here is per-environment. Never run `tofu workspace` in this folder.
 
 The one that is not a pair: `infra/bootstrap/` is a DIRECTORY holding the
 GitHub Actions trust role. `infra/hub/bootstrap.tf` is a FILE defining a
-Lambda that creates database tables. They share no purpose.
+Lambda that applies the database migrations. They share no purpose.
 
 ## Outside infra/
 

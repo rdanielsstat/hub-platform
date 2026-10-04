@@ -95,4 +95,6 @@ tofu plan
 ```
 
 Read the plan, then apply. After the first dev apply succeeds, every push to
-`main` deploys itself and production is one button in the Actions tab.
+`main` deploys dev itself (once every CI check passes), and production is
+the `promote.yml` workflow in the Actions tab: a typed confirmation plus
+a reviewer's approval in the `prod` environment (`ops/DEPLOYMENT.md`).

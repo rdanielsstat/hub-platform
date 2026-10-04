@@ -18,6 +18,16 @@ All data access goes through `src/services/api/`; components never call
 requests go: `http://localhost:8000` locally, unset (same-origin `/api`)
 in every deployed build.
 
+## Build and deploy
+
+`pnpm build` runs `tsc -b` then `vite build` into `dist/`. CI builds with
+`VITE_API_BASE_URL=/api`, so one artifact works for every environment
+(the API is same-origin behind CloudFront), syncs `dist/` to the
+environment's S3 bucket and invalidates CloudFront. Dev gets it on every
+push to `main`; `promote.yml` rebuilds it from the current `main` for
+prod (`ops/DEPLOYMENT.md`). Static files in `public/` (`favicon.svg`,
+`theme-init.js`) are copied as they are.
+
 ## Checks
 
 All must pass before a change is done (`make check` from the repo root
@@ -69,15 +79,42 @@ CI (`.github/workflows/ci.yml`, `e2e` job) runs both projects against the
 Compose stack on every PR and push, and uploads the HTML report when
 they fail.
 
+## Theme
+
+Light and dark, following the system setting until the user picks one.
+`public/theme-init.js` runs before first paint (a blocking
+`<script src>` in `index.html`, not inline, for the CSP): it reads
+`localStorage['hub.theme']` and the `prefers-color-scheme` media query
+and sets the `dark` class on `<html>`. `src/lib/theme.ts` stores the
+choice (`THEME_STORAGE_KEY`, kept in sync with the literal in
+`theme-init.js`) and corrects the `theme-color` meta tag once React has
+mounted. The theme is the only thing the app keeps in `localStorage`.
+
+## Form validation
+
+The forms check what's required before enabling submit: a project name
+(quick capture), email and password on login, email and an 8-character
+password on sign-up, non-blank notes, tags and link URLs. Tags are
+trimmed and lowercased; link URLs get `https://` added when there's no
+scheme. Everything else is validated by the API: over-long fields, too
+many tags or links, bad scores or URLs come back as `422`, and the
+backend's message (for example "String should have at most 256
+characters") is shown as a toast (`src/lib/errors.ts`). The inputs don't
+set `maxLength` yet, so a user only learns a limit on save; the limits
+are in `backend/README.md` ("Usage caps").
+
 ## Error reporting
 
 `src/lib/error-reporting.ts`, installed from `main.tsx`, sends uncaught
 errors, unhandled promise rejections, failed API calls (no response, or
 a 5xx) and React render crashes (`components/error-boundary.tsx`) to the
-backend's `POST /client-errors`, which logs them. At most 20 reports per
-page load, each distinct one once, fire-and-forget. Nothing is sent from
-unit tests: reporting stays off until `installErrorReporting()` runs. See
-`backend/README.md` ("Frontend error reports").
+backend's `POST /client-errors`, which logs them; deployed, the backend
+exports those logs to Grafana Cloud (Loki), where they can be queried
+with `{service_name="hub-platform"} |= "client_error"`
+(`ops/MONITORING.md`). At most 20 reports per page load, each distinct
+one once, fire-and-forget, with no query strings in URLs. Nothing is
+sent from unit tests: reporting stays off until `installErrorReporting()`
+runs. See `backend/README.md` ("Frontend error reports").
 
 ## Content-Security-Policy
 

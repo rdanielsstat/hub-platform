@@ -43,6 +43,12 @@ sources. Use **Explore** to query them:
   `rate(health_get_latency_ms_count[5m])` (names as defined in
   `metrics.py`)
 - Traces: Tempo, search by service name `hub-platform`
+- Logs: Loki, `{service_name="hub-platform"}`. Only the loggers in
+  `EXPORTED_LOGGERS` (`__init__.py`) are exported: frontend error reports
+  (`app.client_errors`), database outages (`app.db`) and
+  origin-verification rejections (`app.security`), WARNING and above.
+  Send one with `curl -X POST localhost:8000/client-errors -H
+  'Content-Type: application/json' -d '{"kind":"error","message":"test"}'`.
 
 Metrics are exported every 60 seconds (and on backend shutdown), then
 scraped every 15 seconds, so give them a minute to appear. Traces show

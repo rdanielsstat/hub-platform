@@ -62,6 +62,12 @@ Everything goes to the workflow run log and the run's job summary:
 - The diagnosis
 - The actual cost of the call, from the tokens used
 
+## Example run
+
+A recorded drill (2026-10-04, run 37164038288): the alert text, the
+diagnosis verbatim, the cost ($0.000095), and a human review of what the
+diagnosis got right and missed, in `security/OPERATIONAL_DIAGNOSIS.md`.
+
 ## Cost guard
 
 Before calling OpenAI, the script estimates the cost of one call and multiplies it by the expected runs per month. If that's over $5/month, it skips the call and posts a warning in the run instead. This is an estimate from a rough token count; it doesn't check real billing.
