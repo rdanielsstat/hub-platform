@@ -6,10 +6,10 @@ import { Button } from '@/components/ui/button'
 import { setStoredTheme, updateThemeColorMeta } from '@/lib/theme'
 
 function useTheme() {
-  // The inline script in index.html already resolved and applied the
-  // theme (stored choice, else system preference) before React mounted,
-  // so the DOM's `dark` class is the source of truth for initial state —
-  // read it back rather than re-deriving it here.
+  // public/theme-init.js (loaded by index.html) already resolved and
+  // applied the theme (stored choice, else system preference) before
+  // React mounted, so the DOM's `dark` class is the source of truth for
+  // initial state — read it back rather than re-deriving it here.
   const [dark, setDark] = useState(() =>
     document.documentElement.classList.contains('dark'),
   )

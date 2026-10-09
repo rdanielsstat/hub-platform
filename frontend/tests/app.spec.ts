@@ -99,6 +99,19 @@ async function hasHorizontalScroll(page: Page): Promise<boolean> {
   )
 }
 
+/**
+ * Form fields on the page whose computed font size is under 16px. iOS
+ * Safari zooms in when one of those is focused, and the zoom outlasts
+ * the page (the "zoomed in after login" bug).
+ */
+async function fieldsUnder16px(page: Page): Promise<string[]> {
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll('input, textarea, select'))
+      .filter((el) => parseFloat(getComputedStyle(el).fontSize) < 16)
+      .map((el) => el.id || el.getAttribute('placeholder') || el.tagName),
+  )
+}
+
 // --- auth ------------------------------------------------------------------
 
 test.describe('auth: signup', () => {
@@ -2043,6 +2056,37 @@ test.describe('responsive: phone (375×812)', () => {
     await dialog.locator('#qc-name').fill(name)
     await dialog.getByRole('button', { name: 'Capture', exact: true }).click()
     await expect(card(page, name)).toBeVisible()
+  })
+
+  test('form fields are 16px or larger, so iOS does not zoom on focus', async ({
+    page,
+    request,
+  }) => {
+    await page.goto('/login')
+    await expect(page.locator('#login-email')).toBeVisible()
+    expect(await fieldsUnder16px(page)).toEqual([])
+    await goToSignup(page)
+    expect(await fieldsUnder16px(page)).toEqual([])
+
+    const user = await registerViaApi(request)
+    const project = await createProjectViaApi(request, user, {
+      name: `Phone fields ${uid()}`,
+    })
+    await signInAs(page, user)
+    await openDashboard(page)
+    await page
+      .getByRole('banner')
+      .getByRole('button', { name: 'Capture', exact: true })
+      .click()
+    await captureDialog(page)
+      .getByRole('button', { name: 'More details' })
+      .click()
+    await expect(captureDialog(page).locator('#qc-desc')).toBeVisible()
+    expect(await fieldsUnder16px(page)).toEqual([])
+
+    await openProject(page, project.id)
+    await expect(detailNameInput(page)).toHaveValue(project.name)
+    expect(await fieldsUnder16px(page)).toEqual([])
   })
 
   test('project detail fits the screen', async ({ page, request }) => {

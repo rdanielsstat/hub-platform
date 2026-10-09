@@ -46,6 +46,14 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           pnpm test -- --run
+      # The same gates `make check` runs locally: ESLint (0 warnings),
+      # Prettier, and the type-checked production build.
+      - name: Frontend lint, format check and build
+        working-directory: frontend
+        run: |
+          pnpm lint
+          pnpm format:check
+          pnpm build
 
   # Backend integration tests (tests/integration/) against the Docker
   # Compose Postgres 17, the same image local `make test-integration` uses.

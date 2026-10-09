@@ -52,7 +52,7 @@ All commands run from inside `frontend/`:
 pnpm install
 pnpm dev            # start the dev server
 pnpm build          # tsc -b && vite build, must be clean before calling a task done
-pnpm lint           # eslint ., must stay 0 errors / 0 warnings
+pnpm lint           # eslint . --max-warnings 0: any error or warning fails it
 pnpm format         # prettier --write .
 pnpm format:check   # prettier --check .
 ```
@@ -144,8 +144,8 @@ against the Docker Compose Postgres (`docker compose up -d --wait postgres`, or
 migrations. `tests/test_startup.py` imports the app in a subprocess to check
 startup behaviour (secret guards, deployed defaults, origin verification).
 
-E2E: Playwright, 201 tests in `frontend/tests/`, in two projects. `chromium`:
-`app.spec.ts` (89 browser tests) and `api.spec.ts` (104 API tests) cover signup,
+E2E: Playwright, 202 tests in `frontend/tests/`, in two projects. `chromium`:
+`app.spec.ts` (90 browser tests) and `api.spec.ts` (104 API tests) cover signup,
 login, the session cookie, dashboard, projects, filters, sorts, edits, deletes,
 and API endpoints, against any backend on :8000. `docker-compose`:
 `integration.spec.ts` (8 tests) covers the Compose stack, error reporting, and
@@ -174,9 +174,9 @@ history, the backend integration tests and the Playwright suite (against
 the Compose stack) on every PR and push; all five must pass before the
 dev deploy runs. Actions in `.github/workflows/` are pinned to commit SHAs
 (version in a trailing comment); keep it that way when adding or bumping one.
-CI also runs the backend's Ruff lint and format check (in the `test` job);
-the frontend's lint, format, and build checks are enforced locally before
-committing (`make check`) and don't run in CI. Reviewed gitleaks false positives go in `.gitleaksignore` (by
+CI also runs the backend's Ruff lint and format check and the frontend's
+lint, format check and build (all in the `test` job), the same gates as
+`make check`. Reviewed gitleaks false positives go in `.gitleaksignore` (by
 fingerprint); never add a real secret there.
 
 ## Working Conventions
@@ -287,8 +287,8 @@ Local dev: off by default; optional local Grafana/Tempo/Prometheus/Loki stack in
 ## Deployment and Release Gates
 
 **Per-commit CI/CD (runs on every push to main):**
-- Unit tests (frontend + backend) and the backend's Ruff lint and format check
-  (frontend lint, format, and build are enforced locally, not in CI)
+- Unit tests (frontend + backend), the backend's Ruff lint and format check,
+  and the frontend's lint, format check and build
 - Dependency scan (pip-audit and pnpm audit; HIGH and CRITICAL fail it)
 - Backend integration tests against Postgres and Playwright E2E against Docker Compose
 - Gitleaks scan of the full history (`secrets-scan` job)

@@ -4,6 +4,26 @@ All notable changes to Hub are recorded here. Versions follow
 [Semantic Versioning](https://semver.org/); the deployed `SERVICE_VERSION`
 comes from the git tag (`.github/scripts/service-version.sh`).
 
+## [Unreleased]
+
+### Fixed
+- Mobile: the page no longer stays zoomed in after logging in. Form fields
+  are 16px on phones (iOS Safari zooms in on focusing anything smaller) and
+  14px from the `md` breakpoint up, as before
+- Project detail: the link label field is wide enough to show its
+  "Label (optional)" placeholder
+
+### Changed
+- CI runs the frontend's lint, format check and build in the `test` job
+- `pnpm lint` fails on any ESLint warning (`--max-warnings 0`)
+
+### Documentation
+- README lists every `make` target (new "Make Targets" section)
+
+### Testing
+- 202 Playwright E2E tests (a phone-width check that every form field is
+  16px or larger)
+
 ## [1.0.0] - 2026-10-03
 
 ### Added

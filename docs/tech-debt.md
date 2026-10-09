@@ -2,8 +2,17 @@
 
 ## Bugs
 
-- Mobile viewport is zoomed in after login. The login screen is fine; the
-  authenticated layout renders wider than the screen until you pinch out.
+- Mobile viewport zoomed in after login: fixed (2026-10-08). Not a layout
+  overflow (nothing is wider than 375px): iOS Safari zooms in when a form
+  field under 16px is focused, and the zoom outlasts the page, so tapping
+  the 14px login fields left the dashboard zoomed. `Input`, `Textarea` and
+  `Select` are now 16px below the `md` breakpoint and 14px from it, so
+  desktop is unchanged. A Playwright test at 375px fails if any field on
+  login, signup, the dashboard, quick capture or project detail is under
+  16px.
+- Link label placeholder clipped ("Label (optic") on project detail: fixed
+  (2026-10-08). Found while fixing the zoom bug; the 112px-wide field was
+  already too narrow for the placeholder at 14px. Now `w-36`.
 
 ## Security
 
@@ -86,6 +95,10 @@
 - Form `maxLength` matching the API limits: done (2026-10-04, every text
   field, from `frontend/src/lib/limits.ts`; a backend test keeps the two in
   step).
+- Frontend lint, format check and build in CI: done (2026-10-08), in the
+  `test` job, gating the dev deploy like the rest. `pnpm lint` now passes
+  `--max-warnings 0`, since plain `eslint .` exits 0 on warnings and the
+  "0 warnings" rule wasn't enforced by the command.
 - Deprecation warnings in the test run (httpx, anyio, Mangum): done
   (2026-10-02). `httpx2`, Starlette 1.7.0; Mangum's one warning filtered with
   the reason, since 0.22.0 is the latest release.
@@ -136,6 +149,15 @@
 - Length limits on tags, links and display name (migration `0003`).
 - Integration and E2E jobs gating the dev deploy.
 - This file.
+
+**2026-10-08, review follow-ups**
+
+- The mobile zoom-after-login bug, and the clipped link label placeholder.
+- Frontend lint, format check and build in CI; ESLint fails on warnings.
+- Root `.gitignore` tidied: the leftover v0/Vercel entries and duplicate
+  lines removed, the rest grouped. The set of ignored files is unchanged.
+- Root `README.md` documents every `make` target (a new "Make Targets"
+  section); eight were missing, including `install` and `docker-down`.
 
 ## Project requirements
 

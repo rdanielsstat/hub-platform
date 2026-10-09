@@ -16,7 +16,7 @@ Run Hub-Platform's Playwright end-to-end suite against the real local backend an
 
 ## The suite
 
-All tests live in `frontend/tests/` (201 tests as of October 2026; the count grows as tests are added):
+All tests live in `frontend/tests/` (202 tests as of October 2026; the count grows as tests are added):
 
 ```
 frontend/tests/

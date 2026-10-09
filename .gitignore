@@ -1,15 +1,9 @@
-# v0 sandbox internal files
-__v0_runtime_loader.js
-__v0_devtools.tsx
-__v0_jsx-dev-runtime.ts
-.snowflake/
-.v0-trash/
-.vercel/
-
-# Environment variables
+# Environment variables and local secrets (the .env.example templates are tracked)
 .env
 .env.*
+*.env
 !.env.example
+.secrets
 
 # Logs
 *.log
@@ -24,19 +18,14 @@ __v0_jsx-dev-runtime.ts
 *.tfstate.*
 *.tfvars
 !*.tfvars.example
-crash.log
 tfplan*
 *.tfplan
 plan.out
 
-# local secrets
-*.env
-.env
+# Playwright output
+playwright-report/
+test-results/
 
+# Local scratch files
 temp
 temp.txt
-.secrets
-
-playwright-report/
-
-test-results/

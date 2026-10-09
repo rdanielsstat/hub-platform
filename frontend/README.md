@@ -31,11 +31,12 @@ prod (`ops/DEPLOYMENT.md`). Static files in `public/` (`favicon.svg`,
 ## Checks
 
 All must pass before a change is done (`make check` from the repo root
-runs them, plus the backend unit tests):
+runs them, plus the backend unit tests). CI runs the same four in its
+`test` job:
 
 ```
 pnpm test           # Vitest unit tests
-pnpm lint           # ESLint, 0 errors / 0 warnings
+pnpm lint           # ESLint; any error or warning fails it
 pnpm build          # tsc -b && vite build
 pnpm format:check   # Prettier
 ```

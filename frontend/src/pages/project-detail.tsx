@@ -249,7 +249,7 @@ export function ProjectDetailPage() {
               const ok = await save({ name: trimmed })
               if (!ok) setName(project.name)
             }}
-            className="h-auto border-transparent bg-transparent px-0 text-2xl font-semibold tracking-tight shadow-none focus-visible:border-ring focus-visible:bg-background focus-visible:px-3"
+            className="h-auto border-transparent bg-transparent px-0 text-2xl md:text-2xl font-semibold tracking-tight shadow-none focus-visible:border-ring focus-visible:bg-background focus-visible:px-3"
           />
           <Select
             value={project.status}
@@ -278,7 +278,7 @@ export function ProjectDetailPage() {
             if (!ok) setPitch(project.pitch)
           }}
           placeholder="One-line pitch: the scannable version"
-          className="border-transparent bg-transparent px-0 text-sm text-muted-foreground shadow-none focus-visible:border-ring focus-visible:bg-background focus-visible:px-3"
+          className="border-transparent bg-transparent px-0 text-muted-foreground shadow-none focus-visible:border-ring focus-visible:bg-background focus-visible:px-3"
         />
       </div>
 
@@ -449,7 +449,7 @@ export function ProjectDetailPage() {
                   }
                 }}
                 placeholder="Label (optional)"
-                className="h-8 w-28 shrink-0"
+                className="h-8 w-36 shrink-0"
               />
               <Input
                 value={linkInput}

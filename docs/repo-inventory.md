@@ -97,9 +97,9 @@ Dependencies (`backend/uv.lock`): alembic 1.20.0, argon2-cffi 25.1.0, boto3 1.43
 | Backend unit | pytest 9.1.1 | 435 tests, 27 files | `cd backend && uv run pytest` |
 | Backend integration | pytest, real Postgres 17 | 38 tests, 4 files | `make test-integration` |
 | Frontend unit | Vitest 5.0.1 + RTL 16 + jsdom | 202 tests, 22 files | `cd frontend && pnpm test` |
-| E2E | Playwright 1.63.0 (Chromium) | 201 tests: `api.spec.ts` 104, `app.spec.ts` 89, `integration.spec.ts` 8 | `make test-e2e`, `make test-e2e-docker` |
+| E2E | Playwright 1.63.0 (Chromium) | 202 tests: `api.spec.ts` 104, `app.spec.ts` 90, `integration.spec.ts` 8 | `make test-e2e`, `make test-e2e-docker` |
 
-- CI (`ci.yml`) runs all four suites, the backend's Ruff lint and format check, the dependency scan and gitleaks, on every PR and push; all gate the dev deploy. Frontend lint, format and build run locally (`make check`).
+- CI (`ci.yml`) runs all four suites, the backend's Ruff lint and format check, the frontend's lint, format check and build, the dependency scan and gitleaks, on every PR and push; all gate the dev deploy.
 - The backend unit run is warning-free (Mangum's one known warning is filtered, with the reason, in `pyproject.toml`).
 
 ## 7. Containers

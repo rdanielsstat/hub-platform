@@ -320,12 +320,31 @@ pnpm dev
 
 Visit `http://localhost:5173`.
 
+### Make Targets
+
+The `Makefile` at the repo root wraps the common commands; `make help` lists every target. Setup, linting and Docker (the test targets are in the next section):
+
+```bash
+make install           # uv sync (backend) and pnpm install (frontend)
+make check             # every local gate: lint, format check, unit tests and frontend build
+make lint              # lint-backend + lint-frontend
+make lint-backend      # Ruff lint and format check
+make lint-frontend     # ESLint (fails on any warning) and Prettier check
+make fmt               # auto-fix: Ruff (backend), Prettier (frontend)
+make docker-up         # build and start the Compose stack; waits until the API answers
+make docker-db-up      # start only the Compose Postgres; waits until it's healthy
+make docker-down       # stop the Compose stack (keeps the database volume)
+make docker-logs       # follow the Compose logs
+```
+
 ### Running Tests Locally
 
-From the repo root, `make help` lists everything. The test layers:
+From the repo root. The test layers:
 
 ```bash
 make test-unit         # backend pytest (in-memory SQLite) + frontend Vitest; no services
+make test-backend      # just the backend unit tests (`make test` is an alias for test-unit)
+make test-frontend     # just the frontend Vitest tests
 make test-integration  # backend tests against the Docker Compose Postgres (starts it)
 make test-e2e          # Playwright browser + API tests; needs a backend on :8000
 make test-e2e-docker   # Playwright against the full Compose stack, incl. Postgres outages
@@ -379,7 +398,7 @@ To run the backend against Postgres, as it does when deployed (from the repo roo
 docker compose up --build
 ```
 
-This starts Postgres 17 (with a persistent volume), creates the database and role, applies the migrations, seeds the demo account, then serves the API on `http://localhost:8000`. `make docker-up` does the same in the background and waits until the API answers. The frontend isn't part of it: start it with `pnpm dev` from `frontend/` and open `http://localhost:5173`. Stop the API from Terminal 1 first if it's running, since both use port 8000.
+This starts Postgres 17 (with a persistent volume), creates the database and role, applies the migrations, seeds the demo account, then serves the API on `http://localhost:8000`. `make docker-up` does the same in the background and waits until the API answers; `make docker-logs` follows its logs and `make docker-down` stops it, keeping the database volume. The frontend isn't part of it: start it with `pnpm dev` from `frontend/` and open `http://localhost:5173`. Stop the API from Terminal 1 first if it's running, since both use port 8000.
 
 **Test the workflow:**
 1. Sign up with an email and password
@@ -651,7 +670,7 @@ frontend/
     helpers.ts                Shared setup
 ```
 
-Backend unit tests each get their own in-memory SQLite database, so they don't need a running server. The integration tests need the Compose Postgres, and the Playwright tests need a backend (see below). As of October 2026: 435 backend unit and 38 integration tests, 202 frontend unit tests, 201 Playwright tests. CI runs all of them on every push and pull request.
+Backend unit tests each get their own in-memory SQLite database, so they don't need a running server. The integration tests need the Compose Postgres, and the Playwright tests need a backend (see below). As of October 2026: 435 backend unit and 38 integration tests, 202 frontend unit tests, 202 Playwright tests. CI runs all of them on every push and pull request, along with the backend and frontend lint, format and build checks.
 
 ### Running tests
 
@@ -848,7 +867,7 @@ Both are configured and required; CI fails on any finding.
 
 **Frontend:**
 - Run `prettier` for formatting (`pnpm format`)
-- Run `eslint` for linting (`pnpm lint`)
+- Run `eslint` for linting (`pnpm lint`; any warning fails it)
 - TypeScript strict mode required
 
 `make lint` checks both; `make fmt` formats both; `make check` runs every local gate (lint, format, unit tests, build).

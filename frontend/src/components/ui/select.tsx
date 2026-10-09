@@ -11,8 +11,9 @@ function Select({ className, children, ...props }: ComponentProps<'select'>) {
     <div className="relative">
       <select
         data-slot="select"
+        // 16px below md, so iOS doesn't zoom on focus (see input.tsx).
         className={cn(
-          'flex h-9 w-full appearance-none rounded-lg border border-input bg-background pl-3 pr-8 text-sm shadow-sm transition-colors outline-none',
+          'flex h-9 w-full appearance-none rounded-lg border border-input bg-background pl-3 pr-8 text-base md:text-sm shadow-sm transition-colors outline-none',
           'focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/40',
           'disabled:cursor-not-allowed disabled:opacity-50',
           className,
