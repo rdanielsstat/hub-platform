@@ -206,6 +206,7 @@ flowchart LR
 
 **Security controls (deployed)**
 - Session cookie `hub_token`: HttpOnly, SameSite=Strict, Secure
+- Login CSRF: sign-in and sign-up refuse a request from another site's `Origin` (403), so a page elsewhere can't log your browser into its account
 - Security headers on every response (CloudFront): a strict Content-Security-Policy (no inline scripts), HSTS (one year, includeSubDomains, preload), `X-Frame-Options: DENY`, nosniff, Referrer-Policy
 - Rate limits per client IP: login 5 attempts per minute, sign-up 3, frontend error reports 30 (429 over any); API Gateway throttles at 50 rps, burst 100
 - The real client IP behind Cloudflare and CloudFront: `CloudFront-Viewer-Address`, then `X-Forwarded-For` when that hop is one of Cloudflare's ranges (`TRUSTED_PROXY_IPS`), so the limits are per user; verified from two networks
@@ -653,8 +654,9 @@ curl -X POST http://localhost:8000/auth/login \
   -d "password=secure-password"
 
 # Use the access_token from either response
+TOKEN='<access_token from the response>'
 curl http://localhost:8000/projects \
-  -H "Authorization: Bearer YOUR_TOKEN"
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ### Field limits
@@ -742,7 +744,7 @@ agent-hooks/
   tests/test_guard.py         Every deny/ask/allow rule, and the hook's JSON contract
 ```
 
-Backend unit tests each get their own in-memory SQLite database, so they don't need a running server. The integration tests need the Compose Postgres, and the Playwright tests need a backend (see below). As of October 2026: 435 backend unit and 38 integration tests, 202 frontend unit tests, 204 Playwright tests, 24 MCP server unit tests plus 1 live test, and 19 agent hook tests. CI runs all of them on every push and pull request, along with the lint, format and build checks.
+Backend unit tests each get their own in-memory SQLite database, so they don't need a running server. The integration tests need the Compose Postgres, and the Playwright tests need a backend (see below). As of October 2026: 458 backend unit and 38 integration tests, 202 frontend unit tests, 204 Playwright tests, 74 MCP server unit tests plus 1 live test, and 36 agent hook tests. CI runs all of them on every push and pull request, along with the lint, format and build checks.
 
 ### Running tests
 
@@ -873,7 +875,7 @@ Nothing an agent writes reaches `main` or a user without these:
 | Reusable workflows | `.claude/skills/` | `release`, `e2e-testing`, `security-scanning`, `design-review` |
 | Subagent | `.claude/agents/qa-engineer.md` | Independent QA in a fresh context |
 | MCP server | `mcp-server/`, registered in `.mcp.json` | Five tools over the Hub API (list, get, create, update, add note; no deletes) |
-| Hook / guardrail | `agent-hooks/`, registered in `.claude/settings.json` | Denies commits, deploys and secret access; asks before pushes and data loss. Plus the gitleaks pre-commit hook (`.pre-commit-config.yaml`) |
+| Hook / guardrail | `agent-hooks/`, registered in `.claude/settings.json` | Denies commits, deploys, publishing and secret access (files, environment, AWS); asks before pushes and data loss; fails closed. Plus the gitleaks pre-commit hook (`.pre-commit-config.yaml`) |
 | Custom agent | `custom-agent/on-call-diagnostic/` | The on-call diagnostic for Grafana alerts |
 | Capability index | `agent-capabilities/README.md` | Every capability above, in one list |
 | Permissions | `docs/permissions.md`, `security/AGENT_SECURITY.md` | What each part may do, and the risks behind the rules |
@@ -934,19 +936,19 @@ Subagents are AI agents in fresh contexts with specific roles:
 | `list_projects` | Lists ideas, filtered by status, tag or a search query (read-only) |
 | `get_project` | One idea in full, with its notes (read-only) |
 | `create_project` | Captures a new idea |
-| `update_project` | Changes the fields given (status, next action, scores, ...) |
+| `update_project` | Changes the fields given (status, next action, scores, ...); marked destructive, won't blank text without `allow_clear`, and needs `confirm_bulk` after three status changes in ten minutes |
 | `add_note` | Adds a note to an idea |
 
-There are no delete tools: deleting stays a human action in the web app. It calls the same API as the web app, with a Bearer token, so the API's ownership checks, limits and caps apply. To use it from Claude Code in this repo, set `HUB_EMAIL` and `HUB_PASSWORD` (and `HUB_API_URL`, default `http://localhost:8000`) in your shell and approve the `hub` server from `.mcp.json`. Setup, Claude Desktop config and security notes: [mcp-server/README.md](mcp-server/README.md).
+There are no delete tools: deleting stays a human action in the web app. It calls the same API as the web app, with a Bearer token, so the API's ownership checks, limits and caps apply. To use it from Claude Code in this repo, store the account's password in the macOS keychain once (`security add-generic-password -s hub-mcp -a <email> -w`), export `HUB_EMAIL` (and `HUB_API_URL`, default `http://localhost:8000`), and approve the `hub` server from `.mcp.json`; `mcp-server/run-with-keychain.sh` hands the password to the server process only, so it's never in the environment the agent's commands see. Project ids must be UUIDs, and the password is never sent over plain http to a remote host. Setup, Claude Desktop config and security notes: [mcp-server/README.md](mcp-server/README.md).
 
 ### Guard Hook
 
-`agent-hooks/guard.py` is a Claude Code `PreToolUse` hook (registered in `.claude/settings.json`) that turns the `AGENTS.md` boundaries into checks that run before every shell command and file access:
+`agent-hooks/guard.py` is a Claude Code `PreToolUse` hook (registered in `.claude/settings.json`, run through `agent-hooks/run-guard.sh`) that turns the `AGENTS.md` boundaries into checks that run before every shell command and file access:
 
-- **Denied:** reading or editing real `.env` files, `.secrets` and `*.tfvars`; `git commit`; deploys (`tofu apply`/`destroy`, `gh workflow run`, AWS calls that change resources)
-- **Asks the human first:** `git push`, `git tag`, `gh pr merge`, and commands that delete data (`docker compose down -v`, `alembic downgrade`)
+- **Denied:** reading or editing real `.env` files, `.secrets` and `*.tfvars`; printing the environment (`printenv`, bare `env`/`set`/`export`, `/proc/*/environ`); AWS reads that return secrets (`ssm get-parameter --with-decryption`, `secretsmanager`, Lambda configurations); anything that creates a commit (`git commit`, `merge`, `cherry-pick`, `revert`, `am`, `rebase`, aliases); deploys (`tofu apply`/`destroy`/state changes, starting workflows, AWS calls that change resources); publishing packages
+- **Asks the human first:** `git push`, `git tag`, `git pull`, `gh pr merge`, other GitHub API writes, and commands that delete data (`docker compose down -v`, `alembic downgrade`)
 
-Standard library only, so it runs under any `python3` (3.9+). Rules and tests: [agent-hooks/README.md](agent-hooks/README.md).
+Commands inside `bash -c`, `eval`, `env`, `sudo` and similar wrappers are checked as the command they run, and the hook fails closed: if it crashes or `python3` is missing, the tool call is blocked with a message. Standard library only, so it runs under any `python3` (3.9+). Rules and tests: [agent-hooks/README.md](agent-hooks/README.md).
 
 ### Example workflow
 

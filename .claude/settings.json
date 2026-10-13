@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/agent-hooks/guard.py\"",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/agent-hooks/run-guard.sh\"",
             "timeout": 10
           }
         ]

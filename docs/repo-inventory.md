@@ -2,7 +2,7 @@
 
 > Point-in-time snapshot, not a live description. Figures below were checked against the repo, test runs, and OpenTofu state on the date shown; re-run the commands in each section before relying on them later.
 
-Snapshot of the working tree on 2026-10-13: `main` at `a60f6b7` plus the uncommitted agent extension pack (`mcp-server/`, `agent-hooks/`, `agent-capabilities/`) and the Compose frontend container. Secret values are redacted throughout. Replaces the snapshot of `8ac75ae` (2026-10-04), which predated Ruff, v1.0.0, those additions, and the frontend checks in CI; that one replaced `6bd192a` (2026-10-02). OpenTofu figures in section 8 are from state on 2026-10-04; no `.tf` file has changed since.
+Snapshot of the working tree on 2026-10-13: `main` at `939fd47` (the agent extension pack and the Compose frontend container) plus the uncommitted fixes from that day's security sweep (`security/REMEDIATION_LOG.md`). Secret values are redacted throughout. Replaces the snapshot of `8ac75ae` (2026-10-04), which predated Ruff, v1.0.0, those additions, and the frontend checks in CI; that one replaced `6bd192a` (2026-10-02). OpenTofu figures in section 8 are from state on 2026-10-04; since then only a comment in `infra/bootstrap/main.tf` has changed, which plans to nothing.
 
 ## 1. Tree (depth 3, generated/vendor dirs excluded)
 
@@ -19,7 +19,7 @@ docs/                   7 files: agent-extension-pack design-notes permissions p
 ops/                    DEPLOYMENT HEALTH_CHECKS MONITORING TROUBLESHOOTING (.md)
 security/               AGENT_SECURITY DATA_POLICY DEPENDENCIES GITLEAKS_CONFIG IAC_SCANS
                         OPERATIONAL_DIAGNOSIS PR_AUDIT RATE_LIMITING SECURITY_CHECKLIST (.md)
-backend/                91 files
+backend/                95 files
   app/  main.py lambda_handler.py bootstrap_db.py
         auth/ core/ db/ models/ routers/
   alembic/        env.py, versions/0001..0003 (migrations); alembic.ini
@@ -40,14 +40,14 @@ infra/                  20 files
   hub/        apigateway backend bootstrap certs database dns ecr frontend lambda main
               outputs providers .tf, .terraform.lock.hcl, terraform.tfvars.example
   BOOTSTRAP.md PLACEMENT.md
-mcp-server/             15 files: hub_mcp/{server,client,__main__}.py, tests/ (6 files),
-                        pyproject.toml uv.lock README.md
-agent-hooks/            guard.py ruff.toml README.md tests/test_guard.py
+mcp-server/             20 files: hub_mcp/{server,client,__main__}.py, run-with-keychain.sh,
+                        tests/ (12 files), pyproject.toml uv.lock README.md
+agent-hooks/            guard.py run-guard.sh ruff.toml README.md tests/test_guard.py
 agent-capabilities/     README.md (index of every agent capability)
 custom-agent/           on-call-diagnostic/README.md
 ```
 
-276 files in total (tracked plus the new, not yet committed ones). Gitignored and present on disk: `backend/.env`, `frontend/.env`, `backend/hub.db`, `infra/hub/terraform.tfvars`.
+287 files in total (tracked plus the new, not yet committed ones). Gitignored and present on disk: `backend/.env`, `frontend/.env`, `backend/hub.db`, `infra/hub/terraform.tfvars`.
 
 ## 2. Backend
 
@@ -99,22 +99,22 @@ Dependencies (`backend/uv.lock`): alembic 1.20.0, argon2-cffi 25.1.0, boto3 1.43
 
 | Suite | Runner | Count | Command |
 |---|---|---|---|
-| Backend unit | pytest 9.1.1 | 435 tests, 27 files | `cd backend && uv run pytest` |
+| Backend unit | pytest 9.1.1 | 458 tests, 30 files | `cd backend && uv run pytest` |
 | Backend integration | pytest, real Postgres 17 | 38 tests, 4 files | `make test-integration` |
 | Frontend unit | Vitest 5.0.1 + RTL 16 + jsdom | 202 tests, 22 files | `cd frontend && pnpm test` |
 | E2E | Playwright 1.63.0 (Chromium) | 204 tests: `api.spec.ts` 104, `app.spec.ts` 90, `integration.spec.ts` 10 | `make test-e2e`, `make test-e2e-docker` |
-| MCP server | pytest, fake Hub API | 24 tests, 4 files; plus 1 live test (`integration` marker) | `make test-mcp`, `make test-mcp-live` |
-| Agent hook | unittest (standard library) | 19 tests, 1 file | `make test-hooks` |
+| MCP server | pytest, fake Hub API | 74 tests, 7 files; plus 1 live test (`integration` marker) | `make test-mcp`, `make test-mcp-live` |
+| Agent hook | unittest (standard library) | 36 tests, 1 file | `make test-hooks` |
 
 - CI (`ci.yml`) runs every suite (the MCP live test against the Compose stack in the `e2e` job), Ruff over the backend, MCP server and hook, the frontend's lint, format check and build, the dependency scan (backend, MCP server, frontend) and gitleaks, on every PR and push; all gate the dev deploy.
 - The backend unit run is warning-free (Mangum's one known warning is filtered, with the reason, in `pyproject.toml`).
 
 ## 7. Containers
 
-- `backend/Dockerfile`: `deps` (uv export of the lock); `prod` (`public.ecr.aws/lambda/python:3.12`, OS security updates applied at build, pip removed after installing, CMD `app.lambda_handler.handler`); `dev` (`python:3.12-slim`, uvicorn). The bootstrap Lambda reuses the prod image.
+- `backend/Dockerfile`: `deps` (uv export of the lock); `prod` (`public.ecr.aws/lambda/python:3.12`, OS security updates applied at build, pip removed after installing, the Lambda Runtime Interface Emulator removed, CMD `app.lambda_handler.handler`); `dev` (`python:3.12-slim`, uvicorn, non-root `app` user, healthcheck). The bootstrap Lambda reuses the prod image.
 - `frontend/Dockerfile`: `build` (`node:22-alpine`, `pnpm build`), then `nginxinc/nginx-unprivileged:1.30-alpine` (uid 101, port 8080, OS packages upgraded, healthcheck) serving `dist/` with `nginx.conf` (CloudFront's headers and SPA routing, `/api/*` proxied to `app`). Local Compose only.
 - `docker-compose.yml`: `postgres`, `bootstrap`, `init_local`, `app` (:8000), `frontend` (:8080). `backend/observability/docker-compose.yml`: optional local collector, Tempo, Prometheus, Loki, Grafana.
-- trivy on the patched prod image (2026-10-03): no CRITICAL, HIGH, MEDIUM or LOW findings. On the Compose frontend image (2026-10-13): none after the zlib fix; `trivy config` clean.
+- trivy on the prod image: no CRITICAL, HIGH, MEDIUM or LOW findings after the 2026-10-03 fixes; on 2026-10-13, 0 findings at any severity once the unused Lambda emulator (`aws-lambda-rie`) was removed from the prod stage. The `dev` stage runs as a non-root user with a healthcheck. On the Compose frontend image (2026-10-13): none after the zlib fix; `trivy config` clean.
 
 ## 8. Infrastructure and CI/CD
 
@@ -137,11 +137,11 @@ Dependencies (`backend/uv.lock`): alembic 1.20.0, argon2-cffi 25.1.0, boto3 1.43
 
 ## 10. Git state
 
-- Branch `main`, HEAD `a60f6b7` (with uncommitted changes, above), remote `origin` (GitHub `rdanielsstat/hub-platform`, public). Other branches, local and on origin: `chore/update-github-actions-node24` (merged as PR #5), `observability-oncall-agent`, `otel-enabled-dev-lambda`, `semver-service-version`, `service-version-dev-lambda`.
+- Branch `main`, HEAD `939fd47` (with uncommitted changes, above), remote `origin` (GitHub `rdanielsstat/hub-platform`, public). Other branches, local and on origin: `chore/update-github-actions-node24` (merged as PR #5), `observability-oncall-agent`, `otel-enabled-dev-lambda`, `semver-service-version`, `service-version-dev-lambda`.
 
 ## Risks
 
-- `infra/hub/tfplan*` files committed in `8ebc8ae` (removed in `1f59439`) remain in public history with sensitive values; treat those credentials as exposed until rotated (the JWT secret was rotated in `ad2c8d9`).
+- `infra/hub/tfplan*` files committed in `8ebc8ae` (removed in `1f59439`) remain in public history; the credentials they held have been rotated, so they're no longer valid. `tfplan*` and `*.tfplan` are gitignored.
 - The per-IP rate limits are per Lambda container, not shared (bounded and documented in `security/RATE_LIMITING.md`).
 - `docker-compose.yml` commits local-only Postgres credentials.
 - Remaining backlog: `docs/tech-debt.md`.

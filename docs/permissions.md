@@ -21,7 +21,7 @@ This document defines what AI agents can and cannot do in the Hub-Platform exten
    - Agents do not have production database access
 
 5. **Enforced, not only stated.**
-   - The guard hook (`agent-hooks/guard.py`) denies commits, deploys and secret access before the command runs, and asks the human before pushes and data loss
+   - The guard hook (`agent-hooks/guard.py`) denies commits, deploys, publishing and secret access before the command runs, asks the human before pushes and data loss, and fails closed
    - The MCP server has no delete tools at all, rather than a rule against using them
 
 ## Reusable Skills (.claude/skills/)
@@ -115,15 +115,18 @@ An MCP client (Claude Code, Claude Desktop) the user connects calls these tools,
 **CAN do:**
 - List and read that user's project ideas and notes (`list_projects`, `get_project`)
 - Create ideas, update their fields, and add notes (`create_project`, `update_project`, `add_note`)
+- `update_project` is marked destructive (Claude Code asks before each call), refuses to blank a pitch or description without `allow_clear` (never the name), and refuses a fourth status change within ten minutes without `confirm_bulk`, which the agent may pass only after the user agrees
 
 **CANNOT do:**
 - Delete an idea or a note (no tool for it; the client has no DELETE call, and a test keeps it that way)
 - See or change another user's data (the API scopes every request to the signed-in user)
 - Go beyond the API's checks: field limits, usage caps and the login rate limit apply as for the web app
 - Reach the database, AWS, or anything but the Hub API at `HUB_API_URL`
+- Reach another endpoint through a crafted project id (ids must be UUIDs)
 
 **Credentials**:
-- `HUB_EMAIL` and `HUB_PASSWORD` from the environment only (`.mcp.json` references them; never commit a real one)
+- The password is in the macOS keychain; `mcp-server/run-with-keychain.sh` passes it to the server process only, so it's never in Claude Code's environment or `.mcp.json`. The email comes from `HUB_EMAIL`. Never export `HUB_PASSWORD` in a shell an agent uses
+- Never sent over plain http to a remote host (override: `HUB_ALLOW_INSECURE_HTTP=1`, trusted networks only)
 - The Bearer token is held in memory for the server's lifetime
 - The API has no scoped or read-only tokens, so the agent has the account's full non-delete access: use your own account or a dedicated one, and the demo account locally
 
@@ -137,12 +140,17 @@ An MCP client (Claude Code, Claude Desktop) the user connects calls these tools,
 
 **Denies** (the agent is told why and stops):
 - Reading, editing or searching real `.env` files, `.secrets` and `*.tfvars` (templates such as `.env.example` are allowed)
-- `git commit`
-- `tofu`/`terraform` apply, destroy, import, taint; `gh workflow run`; AWS calls that change resources
+- Printing the environment (`printenv`, bare `env`/`set`/`export`, `declare -p`, `ps eww`, `/proc/*/environ`, `$HUB_PASSWORD`)
+- AWS reads that return secrets (`ssm` with `--with-decryption`, `secretsmanager`, `kms decrypt`, full Lambda configurations, temporary credentials)
+- Anything that creates a commit: `git commit`, `commit-tree`, `merge`, `cherry-pick`, `revert`, `am`, `rebase`, git aliases
+- `tofu`/`terraform` apply, destroy, import, taint, untaint, force-unlock, state changes, workspace delete (with or without `-chdir=`); starting workflows (`gh workflow run`/`enable`, `gh run rerun`, `gh api` dispatches); AWS calls that change resources; publishing packages
 
 **Asks the human** (proceeds only on a yes):
-- `git push`, `git tag`, `gh pr merge`, `gh release create`
+- `git push`, `git tag`, `git pull`, `gh pr merge`, `gh release create`, other `gh api` writes
+- `aws ecr get-login-password`
 - `docker compose down -v`, `docker volume rm`/`prune`, `alembic downgrade`
+
+Commands inside `bash -c`/`sh -c`/`eval` and wrappers (`env`, `sudo`, `xargs`, `nohup`, `nice`, `timeout`) are checked as the command they run. If the hook crashes or `python3` is missing, the call is blocked (fail closed).
 
 **Limits**: It reads command lines as written, so it stops accidents and casual prompt injection, not a determined bypass; the other layers (human review, CI gates, branch protection, no agent credentials) stay in place. Rules and tests: `agent-hooks/README.md`.
 

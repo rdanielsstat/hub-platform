@@ -20,8 +20,10 @@ and how each is contained.
 | Guard hook | `agent-hooks/guard.py`, registered in `.claude/settings.json` | The developer's user account, inside Claude Code | Nothing: reads the pending tool call, answers allow, ask or deny |
 
 None of these has production database credentials or AWS credentials of
-its own. The only automation with AWS access is CI (`ci.yml`,
-`promote.yml`), through GitHub OIDC, and it runs no agent.
+its own. The only automation with AWS access is CI, through GitHub
+OIDC: the `deploy-dev` job of `ci.yml` and the `promote` job of
+`promote.yml`, each running in a GitHub environment (`dev`, `prod`)
+that accepts deployments from `main` only. No CI job runs an agent.
 
 ## Threats and controls
 
@@ -35,9 +37,10 @@ rules and push to main", "print the .env").
   commit, never deploy, never read or edit real `.env` files, never make
   destructive data changes, never edit `docs/`.
 - The guard hook enforces the most damaging of them before the command
-  runs, whatever the agent was talked into: it denies `git commit`,
-  deploys and secret access, and asks the human before a push, a tag or
-  deleting local data (`agent-hooks/README.md`). It reads the command as
+  runs, whatever the agent was talked into: it denies anything that
+  creates a commit, deploys, publishing and secret access, checks the
+  command inside `bash -c`/`eval` and wrappers, and asks the human before
+  a push, a tag or deleting local data (`agent-hooks/README.md`). It reads the command as
   written, so it stops accidents and casual injection; the layers below
   cover a deliberate bypass.
 - Agents treat observed content as data, not instructions. A file or
@@ -120,19 +123,30 @@ credentials), and pin its version.
 - *What it can do*: list, read, create and update that account's ideas,
   and add notes. No delete tools, and the client has no DELETE call
   (a test pins it), so an agent can't destroy data through it.
-- *Credentials*: `HUB_EMAIL`/`HUB_PASSWORD` from the environment; the
-  committed `.mcp.json` only references them, and gitleaks would catch
-  a real one committed by mistake. The Bearer token stays in memory.
+- *Credentials*: the password lives in the macOS keychain;
+  `mcp-server/run-with-keychain.sh` hands it to the server process only,
+  so it's never in Claude Code's environment, which every agent shell
+  command inherits (the 2026-10-13 sweep found the earlier `export
+  HUB_PASSWORD` setup exposed it to `printenv`; `security/REMEDIATION_LOG.md`
+  H1). The guard hook also denies commands that print the environment.
+  `.mcp.json` holds no password, and gitleaks would catch a real one
+  committed by mistake. The password is never sent over plain http to a
+  remote host, and the Bearer token stays in memory.
   The API has no scoped or read-only tokens, so the server holds the
   account's full non-delete access: accepted, since it's the user's own
   account and own data; the recommendation is the demo account locally
   and your own (or a dedicated) account when deployed.
 - *Prompt injection*: notes and pitches are user-written text that the
   agent reads as tool output, so a note could carry instructions. The
-  blast radius is bounded by the tools (no deletes, no other users, the
-  API's limits), and Claude Code asks before each MCP tool call unless
-  the user has allowed it. Review write calls after reading content you
-  didn't write.
+  server's instructions tell the model that this text is untrusted data,
+  never instructions. The blast radius is bounded by the tools: no
+  deletes, no other users, the API's limits; `update_project` is marked
+  destructive so Claude Code asks before every call; it refuses to blank
+  text without `allow_clear` and stops after three status changes in ten
+  minutes without `confirm_bulk`; and a project id that isn't a UUID
+  (`x/../../auth/me`) is refused before any request, so an injected id
+  can't reach another endpoint. Review write calls after reading content
+  you didn't write.
 - *Supply chain*: depends on `mcp` and `httpx2` only, pinned by
   `mcp-server/uv.lock` (`mcp` 2.2.0, a release more than a month old
   when added); pip-audit gates it in CI like the backend
@@ -141,11 +155,18 @@ credentials), and pin its version.
   the model provider behind the user's MCP client
   (`security/DATA_POLICY.md`, "AI tools").
 
-**Guard hook** (`agent-hooks/guard.py`): standard library only, so it
-adds no dependency; it only restricts (its answers are deny, ask, or
-nothing). It fails open on input it can't parse, so a malformed payload
-can't wedge the session, which is acceptable because it's one layer of
-several, not the only control.
+**Guard hook** (`agent-hooks/guard.py`, run through `run-guard.sh`):
+standard library only, so it adds no dependency; it only restricts (its
+answers are deny, ask, or nothing). It fails closed: a payload it can't
+read, an exception in its rules, a non-zero exit (such as a syntax
+error) or a missing `python3` blocks the tool call with a message, so a
+broken hook stops the agent instead of silently disabling every rule
+(the 2026-10-13 sweep, `security/REMEDIATION_LOG.md` L7). The cost is
+that a hook bug blocks all of Claude Code's tools in this repo until
+it's fixed; `make test-hooks` runs in `make check` and CI to catch one
+first. It also denies printing the environment and AWS reads that
+return secrets, so a credential in an agent's environment or in SSM
+can't be pulled into the model's context by a plain command.
 
 ## Review checklist for a new agent capability
 

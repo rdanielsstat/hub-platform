@@ -16,6 +16,7 @@ trivy image --scanners vuln "$IMG"
 # Or a local build of the current Dockerfile
 docker build --platform linux/amd64 --target prod -t hub-backend:scan backend
 trivy image --scanners vuln hub-backend:scan
+trivy config backend/Dockerfile
 
 # The local Compose frontend image (nginx), and its Dockerfile
 docker compose build frontend
@@ -62,17 +63,59 @@ None was in the app's own dependencies (those are covered by pip-audit,
   2.8.0, patched, and unaffected.
 
 **Result after the fix** (local build of the updated Dockerfile): 0
-CRITICAL, 0 HIGH, 0 MEDIUM, 0 LOW. One UNKNOWN remains, accepted:
-`golang.org/x/sys` v0.21.0 in `/usr/local/bin/aws-lambda-rie`
-(CVE-2026-39824, an integer overflow in `NewNTUnicodeString`). That
-binary is AWS's Runtime Interface Emulator, used only when the image is
-run outside Lambda, and the affected function is Windows-only code; this
-is a Linux image. It goes away when AWS rebuilds the emulator.
+CRITICAL, 0 HIGH, 0 MEDIUM, 0 LOW. One UNKNOWN remained in
+`/usr/local/bin/aws-lambda-rie` (`golang.org/x/sys` v0.21.0,
+CVE-2026-39824). It was accepted on 2026-10-03; that acceptance is
+superseded by the 2026-10-13 rescan below, which removed the binary.
 
 **Confirmed on prod (2026-10-04):** the image prod runs,
 `hub-prod-backend:20261003-230501-f34d327` (built by CI from the patched
 Dockerfile), scanned by digest: no findings in the OS packages or Python
 packages; the same single UNKNOWN in `aws-lambda-rie`.
+
+## trivy: backend image, rescan (2026-10-13)
+
+A local build of the prod stage (`linux/amd64`, trivy 0.75.0), in the
+security sweep of 2026-10-13: 14 findings, every one in
+`/usr/local/bin/aws-lambda-rie`, the AWS Lambda Runtime Interface
+Emulator that the base image ships. Its Go standard library is v1.26.7
+(fixed in 1.26.9 and 1.27.2):
+
+| Severity | Count | Findings |
+|---|---|---|
+| CRITICAL | 0 | |
+| HIGH | 3 | CVE-2026-78667 (`net/http` Range header DoS), CVE-2026-78669 (`net/http` HTTP/2), CVE-2026-97031 (`crypto/tls` ECH DoS) |
+| MEDIUM | 5 | CVE-2026-56866 (`net/http` response desync), CVE-2026-78663 and CVE-2026-97032 (HTTP/2), CVE-2026-94439 (request smuggling), CVE-2026-94448 (`html/template` XSS) |
+| LOW | 1 | CVE-2026-56857 (`os`, Windows junctions) |
+| UNKNOWN | 5 | `golang.org/x/sys` CVE-2026-39824 and Go standard library items, including CVE-2026-78659 |
+
+None was reachable in Lambda: the base image's `/lambda-entrypoint.sh`
+runs the emulator only when `AWS_LAMBDA_RUNTIME_API` is unset, that is,
+outside Lambda; in Lambda it runs `/var/runtime/bootstrap` directly.
+
+**Action taken** (`backend/Dockerfile`, prod stage):
+`RUN rm -f /usr/local/bin/aws-lambda-rie`. Local runs use the `dev`
+stage (Docker Compose), never this one, so nothing here needs the
+emulator; to run the prod image locally, mount one in, as below.
+
+**Result after the fix:** `trivy image --scanners vuln`: 0 findings at
+any severity. Verified the image still serves the handler: built for
+`linux/amd64` (as deployed) and `linux/arm64`, then run with AWS's own
+emulator mounted from the official base image
+(`-v .../aws-lambda-rie:/aws-lambda-rie --entrypoint /aws-lambda-rie
+... /var/runtime/bootstrap app.lambda_handler.handler`) and invoked with
+an API Gateway v2 event for `GET /api/health`: `200 {"status":"ok"}` on
+both, through the real `/var/runtime/bootstrap`. A regression test
+(`backend/tests/test_dockerfile.py`) checks the prod stage keeps
+removing it. `security/REMEDIATION_LOG.md` M3.
+
+**`trivy config backend/Dockerfile`:** DS-0002 (HIGH, no non-root
+`USER`) and DS-0026 (LOW, no `HEALTHCHECK`). Neither applies to the prod
+stage, since Lambda runs the function as its own unprivileged user and
+has its own health handling. The `dev` stage, though, ran the local Compose
+backend as root; it now runs as a non-root `app` user (uid 10001) with
+a healthcheck on `/health` (`security/REMEDIATION_LOG.md` N2). After:
+0 misconfigurations.
 
 ## trivy: Compose frontend image (2026-10-13)
 

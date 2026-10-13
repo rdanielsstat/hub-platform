@@ -1,12 +1,11 @@
 {
   "mcpServers": {
     "hub": {
-      "command": "uv",
-      "args": ["run", "--directory", "mcp-server", "python", "-m", "hub_mcp"],
+      "command": "sh",
+      "args": ["mcp-server/run-with-keychain.sh"],
       "env": {
         "HUB_API_URL": "${HUB_API_URL:-http://localhost:8000}",
-        "HUB_EMAIL": "${HUB_EMAIL}",
-        "HUB_PASSWORD": "${HUB_PASSWORD}"
+        "HUB_EMAIL": "${HUB_EMAIL}"
       }
     }
   }

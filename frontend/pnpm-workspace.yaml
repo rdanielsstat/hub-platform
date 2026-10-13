@@ -6,3 +6,12 @@ minimumReleaseAgeExclude:
 
 allowBuilds:
   esbuild: true
+
+# Security overrides for transitive dependencies, until the packages that
+# pull them in update. source-map-js 1.2.1 (GHSA-68fv-2mgg-jv7q, HIGH,
+# event-loop DoS from crafted source maps) comes in through vite, postcss,
+# vitest and jsdom's css-tree; dev tooling only, never in the shipped
+# bundle. security/REMEDIATION_LOG.md L1. Drop an entry once
+# `pnpm why <package>` shows nothing older than the pinned version.
+overrides:
+  source-map-js: 1.2.2

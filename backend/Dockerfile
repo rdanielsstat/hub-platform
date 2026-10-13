@@ -35,6 +35,14 @@ COPY --from=deps /src/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt --target "${LAMBDA_TASK_ROOT}" \
     && pip uninstall -y pip
 
+# The Lambda Runtime Interface Emulator only runs when the image is
+# started outside Lambda (/lambda-entrypoint.sh uses it when
+# AWS_LAMBDA_RUNTIME_API is unset); in Lambda, /var/runtime/bootstrap runs
+# directly. It's a Go binary whose bundled standard library trivy flags
+# (3 HIGH on 2026-10-13, security/IAC_SCANS.md), so it isn't shipped.
+# Local runs use the dev stage below (Docker Compose), never this one.
+RUN rm -f /usr/local/bin/aws-lambda-rie
+
 COPY app ${LAMBDA_TASK_ROOT}/app
 COPY observability ${LAMBDA_TASK_ROOT}/observability
 # Migration scripts, applied by the bootstrap Lambda (app/bootstrap_db.py).
@@ -57,5 +65,13 @@ COPY observability ./observability
 COPY alembic ./alembic
 COPY alembic.ini ./alembic.ini
 
+# Not root, like the frontend container (trivy DS-0002). The code is
+# read-only to it; nothing in the Compose services writes inside /app.
+RUN useradd --system --uid 10001 --no-create-home app
+USER app
+
 EXPOSE 8000
+# The API's own health route (no database), for `docker compose ps`.
+HEALTHCHECK --interval=10s --timeout=3s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)" || exit 1
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

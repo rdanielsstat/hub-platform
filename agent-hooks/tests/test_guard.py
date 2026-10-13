@@ -7,9 +7,13 @@ Claude Code. Standard library only:
 
 from __future__ import annotations
 
+import io
 import json
+import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -184,9 +188,209 @@ class Deploys(unittest.TestCase):
             "gh workflow list",
             "gh run view 123 --log",
             "aws sts get-caller-identity",
-            "aws lambda get-function --function-name x",
+            "aws lambda list-aliases --function-name x",
             "aws s3 ls s3://bucket",
             "aws s3 cp s3://bucket/index.html .",
+            "aws s3 cp s3://bucket/index.html . --region us-east-1",
+            "aws ssm get-parameter --name /hub-dev/db-url",
+            "aws logs tail /aws/lambda/hub-dev-backend",
+        ):
+            with self.subTest(command=command):
+                self.assertIsNone(bash(command))
+
+
+class DeployBypasses(unittest.TestCase):
+    """H3: each bypass found in the 2026-10-13 sweep, and the variants
+    found auditing each command family."""
+
+    def assert_denied(self, *commands):
+        for command in commands:
+            with self.subTest(command=command):
+                self.assertEqual(decision(bash(command)), "deny")
+
+    def assert_asks(self, *commands):
+        for command in commands:
+            with self.subTest(command=command):
+                self.assertEqual(decision(bash(command)), "ask")
+
+    def test_tofu_global_options_before_the_subcommand(self):
+        self.assert_denied(
+            "tofu -chdir=infra/hub apply -auto-approve",
+            "tofu -chdir=infra/hub destroy",
+            "terraform -chdir=infra/hub apply",
+            "tofu -no-color apply",
+        )
+
+    def test_tofu_state_changes(self):
+        self.assert_denied(
+            "tofu state rm aws_s3_bucket.x",
+            "tofu state mv a b",
+            "tofu state push terraform.tfstate.backup",
+            "tofu -chdir=infra/hub state rm x",
+            "tofu untaint x",
+            "tofu force-unlock 1234",
+            "tofu workspace delete prod",
+        )
+        for command in (
+            "tofu state list",
+            "tofu -chdir=infra/hub plan",
+            "tofu workspace list",
+        ):
+            with self.subTest(command=command):
+                self.assertIsNone(bash(command))
+
+    def test_shell_wrappers_are_inspected(self):
+        self.assert_denied(
+            "bash -c 'git commit -m x'",
+            'sh -c "git commit -m x"',
+            "zsh -c 'tofu apply'",
+            "bash -lc 'cd infra/hub && tofu apply'",
+            "eval 'git commit -m x'",
+            "eval git commit -m x",
+            "env -i PATH=/usr/bin git commit -m x",
+            "sudo -u rob git commit -m x",
+            "nohup bash -c 'git commit -m x'",
+            "xargs -I{} git commit -m {}",
+        )
+        self.assert_asks("bash -c 'git push origin main'")
+        self.assertIsNone(bash("bash -c 'ls -la'"))
+
+    def test_separators_inside_quotes_stay_in_one_command(self):
+        # Splitting at ; or && inside quotes used to cut the quoted script
+        # in two and mangle its last word ("destroy\"").
+        self.assert_denied(
+            'sh -c "cd infra/hub; tofu destroy"',
+            "bash -c 'git add -A && git commit -m x'",
+        )
+        self.assertIsNone(bash("echo 'docs: run tofu plan; never tofu apply'"))
+
+    def test_git_commands_that_create_commits(self):
+        self.assert_denied(
+            "git merge feature",
+            "git cherry-pick abc123",
+            "git revert HEAD",
+            "git am < fix.patch",
+            "git rebase main",
+            "git commit-tree HEAD^{tree} -m x",
+            "git -c alias.ci=commit ci -m x",
+            "git config alias.ci commit",
+            "git config --global alias.ci commit",
+        )
+        self.assert_asks("git pull", "git pull --rebase origin main")
+        for command in ("git merge-base main HEAD", "git config --list"):
+            with self.subTest(command=command):
+                self.assertIsNone(bash(command))
+
+    def test_gh_api_workflow_dispatch_and_writes(self):
+        self.assert_denied(
+            "gh api -X POST repos/o/r/actions/workflows/promote.yml/dispatches",
+            "gh api --method POST /repos/o/r/actions/workflows/1/dispatches -f ref=main",
+            "gh api repos/o/r/actions/workflows/ci.yml/dispatches -f ref=main",
+            "gh api repos/o/r/dispatches -f event_type=deploy",
+            "gh run rerun 123",
+            "gh workflow enable promote.yml",
+        )
+        self.assert_asks(
+            "gh api -X PATCH repos/o/r -f description=x",
+            "gh api repos/o/r/issues -f title=x",
+            "gh api --method DELETE repos/o/r/git/refs/tags/v1",
+            "gh api repos/o/r/rulesets --input rules.json",
+        )
+        for command in ("gh api repos/o/r", "gh api -X GET repos/o/r/actions/runs"):
+            with self.subTest(command=command):
+                self.assertIsNone(bash(command))
+
+    def test_aws_secret_reads(self):
+        self.assert_denied(
+            "aws ssm get-parameter --name /hub-dev/db-url --with-decryption",
+            "aws ssm get-parameters --names a b --with-decryption",
+            "aws ssm get-parameters-by-path --path /hub-prod --with-decryption",
+            "aws secretsmanager get-secret-value --secret-id x",
+            "aws kms decrypt --ciphertext-blob fileb://x",
+            "aws lambda get-function --function-name hub-prod-backend",
+            "aws lambda get-function-configuration --function-name hub-prod-backend",
+            "aws lambda list-functions",
+            "aws configure export-credentials",
+            "aws sts get-session-token",
+            "aws sts assume-role --role-arn x --role-session-name y",
+            "aws lambda get-function --function-name x --query Configuration",
+            "aws lambda get-function --function-name x --query Configuration.Environment",
+            "aws lambda list-functions --query 'Functions[].Environment'",
+        )
+        self.assert_asks("aws ecr get-login-password")
+
+    def test_lambda_reads_narrowed_to_safe_fields_are_allowed(self):
+        # security/IAC_SCANS.md finds the prod image this way.
+        for command in (
+            "aws lambda get-function --function-name hub-prod-backend "
+            "--query Code.ResolvedImageUri --output text",
+            "aws lambda get-function-configuration --function-name x --query Runtime",
+            "aws lambda list-functions --query 'Functions[].FunctionName'",
+        ):
+            with self.subTest(command=command):
+                self.assertIsNone(bash(command))
+
+    def test_aws_s3_uploads_with_options_anywhere(self):
+        self.assert_denied(
+            "aws s3 cp dist s3://bucket --recursive --region us-east-1",
+            "aws s3 cp index.html s3://bucket/ --cache-control max-age=60",
+            "aws --region us-east-1 s3 sync dist s3://bucket --delete",
+            "aws s3 mv x s3://bucket/x --profile prod",
+            "aws s3 sync dist s3://bucket --exclude '*.map' --region us-east-1",
+        )
+
+    def test_publishing_packages(self):
+        self.assert_denied(
+            "pnpm publish",
+            "npm publish --access public",
+            "uv publish",
+            "twine upload dist/*",
+        )
+
+
+class EnvironmentDumps(unittest.TestCase):
+    """H1: commands that print the environment, where a credential such
+    as the MCP server's could sit."""
+
+    def test_environment_dumps_are_denied(self):
+        for command in (
+            "printenv",
+            "printenv HUB_PASSWORD",
+            "env",
+            "env -0",
+            "env | grep HUB",
+            "set",
+            "set | grep HUB",
+            "export",
+            "export -p",
+            "declare -p",
+            "declare -x",
+            "declare -p HUB_PASSWORD",
+            "typeset -x",
+            "cat /proc/self/environ",
+            "xargs -0 -n1 < /proc/1/environ",
+            "strings /proc/$$/environ",
+            "tr '\\0' '\\n' < /proc/12345/environ",
+            "echo $HUB_PASSWORD",
+            'echo "${HUB_PASSWORD}"',
+            "ps eww",
+            "ps auxe",
+            "ps -E -p 123",
+            "ps -o command -E",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(decision(bash(command)), "deny")
+
+    def test_ordinary_uses_are_allowed(self):
+        for command in (
+            "env FOO=1 ls",
+            "env -i PATH=/usr/bin ls",
+            "set -euo pipefail",
+            "export FOO=1",
+            "ps aux",
+            "ps -p 123 -o pid,command",
+            "grep -rn HUB_PASSWORD mcp-server",
+            "echo $HOME",
         ):
             with self.subTest(command=command):
                 self.assertIsNone(bash(command))
@@ -266,9 +470,95 @@ class HookContract(unittest.TestCase):
         )
         self.assertEqual((done.returncode, done.stdout), (0, ""))
 
-    def test_garbage_input_never_blocks(self):
+    def test_garbage_input_fails_closed(self):
+        # L7: input the hook can't read is denied, not waved through.
         done = self.run_hook("not json")
-        self.assertEqual((done.returncode, done.stdout), (0, ""))
+        self.assertEqual(done.returncode, 0)
+        output = json.loads(done.stdout)["hookSpecificOutput"]
+        self.assertEqual(output["permissionDecision"], "deny")
+        self.assertIn("couldn't read", output["permissionDecisionReason"])
+
+
+class FailsClosed(unittest.TestCase):
+    """L7: a crash, or no python3 at all, blocks the tool call with a
+    message instead of silently turning every rule off."""
+
+    RUNNER = HOOK.parent / "run-guard.sh"
+
+    def test_a_crash_in_the_rules_denies(self):
+        original = guard.decide
+
+        def boom(event):
+            raise RuntimeError("simulated bug")
+
+        guard.decide = boom
+        stdin, stdout = sys.stdin, sys.stdout
+        try:
+            sys.stdin = io.StringIO(json.dumps({"tool_name": "Bash"}))
+            sys.stdout = io.StringIO()
+            code = guard.main()
+            printed = sys.stdout.getvalue()
+        finally:
+            guard.decide = original
+            sys.stdin, sys.stdout = stdin, stdout
+        self.assertEqual(code, 0)
+        output = json.loads(printed)["hookSpecificOutput"]
+        self.assertEqual(output["permissionDecision"], "deny")
+        self.assertIn("RuntimeError", output["permissionDecisionReason"])
+
+    def run_runner(self, path: str, payload: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["/bin/sh", str(self.RUNNER)],
+            input=payload,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env={"PATH": path},
+        )
+
+    def tool_dir(self, **scripts: str) -> str:
+        """A PATH directory with dirname, plus the given stub programs."""
+        directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, directory)
+        os.symlink(shutil.which("dirname"), os.path.join(directory, "dirname"))
+        for name, body in scripts.items():
+            path = os.path.join(directory, name)
+            with open(path, "w") as f:
+                f.write("#!/bin/sh\n" + body + "\n")
+            os.chmod(path, 0o755)
+        return directory
+
+    def test_runner_blocks_when_python3_is_missing(self):
+        done = self.run_runner(self.tool_dir(), '{"tool_name": "Bash"}')
+        self.assertEqual(done.returncode, 2)
+        self.assertIn("python3 not found", done.stderr)
+
+    def test_runner_blocks_when_the_hook_crashes(self):
+        done = self.run_runner(self.tool_dir(python3="exit 1"), '{"tool_name": "Bash"}')
+        self.assertEqual(done.returncode, 2)
+        self.assertIn("guard.py failed", done.stderr)
+
+    def test_runner_passes_decisions_through(self):
+        python_dir = os.path.dirname(sys.executable)
+        if not os.path.exists(os.path.join(python_dir, "python3")):
+            self.skipTest("no python3 next to the test interpreter")
+        done = self.run_runner(
+            self.tool_dir() + os.pathsep + python_dir,
+            json.dumps(
+                {"tool_name": "Bash", "tool_input": {"command": "git commit -m x"}}
+            ),
+        )
+        self.assertEqual(done.returncode, 0)
+        output = json.loads(done.stdout)["hookSpecificOutput"]
+        self.assertEqual(output["permissionDecision"], "deny")
+
+    def test_settings_run_the_hook_through_the_runner(self):
+        settings = json.loads(
+            (HOOK.parents[1] / ".claude" / "settings.json").read_text()
+        )
+        (entry,) = settings["hooks"]["PreToolUse"]
+        (hook,) = entry["hooks"]
+        self.assertIn("agent-hooks/run-guard.sh", hook["command"])
 
 
 if __name__ == "__main__":

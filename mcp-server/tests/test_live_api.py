@@ -1,7 +1,8 @@
 """The tools against a real Hub backend, end to end: `uv run pytest -m
 integration` with one on HUB_API_URL (default http://localhost:8000),
 e.g. `make docker-up`. CI runs it against the Compose stack. Registers
-a throwaway account, so it never touches existing data."""
+a throwaway account, so it never touches existing data, and refuses to
+run against anything but a local backend (tests/live_guard.py)."""
 
 import os
 import uuid
@@ -12,6 +13,7 @@ from mcp import Client
 
 from hub_mcp.client import HubClient, Settings
 from hub_mcp.server import create_server
+from tests.live_guard import require_local_api
 
 pytestmark = [pytest.mark.integration, pytest.mark.anyio]
 
@@ -26,6 +28,7 @@ async def _tool(client, tool, **arguments):
 
 
 async def test_capture_update_note_and_read_back():
+    require_local_api(API_URL)
     email = f"mcp-{uuid.uuid4().hex[:12]}@example.com"
     password = "mcp-live-password-123"
     async with httpx2.AsyncClient(base_url=API_URL) as http:
@@ -50,7 +53,9 @@ async def test_capture_update_note_and_read_back():
         await _tool(client, "add_note", project_id=created["id"], body="From MCP")
         listed = await _tool(client, "list_projects", tag="mcp")
         full = await _tool(client, "get_project", project_id=created["id"])
-        missing = await client.call_tool("get_project", {"project_id": "nope"})
+        missing = await client.call_tool(
+            "get_project", {"project_id": str(uuid.uuid4())}
+        )
 
     assert [p["id"] for p in listed] == [created["id"]]
     assert full["project"]["status"] == "Exploring"

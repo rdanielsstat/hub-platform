@@ -89,7 +89,10 @@ paths:
         '403':
           description: >
             Sign-ups are closed: the instance has MAX_ACCOUNTS accounts (1000
-            when deployed; off locally).
+            when deployed; off locally). Also "Cross-site sign-in refused"
+            when the request has an Origin header that isn't one of the
+            site's own origins (CORS_ORIGINS); requests without Origin, such
+            as API clients, aren't affected.
           content:
             application/json:
               schema:
@@ -146,6 +149,16 @@ paths:
                 $ref: '#/components/schemas/TokenResponse'
         '401':
           description: Incorrect email or password
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPError'
+        '403':
+          description: >
+            "Cross-site sign-in refused": the request has an Origin header
+            that isn't one of the site's own origins (CORS_ORIGINS), so it
+            came from another site (login CSRF). Requests without Origin,
+            such as API clients, aren't affected.
           content:
             application/json:
               schema:

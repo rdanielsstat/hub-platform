@@ -195,6 +195,13 @@
   but it didn't (its own limitations said so), so it now has that step,
   plus pip-audit and bandit for the MCP server and the hook.
 
+**2026-10-13, security sweep remediation**
+
+- Every finding from the day's security sweep fixed or decided, with a
+  test where practical and one entry each in
+  `security/REMEDIATION_LOG.md`: H1 to H3, M1 to M4, L1 to L8, and four
+  issues found while fixing them (N1 to N4). Nothing left open.
+
 ## Project requirements
 
 - Root `README.md`: done.

@@ -36,8 +36,18 @@ resource "aws_iam_openid_connect_provider" "github" {
   thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
 }
 
-# Only workflows running on the main branch of this one repository may assume
-# the role. A fork, a pull request from a fork, or another repo cannot.
+# Who may assume the role: GitHub Actions jobs of this one repository that
+# run in a deployment environment (`environment: dev` or `prod`). Which
+# branches may use those environments is a GitHub setting, not part of the
+# token's subject: both are limited to `main` (Settings > Environments >
+# Deployment branches; infra/BOOTSTRAP.md), and prod also needs a
+# reviewer. A fork, a pull request from a fork (GitHub gives it no OIDC
+# token), or another repo cannot.
+#
+# Two subject forms: GitHub's immutable form, `repo:<owner>@<owner
+# id>/<repo>@<repo id>`, which this repository has opted into, so its
+# tokens carry it (ids checked against the GitHub API, 2026-10-13); and the
+# name-based form, kept as a fallback.
 data "aws_iam_policy_document" "ci_assume" {
   statement {
     actions = ["sts:AssumeRoleWithWebIdentity"]

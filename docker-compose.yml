@@ -80,6 +80,10 @@ services:
       # HUB_JWT_SECRET intentionally left unset: ENVIRONMENT=local means
       # app/core/config.py falls back to the dev-only default and just
       # warns, same as a bare `uv run` with no .env.
+      # The web app's origins: the Vite dev server (the default) and the
+      # frontend service below. Also the allowlist for the login CSRF
+      # check (backend/app/auth/csrf.py), so signing in on :8080 works.
+      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080,http://127.0.0.1:8080
     ports:
       - "8000:8000"
     volumes:

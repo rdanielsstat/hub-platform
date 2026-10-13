@@ -49,7 +49,10 @@ Any failure means no deploy.
 Started from GitHub: **Actions > Promote to production > Run workflow**,
 typing `promote` to confirm. The job runs in the `prod` GitHub
 environment, so it then waits for a required reviewer's approval and a
-wait timer. Once approved it:
+wait timer (5 minutes). Both the `dev` and `prod` environments accept
+deployments from `main` only (Deployment branches), since the AWS role
+trusts any job running in them (`infra/bootstrap/main.tf`). Once
+approved it:
 
 1. Reads the image tag currently deployed in dev
    (`tofu output deployed_image_tag` in the dev workspace). Refuses if

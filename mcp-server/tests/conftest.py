@@ -16,7 +16,7 @@ def api() -> FakeHubApi:
 
 @pytest.fixture
 def settings() -> Settings:
-    return Settings(api_url="http://hub.test", email=EMAIL, password=PASSWORD)
+    return Settings(api_url="https://hub.test", email=EMAIL, password=PASSWORD)
 
 
 @pytest.fixture

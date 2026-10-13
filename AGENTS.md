@@ -44,7 +44,8 @@ here and don't let this file drift from it.
 - `mcp-server/`: MCP server exposing the Hub API to AI agents (five tools,
   no deletes), self-contained (`pyproject.toml`, `uv.lock`, `tests/`);
   registered for Claude Code in `.mcp.json`. See "MCP server and hooks".
-- `agent-hooks/`: the Claude Code guard hook (`guard.py`), registered in
+- `agent-hooks/`: the Claude Code guard hook (`guard.py`, run through
+  `run-guard.sh`, which fails closed), registered in
   `.claude/settings.json`. See "MCP server and hooks".
 - `agent-capabilities/`: index of every agent capability (skills,
   subagent, MCP server, hooks, custom agent).
@@ -103,6 +104,10 @@ uv run ruff check . && uv run ruff format --check .  # lint and format check
   (3/min) and `/client-errors` (30/min) are rate limited per client IP when
   deployed. Usage caps (`app/core/quotas.py`: accounts, projects per user,
   notes per project) answer 403. See `security/RATE_LIMITING.md`.
+  `/auth/login` and `/auth/register` also refuse (403) a request whose
+  `Origin` isn't in `CORS_ORIGINS` (login CSRF, `app/auth/csrf.py`); a
+  new web origin, local or deployed, must be added there or sign-in
+  breaks.
 - Database outages: an `OperationalError` is a 503 with `Retry-After`
   (`app/main.py`), and the web app only treats a 401 as signed out
   (`frontend/src/auth.tsx`). Keep both true; see `ops/TROUBLESHOOTING.md`.
@@ -148,8 +153,8 @@ October 2026.
   queries to a landmark rather than the whole document to avoid matching hidden content.
 
 Backend: pytest 9.1, two layers told apart by the `integration` marker.
-`uv run pytest` (from inside `backend/`) runs the unit tests only: 435 tests in
-27 files as of October 2026, each with its own in-memory SQLite database.
+`uv run pytest` (from inside `backend/`) runs the unit tests only: 458 tests in
+30 files as of October 2026, each with its own in-memory SQLite database.
 `uv run pytest -m integration` runs `tests/integration/` (38 tests in 4 files)
 against the Docker Compose Postgres (`docker compose up -d --wait postgres`, or
 `make test-integration`), in a throwaway database built by the real
@@ -261,21 +266,30 @@ Definition: `.claude/agents/qa-engineer.md`
 **Hub MCP server** (`mcp-server/`, `mcp-server/README.md`): Python 3.12,
 the official `mcp` SDK v2 (`MCPServer`; v1's `FastMCP` no longer exists),
 stdio. Tools: `list_projects`, `get_project` (read-only),
-`create_project`, `update_project`, `add_note`. It signs in with
-`HUB_EMAIL`/`HUB_PASSWORD` and calls the API at `HUB_API_URL` with a
-Bearer token. Keep it a subset of the API: never add a delete tool, and
-keep every path it calls in `openapi.yaml` (`tests/test_contract.py`
-checks). A change to an endpoint it uses means running its tests too.
+`create_project`, `add_note` (add), `update_project` (destructive: it
+overwrites, refuses to blank text without `allow_clear`, and needs
+`confirm_bulk` after three status changes in ten minutes). It signs in
+with `HUB_EMAIL` and a password that `mcp-server/run-with-keychain.sh`
+reads from the macOS keychain into the server's process only (never
+export `HUB_PASSWORD` in a shell an agent uses), and calls the API at
+`HUB_API_URL` (https, or http to a local host only) with a Bearer token.
+Project ids must be UUIDs. Keep it a subset of the API: never add a
+delete tool, and keep every path it calls in `openapi.yaml`
+(`tests/test_contract.py` checks). A change to an endpoint it uses means
+running its tests too.
 
-**Guard hook** (`agent-hooks/guard.py`, `agent-hooks/README.md`): a Claude
-Code `PreToolUse` hook that denies `git commit`, deploys and access to
-real `.env` files and other secrets, and asks the human before
-`git push`, `git tag` and commands that delete data. It enforces the
-rules in "Agent Permissions and Security Boundaries"; it doesn't replace
-them. If it denies something, don't try
-to get around it: stop and tell the human. Standard library only and
-Python 3.9 compatible; a new rule needs a test in
-`agent-hooks/tests/test_guard.py`.
+**Guard hook** (`agent-hooks/guard.py`, run through `run-guard.sh`;
+`agent-hooks/README.md`): a Claude Code `PreToolUse` hook that denies
+anything that creates a commit, deploys or publishes, access to real
+`.env` files and other secrets, printing the environment, and AWS reads
+that return secrets; it asks the human before `git push`, `git tag`,
+`git pull`, GitHub API writes and commands that delete data. It checks
+the command inside `bash -c`, `eval`, `env`, `sudo` and similar wrappers,
+and fails closed (a crash or a missing `python3` blocks the call). It
+enforces the rules in "Agent Permissions and Security Boundaries"; it
+doesn't replace them. If it denies something, don't try to get around
+it: stop and tell the human. Standard library only and Python 3.9
+compatible; a new rule needs a test in `agent-hooks/tests/test_guard.py`.
 
 ## Deployment Architecture
 

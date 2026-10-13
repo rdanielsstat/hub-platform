@@ -3,6 +3,7 @@ just the endpoints hub_mcp calls, with the real API's auth, ownership
 404s, camelCase fields and error shapes."""
 
 import json
+import uuid
 from datetime import UTC, datetime
 from itertools import count
 from typing import Any
@@ -12,6 +13,8 @@ import httpx2
 
 EMAIL = "agent@example.com"
 PASSWORD = "correct-horse"
+# A well-formed project id that no project has.
+MISSING_ID = "00000000-0000-4000-8000-000000000000"
 
 
 class FakeHubApi:
@@ -109,7 +112,7 @@ class FakeHubApi:
     def _new_project(self, fields: dict[str, Any]) -> dict[str, Any]:
         now = self._now()
         return {
-            "id": f"p{next(self._ids)}",
+            "id": str(uuid.uuid4()),  # as the backend does
             "name": "Untitled",
             "pitch": "",
             "description": "",

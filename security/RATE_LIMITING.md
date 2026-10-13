@@ -169,6 +169,34 @@ to the hop; IPv6 clients still grouped by /64; two users behind one
 Cloudflare edge get separate login buckets; and the list parser
 normalizes ranges and rejects typos.
 
+## Email enumeration through sign-up (accepted)
+
+`POST /auth/register` answers 409 "Email already registered" for an
+email that has an account, so anyone can check whether an address is
+registered. Reviewed in the 2026-10-13 security sweep
+(`security/REMEDIATION_LOG.md` L8) and kept, on purpose:
+
+- **Why it can't be uniform.** A successful sign-up signs the user in
+  (201 with the session cookie) and the web app goes straight to the
+  dashboard. For an existing email there's no response that looks the
+  same: signing the caller in would hand them someone else's account,
+  and a fake success would leave the web app believing it's signed in.
+  Treating "sign up with an existing email and the right password" as a
+  login doesn't help, because a wrong password must still fail. A
+  uniform answer needs email verification (every sign-up says "check
+  your inbox"), and Hub sends no email.
+- **What bounds it.** Sign-up is limited to 3 attempts per minute per
+  client IP (Cloudflare's real client IP when deployed), with API
+  Gateway's 50 rps, burst 100, behind it (see "Layers"), so checking a
+  list of addresses is slow. Login doesn't leak the same thing: an
+  unknown email gets the same message, after the same argon2 cost, as a
+  wrong password (`DUMMY_PASSWORD_HASH`, `backend/app/auth/security.py`).
+- **Impact.** It reveals only that an address has a Hub account, on a
+  personal app with at most 1000 accounts (`MAX_ACCOUNTS`).
+
+Revisit if Hub ever sends email (verification at sign-up would make the
+response uniform) or grows beyond a personal tool.
+
 ## Caps are soft
 
 Every cap is "count, then insert" with no lock between. Two requests at

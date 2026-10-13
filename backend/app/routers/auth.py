@@ -3,6 +3,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.security import OAuth2PasswordRequestForm
 
 from app.auth.cookies import clear_auth_cookie, set_auth_cookie
+from app.auth.csrf import require_allowed_origin
 from app.auth.dependencies import get_current_user
 from app.auth.rate_limit import limit_login_attempts, limit_register_attempts
 from app.auth.security import (
@@ -31,7 +32,8 @@ def _start_session(response: Response, user_id: str) -> TokenResponse:
     "/register",
     response_model=TokenResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(limit_register_attempts)],
+    # Origin first: a cross-site attempt doesn't count against the limit.
+    dependencies=[Depends(require_allowed_origin), Depends(limit_register_attempts)],
 )
 def register(
     body: RegisterInput, response: Response, store: Store = Depends(get_store)
@@ -57,7 +59,7 @@ def register(
 @router.post(
     "/login",
     response_model=TokenResponse,
-    dependencies=[Depends(limit_login_attempts)],
+    dependencies=[Depends(require_allowed_origin), Depends(limit_login_attempts)],
 )
 def login(
     response: Response,

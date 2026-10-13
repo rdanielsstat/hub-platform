@@ -19,6 +19,8 @@ Legend: **Done** (implemented, and tested or configured in code),
 | Session is a JWT in an httpOnly, SameSite=Strict cookie, Secure when deployed | Done | `app/auth/cookies.py`, `tests/test_auth_cookie.py`, E2E cookie tests |
 | Invalid or expired cookie is cleared on the 401 | Done | `app/auth/dependencies.py` |
 | JWT secret from SSM; refuses to start with a missing or default secret when deployed | Done | `require_safe_jwt_secret()`, `tests/test_startup.py` |
+| Login CSRF: sign-in and sign-up refuse a foreign `Origin` | Done | `app/auth/csrf.py` (allowlist `CORS_ORIGINS`), `tests/test_login_csrf.py`; 2026-10-13 sweep, `security/REMEDIATION_LOG.md` M4 |
+| Sign-up doesn't reveal whether an email is registered | Accepted | 409 "Email already registered" kept: a uniform response needs email verification, which Hub doesn't have. Bounded by the 3/min/IP sign-up limit; login doesn't leak it. `security/RATE_LIMITING.md`, "Email enumeration through sign-up" |
 | Logout revokes tokens server side | Accepted | Stateless JWTs, 60-minute expiry; logout clears the cookie only |
 | Backend unreachable doesn't sign the user out | Done | `frontend/src/auth.tsx` retry and "can't reach" state, `ops/TROUBLESHOOTING.md` |
 
@@ -29,6 +31,7 @@ Legend: **Done** (implemented, and tested or configured in code),
 | Every project and note query is scoped to the owner | Done | `app/db/store.py`, `tests/test_projects.py`, `tests/test_notes.py`, integration tests |
 | Another user's resource is a 404, indistinguishable from missing | Done | Same; `openapi.yaml` `NotFound` |
 | MCP server limited to one account's data, with no delete tools | Done | `mcp-server/hub_mcp/server.py`; `tests/test_server.py` (tool list), `tests/test_contract.py` (no DELETE in the client), `tests/test_live_api.py` (404 for another id) |
+| MCP server: destructive updates guarded, ids can't reach other endpoints, password kept from the agent | Done | 2026-10-13 sweep (`security/REMEDIATION_LOG.md` H1, H2, M1, L4, L5): `update_project` marked destructive with `allow_clear`/`confirm_bulk`; project ids must be UUIDs; password from the macOS keychain via `run-with-keychain.sh`, never over remote http; `mcp-server/tests/test_hardening.py`, `tests/test_keychain_wrapper.py` |
 | MCP server has no scoped or read-only token | Accepted | The API issues one kind of token; the server holds the configured account's full non-delete access. Mitigated by no delete tools and per-call confirmation in Claude Code (`security/AGENT_SECURITY.md`) |
 | Link URLs restricted to http(s) (no `javascript:`) | Done | `Link` validator, tests |
 
@@ -76,7 +79,7 @@ Legend: **Done** (implemented, and tested or configured in code),
 |---|---|---|
 | Secret scan of full history on every PR and push, gating deploys | Done | `security/GITLEAKS_CONFIG.md` |
 | Dependency audit (pip-audit, pnpm audit) | Verified | Runs in CI on every push (`dependency-scan`), over the backend, MCP server and frontend locks; clean on run 37164319484 (2026-10-04); MCP server lock clean locally with the same gate (2026-10-13); `security/DEPENDENCIES.md` |
-| Container image scan (trivy) | Done | Backend, 2026-10-03: 8 HIGH in the base image fixed in the Dockerfile; patched build has no CRITICAL/HIGH/MEDIUM/LOW. ECR also scans on push. Local Compose frontend (nginx), 2026-10-13: 1 MEDIUM (zlib) fixed by an OS upgrade at build; no findings after, and `trivy config` clean on its Dockerfile. `security/IAC_SCANS.md` |
+| Container image scan (trivy) | Done | Backend, 2026-10-03: 8 HIGH in the base image fixed in the Dockerfile; patched build has no CRITICAL/HIGH/MEDIUM/LOW. Rescan 2026-10-13: 3 HIGH, 5 MEDIUM in the bundled Lambda emulator, unreachable in Lambda; the binary is now removed, 0 findings, handler verified; `trivy config` clean (dev stage non-root). ECR also scans on push. Local Compose frontend (nginx), 2026-10-13: 1 MEDIUM (zlib) fixed by an OS upgrade at build; no findings after, and `trivy config` clean on its Dockerfile. `security/IAC_SCANS.md` |
 | GitHub Actions pinned to commit SHAs | Verified | Every `uses:` in `.github/workflows/` since 2026-10-03; CI has run green on the pins |
 | Every CI check gates the dev deploy | Verified | `deploy-dev` needs `test`, `dependency-scan`, `secrets-scan`, `integration`, `e2e`; run timings show the deploy starting only after the last check |
 | ECR image tags immutable | Verified | `infra/hub/ecr.tf`; `imageTagMutability: IMMUTABLE` on the prod repository; `promote.yml` skips re-copying an existing tag |
@@ -85,6 +88,7 @@ Legend: **Done** (implemented, and tested or configured in code),
 | Agent guardrail: no commits, deploys or secret access by a coding agent | Done | `agent-hooks/guard.py` (Claude Code `PreToolUse`, `.claude/settings.json`); `agent-hooks/tests/test_guard.py`; confirmed live 2026-10-13 (a `git commit --dry-run` was denied) |
 | Operational diagnosis run | Done | `security/OPERATIONAL_DIAGNOSIS.md` (drill, run 37164038288) |
 | Branch protection on `main` (no force-push or deletion) | Verified | Repository ruleset `protect-main` (id 24435773), active since 2026-10-04; GitHub reports `deletion` and `non_fast_forward` applying to `main`; direct pushes still allowed |
+| Deploy environments limited to `main`; OIDC only for deploy jobs | Verified | `dev` and `prod` GitHub environments accept deployments from `main` only (set and read back via the GitHub API, 2026-10-13; `prod` keeps its reviewer and wait timer); `id-token: write` only on `deploy-dev` in `ci.yml` (`backend/tests/test_workflow_permissions.py`); the role trusts only jobs in those environments (`infra/bootstrap/main.tf`). `security/REMEDIATION_LOG.md` L2, L3, N4 |
 
 ## Monitoring and response
 

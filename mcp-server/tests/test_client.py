@@ -5,7 +5,7 @@ import httpx2
 import pytest
 
 from hub_mcp.client import ConfigError, HubApiError, HubClient, Settings
-from tests.fake_api import EMAIL
+from tests.fake_api import EMAIL, MISSING_ID
 
 pytestmark = pytest.mark.anyio
 
@@ -72,7 +72,7 @@ async def test_a_wrong_password_is_reported_without_retrying(api, settings):
 async def test_api_errors_carry_status_and_detail(api, make_client):
     client = make_client()
     with pytest.raises(HubApiError) as missing:
-        await client.get_project("nope")
+        await client.get_project(MISSING_ID)
     with pytest.raises(HubApiError) as invalid:
         await client.create_project({"name": "x" * 300})
     await client.aclose()
@@ -90,4 +90,4 @@ async def test_an_unreachable_api_is_a_clear_error(settings):
         await client.list_projects()
     await client.aclose()
     assert caught.value.status == 0
-    assert "Can't reach the Hub API at http://hub.test" in str(caught.value)
+    assert "Can't reach the Hub API at https://hub.test" in str(caught.value)

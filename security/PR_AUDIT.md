@@ -30,6 +30,8 @@ Security implications:
   checked to accept every input the workflows pass. No `permissions:`
   block changed: `ci.yml` and `promote.yml` keep `contents: read` and
   `id-token: write` (OIDC to AWS), the alert handler keeps `contents: read`.
+  (Later, on 2026-10-13, `ci.yml` narrowed `id-token: write` to the
+  `deploy-dev` job; `security/REMEDIATION_LOG.md` L2.)
 - **Verified: checkout's credential handling.** checkout v7 keeps the
   GitHub token in a separate config file it removes at job end (visible in
   the post-job log: "Removing credentials config"), rather than in

@@ -10,7 +10,7 @@ The extension pack enables AI agents to assist with development workflows withou
 - **Skills**: Reusable, discoverable workflows for repeatable tasks (release, security scanning, E2E testing, design review)
 - **Subagents**: Specialized agents in fresh contexts for focused tasks (QA engineer for independent validation)
 - **MCP server**: Five tools that let an agent work with Hub data through the API, as one signed-in user, with no deletes (`mcp-server/`)
-- **Hooks and guardrails**: A Claude Code hook that denies commits, deploys and secret access and asks before pushes and data loss (`agent-hooks/`), plus the gitleaks pre-commit hook
+- **Hooks and guardrails**: A Claude Code hook that denies commits, deploys, publishing and secret access, asks before pushes and data loss, and fails closed (`agent-hooks/`), plus the gitleaks pre-commit hook
 - **Custom agents**: Agents a person runs in response to an event, with reviewer approval (on-call diagnostic for Grafana alerts in dev)
 - **Permissions**: Clear boundaries on what agents can and cannot do (`docs/permissions.md`)
 
@@ -170,10 +170,10 @@ Subagents run in fresh contexts with specialized roles, preventing implementatio
 | `list_projects` | read-only | Ideas filtered by status, tag or a search query, most recently updated first |
 | `get_project` | read-only | One idea in full, with its notes |
 | `create_project` | write | Capture a new idea (only the name is required) |
-| `update_project` | write | Change only the fields given |
+| `update_project` | destructive | Change only the fields given; won't blank text without `allow_clear`; `confirm_bulk` after three status changes in ten minutes |
 | `add_note` | write | Add a note to an idea |
 
-**How it works**: Logs in once with `HUB_EMAIL`/`HUB_PASSWORD` (environment variables, never a file), then calls the REST API at `HUB_API_URL` with a Bearer token, logging in again once if the token expires. Every path it calls is checked against `openapi.yaml` by a test.
+**How it works**: `mcp-server/run-with-keychain.sh` reads the password from the macOS keychain and starts the server with it in that process only (never in Claude Code's environment). The server logs in once with `HUB_EMAIL` and that password, then calls the REST API at `HUB_API_URL` (https, or http to a local host only) with a Bearer token, logging in again once if the token expires. Project ids must be UUIDs before they go into a path. Every path it calls is checked against `openapi.yaml` by a test, and its instructions tell the model that user-written text is untrusted data.
 
 **Key point**: No delete tools. The API's ownership checks, limits and caps apply exactly as for the web app, and deleting stays a human action. Details and security notes: `mcp-server/README.md`.
 
@@ -183,13 +183,13 @@ Subagents run in fresh contexts with specialized roles, preventing implementatio
 
 **Purpose**: Enforce the `AGENTS.md` boundaries mechanically, before an agent's tool call runs, rather than relying on the agent following instructions.
 
-**Trigger**: Claude Code's `PreToolUse` event for `Bash`, `Read`, `Edit`, `Write`, `MultiEdit`, `NotebookEdit` and `Grep` (registered in `.claude/settings.json`; active for anyone using Claude Code in the repo).
+**Trigger**: Claude Code's `PreToolUse` event for `Bash`, `Read`, `Edit`, `Write`, `MultiEdit`, `NotebookEdit` and `Grep` (registered in `.claude/settings.json`, which runs it through `agent-hooks/run-guard.sh`; active for anyone using Claude Code in the repo).
 
-**Denies**: reading or editing real `.env` files, `.secrets` and `*.tfvars`; `git commit`; `tofu`/`terraform` apply, destroy, import, taint; `gh workflow run`; AWS calls that change resources.
+**Denies**: reading or editing real `.env` files, `.secrets` and `*.tfvars`; printing the environment; AWS reads that return secrets; anything that creates a commit (`git commit`, merge, cherry-pick, revert, am, rebase, aliases); `tofu`/`terraform` apply, destroy, import, taint, state changes; starting workflows (`gh workflow run`, `gh run rerun`, `gh api` dispatches); AWS calls that change resources; publishing packages.
 
-**Asks the human**: `git push`, `git tag`, `gh pr merge`, `gh release create`; `docker compose down -v` and other volume deletion; `alembic downgrade`.
+**Asks the human**: `git push`, `git tag`, `git pull`, `gh pr merge`, `gh release create`, other `gh api` writes; `aws ecr get-login-password`; `docker compose down -v` and other volume deletion; `alembic downgrade`.
 
-**Key point**: Standard library only (Python 3.9+), tested rule by rule (`agent-hooks/tests/`). A guardrail against accidents and casual prompt injection, not a sandbox: human review, CI and branch protection stay in place behind it. Details: `agent-hooks/README.md`.
+**Key point**: Checks the command inside `bash -c`, `eval` and wrappers such as `env` and `sudo`; fails closed if it crashes or `python3` is missing. Standard library only (Python 3.9+), tested rule by rule, one test per known bypass (`agent-hooks/tests/`). A guardrail against accidents and casual prompt injection, not a sandbox: human review, CI and branch protection stay in place behind it. Details: `agent-hooks/README.md`.
 
 ### Secret scan (gitleaks)
 
@@ -280,7 +280,7 @@ Project-level instructions that all agents read. Covers:
 
 ### .claude/settings.json and .mcp.json
 
-`.claude/settings.json` registers the guard hook; `.mcp.json` registers the MCP server (credentials come from the `HUB_EMAIL` and `HUB_PASSWORD` environment variables, never the file). Claude Code asks once before using a project MCP server.
+`.claude/settings.json` registers the guard hook; `.mcp.json` registers the MCP server, started through `mcp-server/run-with-keychain.sh` (the email comes from `HUB_EMAIL`, the password from the macOS keychain; neither is in the file). Claude Code asks once before using a project MCP server.
 
 ### Environment setup
 

@@ -17,7 +17,9 @@ results table.
 | bandit (medium and above) | 2026-10-03 | `backend/app/` | No issues |
 | pnpm audit --prod | 2026-10-03 | Frontend production dependencies | No known vulnerabilities |
 | pip-audit 2.10.1, with the CI severity gate | 2026-10-13 | MCP server runtime + dev deps, 38 packages from `mcp-server/uv.lock` (30 runtime) | No known vulnerabilities |
+| pnpm audit (full tree) | 2026-10-13 | Frontend, `pnpm-lock.yaml`, dev dependencies included | 1 HIGH: `source-map-js` 1.2.1 (GHSA-68fv-2mgg-jv7q), dev tooling only (`pnpm audit --prod` clean). Pinned to 1.2.2 with a pnpm override; no known vulnerabilities after |
 | bandit 1.9.4 (medium and above) | 2026-10-13 | `mcp-server/hub_mcp/`, `agent-hooks/guard.py` | No issues |
+| trivy 0.75.0 (image and config) | 2026-10-13 | Backend `prod` image (local build) and `backend/Dockerfile` | Image: 3 HIGH, 5 MEDIUM, 1 LOW, 5 UNKNOWN, all in the bundled `aws-lambda-rie` (Go stdlib 1.26.7), unreachable in Lambda; binary removed, 0 after. Config: DS-0002, DS-0026, fixed in the dev stage, 0 after. `security/IAC_SCANS.md` |
 | trivy 0.75.0 (image and config) | 2026-10-13 | Local Compose frontend image (nginx) and `frontend/Dockerfile` | 1 MEDIUM (zlib) and 1 LOW config finding, both fixed; 0 after. `security/IAC_SCANS.md` |
 
 Commands used:
@@ -56,6 +58,11 @@ Python base image's OS packages (`public.ecr.aws/lambda/python:3.12`).
   with the same HIGH/CRITICAL gate.
 - **Agent hook** (`agent-hooks/`): standard library only, no
   dependencies.
+- **Frontend overrides**: `frontend/pnpm-workspace.yaml` `overrides` pins
+  a transitive package when a fix exists but the packages that pull it in
+  haven't updated yet: `source-map-js` 1.2.2 (GHSA-68fv-2mgg-jv7q, via
+  vite, postcss, vitest and jsdom). Each entry says why; drop it once
+  `pnpm why <package>` shows nothing older.
 - **Frontend**: `package.json` ranges, `pnpm-lock.yaml` pins;
   `pnpm install --frozen-lockfile` in CI fails on any drift. pnpm itself
   is pinned (`packageManager`).

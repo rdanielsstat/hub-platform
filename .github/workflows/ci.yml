@@ -8,9 +8,9 @@ on:
     branches: [main]
   pull_request:
 
+# Read-only for every job; deploy-dev alone adds id-token (see there).
 permissions:
   contents: read
-  id-token: write # required to exchange the GitHub token for AWS credentials
 
 env:
   AWS_REGION: us-east-1
@@ -239,6 +239,11 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: dev
+    # The only job that assumes the AWS role, so the only one that may ask
+    # for an OIDC token (backend/tests/test_workflow_permissions.py).
+    permissions:
+      contents: read
+      id-token: write # required to exchange the GitHub token for AWS credentials
     env:
       TF_VAR_cloudflare_zone_id: ${{ secrets.CLOUDFLARE_ZONE_ID }}
       TF_VAR_neon_urls: ${{ secrets.NEON_URLS }}
@@ -318,7 +323,7 @@ jobs:
           FN=$(tofu output -raw bootstrap_function_name)
           aws lambda invoke --function-name "$FN" --cli-binary-format raw-in-base64-out /tmp/bootstrap.json
           cat /tmp/bootstrap.json
-          grep -q '"errorMessage"' /tmp/bootstrap.json && exit 1 || true
+          if grep -q '"errorMessage"' /tmp/bootstrap.json; then exit 1; fi
 
       - name: Apply
         working-directory: infra/hub
@@ -359,7 +364,7 @@ jobs:
         working-directory: infra/hub
         run: |
           URL=$(tofu output -raw site_url)
-          for i in 1 2 3 4 5; do
+          for _ in 1 2 3 4 5; do
             code=$(curl -s -o /dev/null -w '%{http_code}' "$URL/api/health") && [ "$code" = "200" ] && exit 0
             sleep 10
           done

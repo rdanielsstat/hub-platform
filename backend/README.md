@@ -56,7 +56,7 @@ Then visit:
   deployed (`is_deployed()`, dev included) `/docs`, `/redoc` and
   `/openapi.json` return 404.
 
-CORS allows `CORS_ORIGINS` (default: the Vite dev server at `http://localhost:5173` and `http://127.0.0.1:5173`).
+CORS allows `CORS_ORIGINS` (default: the Vite dev server at `http://localhost:5173` and `http://127.0.0.1:5173`; Docker Compose adds its web app on `:8080`; deployed, the site itself). The same list is the login CSRF allowlist (see "Auth").
 
 ## Config
 
@@ -88,7 +88,7 @@ of it.
 | `OTEL_SDK_DISABLED` | unset | No. `true` turns observability off entirely, even with `OTEL_ENABLED` on. |
 | `SERVICE_VERSION` | unset (falls back to `LAMBDA_IMAGE_TAG`, then `local-dev`) | No. The `service.version` on telemetry. Set by OpenTofu on the dev and prod Lambdas from git tags; see "Releases and SERVICE_VERSION". |
 | `API_BASE_PATH` | `/` | Lambda only (`app/lambda_handler.py`): the path prefix Mangum strips before routing. The deployment sets `/api`, since CloudFront forwards `/api/*` with the prefix intact. Unused by uvicorn. |
-| `CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | No. Comma-separated. Only matters locally; CloudFront makes the deployed site same-origin. |
+| `CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | No. Comma-separated. The browser origins of the web app: CORS locally, and the login CSRF allowlist everywhere (a sign-in or sign-up with any other `Origin` gets 403). Set to the site (`https://<subdomain>`) by `infra/hub/lambda.tf` when deployed, and to the Vite and `:8080` origins by `docker-compose.yml`. |
 | `DB_URL_PARAM_NAME` | unset | Only used when `USE_SSM` is on: the SSM parameter name holding the full database URL. |
 | `JWT_PARAM_NAME` | unset | Only used when `USE_SSM` is on: the SSM parameter name holding the raw JWT secret. |
 | `ORIGIN_VERIFY_PARAM_NAME` | unset | **Required when `USE_SSM` is on**, ignored otherwise: the SSM parameter holding the `X-Origin-Verify` secret CloudFront sends. With `USE_SSM` on, the app refuses to start if it's unset, unreadable or empty. See "Origin verification". |
@@ -423,6 +423,17 @@ Protected routes accept either; the header wins when both are sent
 a cookie that fails validation is cleared on the 401 that rejects it.
 Tokens are still stateless JWTs: logout doesn't revoke a copy held
 elsewhere, it expires on its own.
+
+Login CSRF: `SameSite=Strict` stops another site from using a session,
+but not from creating one. A cross-site form POST to `/auth/login` could
+sign a visitor's browser into an account the attacker controls. So
+`POST /auth/login` and `POST /auth/register` refuse, with 403 "Cross-site
+sign-in refused", any request whose `Origin` header is present and not in
+`CORS_ORIGINS` (`app/auth/csrf.py`, checked before the rate limit so a
+refused attempt isn't counted). Browsers always send `Origin` on a
+cross-site POST; API clients (the MCP server, scripts) send none and
+aren't affected. CloudFront forwards `Origin` to the API
+(`infra/hub/frontend.tf`). Tests: `tests/test_login_csrf.py`.
 
 Locally the frontend (`:5173`) and API (`:8000`) are different origins
 but the same site, so the cookie still flows; the frontend sends

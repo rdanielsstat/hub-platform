@@ -36,6 +36,34 @@ comes from the git tag (`.github/scripts/service-version.sh`).
 - `pnpm lint` fails on any ESLint warning (`--max-warnings 0`)
 
 ### Security
+- Fixes from the 2026-10-13 security sweep, one entry each in
+  `security/REMEDIATION_LOG.md`:
+  - MCP server: the password comes from the macOS keychain through
+    `mcp-server/run-with-keychain.sh`, never Claude Code's environment;
+    `update_project` is marked destructive and won't blank text without
+    `allow_clear` or make more than three status changes in ten minutes
+    without `confirm_bulk`; project ids must be UUIDs (no path
+    injection); error text is capped; no password over plain http to a
+    remote host; the server tells the model user text is untrusted; the
+    live test refuses non-local backends
+  - Guard hook: denies environment dumps, AWS secret reads, every git
+    command that creates a commit, git aliases, tofu state changes and
+    `-chdir=` forms, workflow dispatches through `gh api`, S3 uploads
+    whatever the option order, and package publishing; checks `bash -c`,
+    `eval` and wrapped commands; splits command lines outside quotes only;
+    fails closed (`agent-hooks/run-guard.sh`)
+  - Login CSRF: `/auth/login` and `/auth/register` refuse a foreign
+    `Origin` (403); Docker Compose allows its `:8080` web app
+  - Backend prod image: the unused Lambda emulator removed (3 HIGH, 5
+    MEDIUM gone; 0 findings); the local dev image runs as a non-root user
+    with a healthcheck
+  - `source-map-js` pinned to 1.2.2 (GHSA-68fv-2mgg-jv7q)
+  - CI: `id-token: write` only on `deploy-dev`; deploy scripts pass
+    actionlint
+  - The `dev` and `prod` GitHub environments accept deployments from
+    `main` only
+  - Sign-up's 409 for a registered email kept, with the reasoning
+    recorded (`security/RATE_LIMITING.md`)
 - Compose frontend image: OS packages upgraded at build (fixes a MEDIUM
   zlib CVE), non-root, healthcheck, no nginx version in responses
 - Data policy states that the opt-in MCP server returns a user's own data
@@ -51,7 +79,8 @@ comes from the git tag (`.github/scripts/service-version.sh`).
 - 204 Playwright E2E tests (a phone-width check that every form field is
   16px or larger; the Compose frontend container's headers, routing,
   proxy and a browser journey)
-- 24 MCP server unit tests and a live test; 19 guard hook tests
+- 458 backend unit tests (login CSRF, Dockerfile, workflow permissions)
+- 74 MCP server unit tests and a live test; 36 guard hook tests
 
 ## [1.0.0] - 2026-10-03
 

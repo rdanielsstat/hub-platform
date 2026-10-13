@@ -7,6 +7,7 @@ import pytest
 from mcp import Client
 
 from hub_mcp.server import create_server
+from tests.fake_api import MISSING_ID
 
 pytestmark = pytest.mark.anyio
 
@@ -36,7 +37,10 @@ async def test_exposes_the_five_tools_and_no_delete(make_client):
         assert tools[name].annotations.read_only_hint is True
     for name in ("create_project", "update_project", "add_note"):
         assert tools[name].annotations.read_only_hint is False
-        assert tools[name].annotations.destructive_hint is False
+    # Adding is non-destructive; update_project overwrites (H2).
+    assert tools["create_project"].annotations.destructive_hint is False
+    assert tools["add_note"].annotations.destructive_hint is False
+    assert tools["update_project"].annotations.destructive_hint is True
     status = tools["create_project"].input_schema["properties"]["status"]
     assert status["enum"] == [
         "Inbox",
@@ -163,7 +167,7 @@ async def test_add_note_trims_and_refuses_blank(api, make_client):
 
 async def test_api_errors_become_tool_errors(make_client):
     is_error, message = await call(
-        create_server(make_client), "get_project", project_id="missing"
+        create_server(make_client), "get_project", project_id=MISSING_ID
     )
     assert is_error
     assert "Hub API error 404: Project not found" in message

@@ -53,14 +53,16 @@ scales to zero after 5 minutes idle and resumes in a few hundred milliseconds.
 ## 3. CI trust role
 
 ```bash
-cd infra/ci
+cd infra/bootstrap
 tofu init
 tofu apply          # prints ci_role_arn
 ```
 
-Creates the GitHub OIDC provider and a role that only workflows on the `main`
-branch of this repository can assume. No AWS access keys are ever stored in
-GitHub.
+Creates the GitHub OIDC provider and a role that jobs of this repository
+running in the `dev` or `prod` deployment environment can assume (forks
+and pull requests from forks get no OIDC token). No AWS access keys are
+ever stored in GitHub. Limiting the environments to `main` (below) is
+what keeps other branches from deploying.
 
 Then configure the repo (no console clicking):
 
@@ -72,7 +74,23 @@ gh secret set NEON_URLS --body '{"dev":{"pooled":"...","direct":"..."},"prod":{"
 ```
 
 The workflows reference `environment: dev` and `environment: prod`, so create
-both in the repository's Settings, Environments (or via `gh api`).
+both in the repository's Settings, Environments (or via `gh api`), and limit
+each to the `main` branch (Deployment branches: "Selected branches", rule
+`main`), since the AWS role trusts any job in those environments:
+
+```bash
+for env in dev prod; do
+  gh api -X PUT repos/<owner>/<repo>/environments/$env \
+    -F 'deployment_branch_policy[protected_branches]=false' \
+    -F 'deployment_branch_policy[custom_branch_policies]=true'
+  gh api -X POST repos/<owner>/<repo>/environments/$env/deployment-branch-policies \
+    -f name=main -f type=branch
+done
+```
+
+For `prod`, also add yourself as a required reviewer and a wait timer
+(the PUT replaces the environment's settings, so include them in the same
+call; `ops/DEPLOYMENT.md`, "Prod: promote.yml").
 
 ## Local `tofu` runs
 
