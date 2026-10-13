@@ -67,7 +67,7 @@ COPY alembic.ini ./alembic.ini
 
 # Not root, like the frontend container (trivy DS-0002). The code is
 # read-only to it; nothing in the Compose services writes inside /app.
-RUN useradd --system --uid 10001 --no-create-home app
+RUN useradd --uid 10001 --no-create-home app
 USER app
 
 EXPOSE 8000

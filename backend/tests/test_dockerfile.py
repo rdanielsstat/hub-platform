@@ -34,3 +34,11 @@ def test_dev_stage_runs_as_a_non_root_user_with_a_healthcheck():
     stage = _stage("dev")
     assert "\nUSER app\n" in stage
     assert "HEALTHCHECK" in stage and "/health" in stage
+
+
+def test_dev_user_is_a_regular_account_with_a_fixed_uid():
+    # --system with a uid above 999 makes useradd warn (SYS_UID_MAX) on
+    # every build; a regular account with the fixed uid doesn't.
+    useradd = next(line for line in _stage("dev").splitlines() if "useradd" in line)
+    assert "--uid 10001" in useradd
+    assert "--system" not in useradd
