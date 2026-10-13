@@ -610,30 +610,32 @@ what it should, the same extraction of the pre-remediation bootstrap and
 smoke-test blocks (`939fd47`) reports SC2015 (`A && B || C`) and SC2034
 (unused `i`), the two findings N3 fixed, and exits 1.
 
-## Prod verification pending
+## Prod verification (done, 2026-10-13)
 
-The sweep is **closed for dev** (deployed and verified in CI run
-38441889909 and on https://hub-dev.dnls.dev) and **open for prod** until
-`promote.yml` runs. Prod runs `939fd47` (promoted 2026-10-13, run
-38402314741), from before the remediation. These prod-facing changes
-take effect only when the owner promotes:
+**The sweep is closed: dev and prod.** Dev was verified in CI runs
+38441889909 (`83da391`) and 38450238623 (`baa25a6`); prod in the
+promotion below.
 
-| Change | Item | How it reaches prod | What to check after promoting |
+**Promotion:** <https://github.com/rdanielsstat/hub-platform/actions/runs/38451508786>,
+`promote.yml` dispatched by the owner from `main` at `baa25a6` on
+2026-10-13, approved by the owner (`rdanielsstat`) in the `prod`
+environment after the 5-minute wait timer; every step succeeded. Image
+`20261013-185502-baa25a6` (digest `sha256:9bcd0e4c...6cec1b42`), the one
+dev runs, copied unchanged to the prod repository (`SERVICE_VERSION`
+`1.0.0+6.gbaa25a6`). Prod previously ran `939fd47` (run 38402314741).
+
+| Change | Item | Status | Evidence |
 |---|---|---|---|
-| Login CSRF check on `/auth/login` and `/auth/register` (`backend/app/auth/csrf.py`, `routers/auth.py`) | M4 | The backend image, copied from dev | Sign-in on https://hub.dnls.dev works; `POST /api/auth/login` with a foreign `Origin` gets 403. Prod's `CORS_ORIGINS` is already the site (`infra/hub/lambda.tf`, unchanged) |
-| Prod image without the Lambda emulator (`backend/Dockerfile`, prod stage) | M3 | Same image | The prod Lambda and the prod bootstrap Lambda start and answer; `/api/health` 200 |
-| Rewritten bootstrap check and smoke test in `promote.yml` | N3 | The promote run itself | Its "Bootstrap schema" and "Smoke test" steps pass (they ran in `ci.yml` already; this is their first run in `promote.yml`) |
-| `prod` environment limited to `main` | N4 | Already active (a GitHub setting) | The promote run, dispatched from `main`, is accepted and waits for the reviewer and the wait timer as before |
-| Frontend built with `source-map-js` 1.2.2 | L1 | `promote.yml` rebuilds the frontend from `main` | The build step passes; build-time only, nothing in the shipped bundle changes |
+| Login CSRF check on `/auth/login` and `/auth/register` | M4 | Done | `POST https://hub.dnls.dev/api/auth/login` (a nonexistent test account, a deliberately wrong password) with `Origin: https://evil.example`: 403 "Cross-site sign-in refused"; with `Origin: https://hub.dnls.dev`: 401 "Incorrect email or password", so the site's own origin passes the check |
+| Prod image without the Lambda emulator | M3 | Done | `promote.yml` doesn't build; it copied the image CI built in run 38450238623, whose build log shows `RUN rm -f /usr/local/bin/aws-lambda-rie` (prod stage step 5 of 9). `hub-prod-backend` and `hub-prod-bootstrap` both run digest `sha256:9bcd0e4c...6cec1b42`, `State: Active`, `LastUpdateStatus: Successful` (updated 19:09 UTC); `https://hub.dnls.dev/api/health` returns 200 `{"status":"ok"}`. Verified on the deployed prod image: pulled by digest sha256:9bcd0e4c...6cec1b42 (tag 20261013-185502-baa25a6), /usr/local/bin/aws-lambda-rie is absent (ls exit 2, run by the owner) |
+| Rewritten bootstrap check and smoke test in `promote.yml` | N3 | Done | First run in a promote: "Bootstrap schema" ran `if grep -q '"errorMessage"' ...; then exit 1; fi` after `"StatusCode": 200` and "Bootstrap complete."; "Smoke test" ran the `for _ in 1 2 3 4 5` loop and exited on a 200 |
+| `prod` environment limited to `main` | N4 | Done | The run, dispatched from `main`, was accepted and held for review (a branch outside the policy is rejected before the gate); `configure-aws-credentials` logged "Assuming role with OIDC" and "Authenticated as assumedRoleId ...:GitHubActions" |
+| Frontend built with `source-map-js` 1.2.2 | L1 | Done | "Build frontend" passed (`built in 2.02s`), "Deploy frontend" passed; `https://hub.dnls.dev/` returns 200 |
 
-Not prod-facing, so nothing to wait for: the MCP server and guard hook
-(H1, H2, H3, M1, M2, L4 to L7, N1), the CI permissions (L2, `ci.yml`
-only; `promote.yml`'s single job keeps `id-token: write`), the OIDC
-pattern (L3, unchanged), the sign-up 409 decision (L8), the dev image's
-user (N2, N6), the README example (N5). `infra/hub` is unchanged since
-`939fd47`, and `infra/bootstrap` (a comment) is applied by hand, never by
-`promote.yml`.
+The other items were never prod-facing, so they needed no promotion: the
+MCP server and guard hook (H1, H2, H3, M1, M2, L4 to L7, N1), the CI
+permissions (L2, `ci.yml` only), the OIDC pattern (L3, unchanged), the
+sign-up 409 decision (L8), the dev image's user (N2, N6), the README
+example (N5). `infra/hub` was unchanged since `939fd47`.
 
-To close the sweep for prod: run `promote.yml` (a human decision), then
-check each row above and record the run here.
-
+Nothing in this sweep remains open.
