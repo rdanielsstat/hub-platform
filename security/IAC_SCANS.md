@@ -109,6 +109,14 @@ both, through the real `/var/runtime/bootstrap`. A regression test
 (`backend/tests/test_dockerfile.py`) checks the prod stage keeps
 removing it. `security/REMEDIATION_LOG.md` M3.
 
+**Scope of the evidence.** The 0-findings trivy result, which inspects
+Go binaries, is for a local build from this Dockerfile. The image CI
+built and deployed to dev (`20261013-175345-83da391`) was checked by its
+build log (the `rm` step ran) and ECR's scan on push, which covers OS
+packages only and doesn't inspect Go binaries; no full Go binary scan
+was run on that image itself. To scan it, use the "Image" commands
+under "How to run" against the dev repository.
+
 **`trivy config backend/Dockerfile`:** DS-0002 (HIGH, no non-root
 `USER`) and DS-0026 (LOW, no `HEALTHCHECK`). Neither applies to the prod
 stage, since Lambda runs the function as its own unprivileged user and

@@ -32,6 +32,7 @@ change** (verified that nothing needs changing, with the reason).
 | N3 | New (Low) | Shellcheck warnings in the deploy workflows | Done |
 | N4 | New (Medium) | Deploy environments weren't limited to `main` | Done |
 | N5 | New (Low) | README example kept tripping the working-tree secret scan | Done |
+| N6 | New (Low) | `useradd` warning in the dev image build (from N2) | Done |
 
 ## Entries
 
@@ -356,8 +357,11 @@ image builds for `linux/amd64` (as deployed) and `linux/arm64`; the
 emulator is gone (`ls` fails); with AWS's emulator mounted from the
 official base image and the real `/var/runtime/bootstrap`, an API
 Gateway v2 event for `GET /api/health` returns `200 {"status":"ok"}` on
-both architectures. `trivy image --scanners vuln`: 0 findings (14
-before). A first attempt with a hand-written fake Runtime API crashed
+both architectures. `trivy image --scanners vuln` on that local build:
+0 findings (14 before); trivy inspects Go binaries, so this is the only
+full scan of the emulator's removal. The image CI later built and
+deployed to dev was checked by its build log and ECR's OS-package scan
+only (see "CI confirmation"). A first attempt with a hand-written fake Runtime API crashed
 the runtime client (exit 139) on both architectures; with AWS's own
 emulator it works, so that was the fake's fault, not the image's, and
 the fake was discarded.
@@ -370,8 +374,9 @@ stage neither applies (Lambda runs the function as its own unprivileged
 user), but the `dev` stage, which runs the Compose `bootstrap`,
 `init_local` and `app` services, ran as root.
 
-**What changed.** The dev stage creates a system user `app` (uid 10001)
-and runs as it, and has a healthcheck that fetches `/health`. The prod
+**What changed.** The dev stage creates a user `app` (uid 10001; a
+regular account since N6, first created with `--system`) and runs as it,
+and has a healthcheck that fetches `/health`. The prod
 stage is unchanged (Lambda ignores both).
 
 **Files.** `backend/Dockerfile`, `backend/tests/test_dockerfile.py`,
@@ -523,6 +528,112 @@ finding before, none after; the full-history scan stays clean;
   `frontend/Dockerfile` 0 misconfigurations. actionlint: 0 findings.
   `pnpm audit`: no known vulnerabilities. gitleaks: changed files and
   full history clean.
-- Not run here: CI itself (no push from the agent); the owner's next
-  push runs every job, including the narrowed permissions (L2).
+- CI was not run from the agent's session; it ran on the owner's push,
+  below.
+
+## CI confirmation (2026-10-13)
+
+Run 38441889909 for `83da391` (the remediation commit), all six jobs
+successful: <https://github.com/rdanielsstat/hub-platform/actions/runs/38441889909>
+
+- L2: workflow permissions `contents: read`; only `deploy-dev` declares
+  `id-token: write`, and its `configure-aws-credentials` step logged
+  "Assuming role with OIDC" and "Authenticated as assumedRoleId
+  ...:GitHubActions": the first real use of the narrowed permission. The
+  other five jobs passed on `contents: read` alone.
+- N3: the rewritten scripts ran in `deploy-dev`: the bootstrap check
+  (`if grep -q '"errorMessage"' ...; then exit 1; fi`) after a
+  "Bootstrap complete." response, and the smoke test loop
+  (`for _ in 1 2 3 4 5`) on a 200 from `/api/health`.
+- M3: the prod build ran `RUN rm -f /usr/local/bin/aws-lambda-rie`
+  (step 5 of 9) and pushed `hub-dev-backend:20261013-175345-83da391`,
+  which the dev Lambda runs (digest checked). Evidence for the emulator's
+  removal from that image is the CI build log and ECR's scan, which is an
+  OS-package scan only (it completed with no findings, but it never
+  inspects Go binaries, so it would not have reported the emulator's
+  CVEs either). No full Go binary scan was run on the CI-built image
+  itself; the full scan (trivy, 0 findings) was of a local build from
+  the same Dockerfile.
+- N2: the Compose build in `e2e` ran the dev stage's `useradd` and
+  `USER app`, and the stack started and served every test. The workflow
+  doesn't check the container's user or health status itself; both were
+  checked locally (uid 10001, healthy).
+- Tests: backend 458, MCP server 74, hook 36, frontend 202, integration
+  38, Playwright 194 and 10 (Compose, with outages), MCP live 1, all
+  passing; ESLint and the build clean.
+- M4 on dev: `POST https://hub-dev.dnls.dev/api/auth/login` with a
+  foreign `Origin` gets 403, with the site's origin 401 (wrong password),
+  so CloudFront forwards `Origin` and the check works deployed.
+- Prod is unchanged by this run (promotion is the separate, manual
+  `promote.yml`).
+
+### N6. `useradd` warning in the dev image build (found in CI run 38441889909; 2026-10-13, Done)
+
+**Issue.** The dev stage's `RUN useradd --system --uid 10001
+--no-create-home app` (N2) printed `useradd warning: app's uid 10001 is
+greater than SYS_UID_MAX 999` on every build: `--system` asks for a
+system account, which by convention has a uid below 1000. Harmless (the
+user was created and the job passed), but noise in every build log.
+
+**What changed.** `--system` removed:
+`RUN useradd --uid 10001 --no-create-home app`. The account is now a
+regular one, so its group is `app` with gid 10001 (was 999). The prod
+stage is unaffected.
+
+**Files.** `backend/Dockerfile`, `backend/tests/test_dockerfile.py`.
+
+**Verified.** A new test (`test_dev_user_is_a_regular_account_with_a_fixed_uid`)
+failed before and passes after. `docker compose build --no-cache app`:
+the `useradd` step runs with 0 `SYS_UID_MAX` warnings (pip's usual
+"running as root" notice during the dependency install, before `USER`,
+is unrelated and was already there). The rebuilt Compose backend runs as
+`uid=10001(app) gid=10001(app)` and reports `(healthy)`, as do
+`frontend` and `postgres`. Backend unit tests 459 (one new), Ruff clean,
+integration 38, Playwright Compose project 10: all pass.
+
+## Shellcheck (local check, 2026-10-13)
+
+A local check, not a CI step: CI runs no shellcheck (actionlint, which
+calls shellcheck on workflow `run:` blocks, was also run locally only).
+ShellCheck 0.10.0 (the copy bundled in the `rhysd/actionlint:1.7.7`
+image), `shellcheck -S style`, on every script the remediation touched:
+
+- `agent-hooks/run-guard.sh` and `mcp-server/run-with-keychain.sh`.
+- All 38 `run:` blocks of `.github/workflows/ci.yml` (29) and
+  `promote.yml` (9), including the rewritten bootstrap check and smoke
+  test in both, each extracted with a `#!/bin/bash -e` shebang (how
+  Actions runs them) and GitHub `${{ }}` expressions replaced by a shell
+  variable.
+
+**Result: 0 findings in all 40 scripts.** To show the check catches
+what it should, the same extraction of the pre-remediation bootstrap and
+smoke-test blocks (`939fd47`) reports SC2015 (`A && B || C`) and SC2034
+(unused `i`), the two findings N3 fixed, and exits 1.
+
+## Prod verification pending
+
+The sweep is **closed for dev** (deployed and verified in CI run
+38441889909 and on https://hub-dev.dnls.dev) and **open for prod** until
+`promote.yml` runs. Prod runs `939fd47` (promoted 2026-10-13, run
+38402314741), from before the remediation. These prod-facing changes
+take effect only when the owner promotes:
+
+| Change | Item | How it reaches prod | What to check after promoting |
+|---|---|---|---|
+| Login CSRF check on `/auth/login` and `/auth/register` (`backend/app/auth/csrf.py`, `routers/auth.py`) | M4 | The backend image, copied from dev | Sign-in on https://hub.dnls.dev works; `POST /api/auth/login` with a foreign `Origin` gets 403. Prod's `CORS_ORIGINS` is already the site (`infra/hub/lambda.tf`, unchanged) |
+| Prod image without the Lambda emulator (`backend/Dockerfile`, prod stage) | M3 | Same image | The prod Lambda and the prod bootstrap Lambda start and answer; `/api/health` 200 |
+| Rewritten bootstrap check and smoke test in `promote.yml` | N3 | The promote run itself | Its "Bootstrap schema" and "Smoke test" steps pass (they ran in `ci.yml` already; this is their first run in `promote.yml`) |
+| `prod` environment limited to `main` | N4 | Already active (a GitHub setting) | The promote run, dispatched from `main`, is accepted and waits for the reviewer and the wait timer as before |
+| Frontend built with `source-map-js` 1.2.2 | L1 | `promote.yml` rebuilds the frontend from `main` | The build step passes; build-time only, nothing in the shipped bundle changes |
+
+Not prod-facing, so nothing to wait for: the MCP server and guard hook
+(H1, H2, H3, M1, M2, L4 to L7, N1), the CI permissions (L2, `ci.yml`
+only; `promote.yml`'s single job keeps `id-token: write`), the OIDC
+pattern (L3, unchanged), the sign-up 409 decision (L8), the dev image's
+user (N2, N6), the README example (N5). `infra/hub` is unchanged since
+`939fd47`, and `infra/bootstrap` (a comment) is applied by hand, never by
+`promote.yml`.
+
+To close the sweep for prod: run `promote.yml` (a human decision), then
+check each row above and record the run here.
 
