@@ -153,7 +153,7 @@ October 2026.
   queries to a landmark rather than the whole document to avoid matching hidden content.
 
 Backend: pytest 9.1, two layers told apart by the `integration` marker.
-`uv run pytest` (from inside `backend/`) runs the unit tests only: 458 tests in
+`uv run pytest` (from inside `backend/`) runs the unit tests only: 459 tests in
 30 files as of October 2026, each with its own in-memory SQLite database.
 `uv run pytest -m integration` runs `tests/integration/` (38 tests in 4 files)
 against the Docker Compose Postgres (`docker compose up -d --wait postgres`, or

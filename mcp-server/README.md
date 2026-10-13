@@ -36,7 +36,9 @@ marked destructive, and Claude Code asks before every call to it.
   which an agent should pass only when the user asked for it.
 - After three status changes within ten minutes, another needs
   `confirm_bulk=True`, after asking the user. An agent told to "set every
-  idea to Killed" is stopped after three.
+  idea to Killed" is stopped after three. Both numbers are tunable:
+  `BULK_STATUS_LIMIT` (3) and `BULK_WINDOW_SECONDS` (600) in
+  `mcp-server/hub_mcp/server.py`.
 
 **No delete tools, on purpose.** An agent can capture, update and annotate
 ideas, but deleting an idea or a note stays a human action in the web app

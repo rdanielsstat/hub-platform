@@ -5,7 +5,9 @@ Fixes for the findings of the security sweep of 2026-10-13 (the
 entry per item: what changed, the files, how it was verified, and the
 date. Issues found while fixing are added at the end, under the same
 rules. Nothing here is committed or deployed by the agent: the owner
-reviews, commits, and applies any infrastructure change.
+reviews, commits, and applies any infrastructure change. One exception:
+the agent applied the N4 GitHub environment setting (deploy from `main`
+only) through the GitHub API, with the owner's approval.
 
 Status legend: **Open**, **Done** (fixed and verified), **Done, no
 change** (verified that nothing needs changing, with the reason).
@@ -361,7 +363,8 @@ both architectures. `trivy image --scanners vuln` on that local build:
 0 findings (14 before); trivy inspects Go binaries, so this is the only
 full scan of the emulator's removal. The image CI later built and
 deployed to dev was checked by its build log and ECR's OS-package scan
-only (see "CI confirmation"). A first attempt with a hand-written fake Runtime API crashed
+only (see "CI confirmation"); the emulator's absence on the deployed
+prod image is recorded under "Prod verification (done)". A first attempt with a hand-written fake Runtime API crashed
 the runtime client (exit 139) on both architectures; with AWS's own
 emulator it works, so that was the fake's fault, not the image's, and
 the fake was discarded.
@@ -424,7 +427,8 @@ Before: 5 jobs (`test`, `integration`, `e2e`, `dependency-scan`,
 `secrets-scan`) and the workflow-level check failed; after: all 9 pass.
 actionlint is clean. The other jobs use only checkout, setup, artifact
 upload and local tools, none of which needs more than `contents: read`;
-the first CI run after the owner pushes confirms it live.
+the first CI run after the owner pushes confirms it live (confirmed in
+CI run 38441889909; see "CI confirmation").
 
 ### L3. OIDC trust policy subject pattern (2026-10-13, Done, no change)
 
@@ -457,7 +461,8 @@ they kept actionlint from passing cleanly.
 **Verified.** Old and new forms run under `bash -e` (as Actions does)
 with identical results: an error in the bootstrap output exits 1, none
 continues; a healthy response exits 0, none after the retries exits 1.
-actionlint: 0 findings on all three workflows (4 before).
+actionlint: 0 findings on all three workflows (4 before; local, CI
+does not run actionlint).
 
 ### N4. Deploy environments weren't limited to `main` (found while checking L3; 2026-10-13, Done)
 

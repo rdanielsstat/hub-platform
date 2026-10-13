@@ -59,7 +59,8 @@ comes from the git tag (`.github/scripts/service-version.sh`).
     with a healthcheck
   - `source-map-js` pinned to 1.2.2 (GHSA-68fv-2mgg-jv7q)
   - CI: `id-token: write` only on `deploy-dev`; deploy scripts pass
-    actionlint
+    actionlint (checked locally; CI runs neither actionlint nor
+    shellcheck)
   - The `dev` and `prod` GitHub environments accept deployments from
     `main` only
   - Sign-up's 409 for a registered email kept, with the reasoning
@@ -79,7 +80,7 @@ comes from the git tag (`.github/scripts/service-version.sh`).
 - 204 Playwright E2E tests (a phone-width check that every form field is
   16px or larger; the Compose frontend container's headers, routing,
   proxy and a browser journey)
-- 458 backend unit tests (login CSRF, Dockerfile, workflow permissions)
+- 459 backend unit tests (login CSRF, Dockerfile, workflow permissions)
 - 74 MCP server unit tests and a live test; 36 guard hook tests
 
 ## [1.0.0] - 2026-10-03

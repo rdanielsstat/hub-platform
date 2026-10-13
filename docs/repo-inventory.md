@@ -2,7 +2,7 @@
 
 > Point-in-time snapshot, not a live description. Figures below were checked against the repo, test runs, and OpenTofu state on the date shown; re-run the commands in each section before relying on them later.
 
-Snapshot of the working tree on 2026-10-13: `main` at `939fd47` (the agent extension pack and the Compose frontend container) plus the uncommitted fixes from that day's security sweep (`security/REMEDIATION_LOG.md`). Secret values are redacted throughout. Replaces the snapshot of `8ac75ae` (2026-10-04), which predated Ruff, v1.0.0, those additions, and the frontend checks in CI; that one replaced `6bd192a` (2026-10-02). OpenTofu figures in section 8 are from state on 2026-10-04; since then only a comment in `infra/bootstrap/main.tf` has changed, which plans to nothing.
+Snapshot of the working tree on 2026-10-13: `main` with the agent extension pack, the Compose frontend container, and the fixes from that day's security sweep (`security/REMEDIATION_LOG.md`); all remediation changes are committed. Secret values are redacted throughout. Replaces the snapshot of `8ac75ae` (2026-10-04), which predated Ruff, v1.0.0, those additions, and the frontend checks in CI; that one replaced `6bd192a` (2026-10-02). OpenTofu figures in section 8 are from state on 2026-10-04; since then only a comment in `infra/bootstrap/main.tf` has changed, which plans to nothing.
 
 ## 1. Tree (depth 3, generated/vendor dirs excluded)
 
@@ -99,7 +99,7 @@ Dependencies (`backend/uv.lock`): alembic 1.20.0, argon2-cffi 25.1.0, boto3 1.43
 
 | Suite | Runner | Count | Command |
 |---|---|---|---|
-| Backend unit | pytest 9.1.1 | 458 tests, 30 files | `cd backend && uv run pytest` |
+| Backend unit | pytest 9.1.1 | 459 tests, 30 files | `cd backend && uv run pytest` |
 | Backend integration | pytest, real Postgres 17 | 38 tests, 4 files | `make test-integration` |
 | Frontend unit | Vitest 5.0.1 + RTL 16 + jsdom | 202 tests, 22 files | `cd frontend && pnpm test` |
 | E2E | Playwright 1.63.0 (Chromium) | 204 tests: `api.spec.ts` 104, `app.spec.ts` 90, `integration.spec.ts` 10 | `make test-e2e`, `make test-e2e-docker` |
@@ -137,7 +137,7 @@ Dependencies (`backend/uv.lock`): alembic 1.20.0, argon2-cffi 25.1.0, boto3 1.43
 
 ## 10. Git state
 
-- Branch `main`, HEAD `939fd47` (with uncommitted changes, above), remote `origin` (GitHub `rdanielsstat/hub-platform`, public). Other branches, local and on origin: `chore/update-github-actions-node24` (merged as PR #5), `observability-oncall-agent`, `otel-enabled-dev-lambda`, `semver-service-version`, `service-version-dev-lambda`.
+- Branch `main` (all remediation changes are committed), remote `origin` (GitHub `rdanielsstat/hub-platform`, public). Other branches, local and on origin: `chore/update-github-actions-node24` (merged as PR #5), `observability-oncall-agent`, `otel-enabled-dev-lambda`, `semver-service-version`, `service-version-dev-lambda`.
 
 ## Risks
 

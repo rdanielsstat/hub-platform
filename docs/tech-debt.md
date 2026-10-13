@@ -200,7 +200,8 @@
 - Every finding from the day's security sweep fixed or decided, with a
   test where practical and one entry each in
   `security/REMEDIATION_LOG.md`: H1 to H3, M1 to M4, L1 to L8, and four
-  issues found while fixing them (N1 to N4). Nothing left open.
+  issues found while fixing them (N1 to N6). Nothing left open. Prod
+  was verified after promotion by `promote.yml` run 38451508786.
 
 ## Project requirements
 

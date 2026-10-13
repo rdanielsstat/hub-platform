@@ -115,7 +115,10 @@ built and deployed to dev (`20261013-175345-83da391`) was checked by its
 build log (the `rm` step ran) and ECR's scan on push, which covers OS
 packages only and doesn't inspect Go binaries; no full Go binary scan
 was run on that image itself. To scan it, use the "Image" commands
-under "How to run" against the dev repository.
+under "How to run" against the dev repository. Absence confirmed on the
+deployed prod image (digest `sha256:9bcd0e4c...6cec1b42`, `ls` exit 2,
+run by the owner, 2026-10-13). No Go binary scan of that image has been
+run.
 
 **`trivy config backend/Dockerfile`:** DS-0002 (HIGH, no non-root
 `USER`) and DS-0026 (LOW, no `HEALTHCHECK`). Neither applies to the prod

@@ -16,7 +16,7 @@ and how each is contained.
 | Skills: `release`, `e2e-testing`, `security-scanning`, `design-review` | `.claude/skills/` | Same as above, when a human invokes them | Same; `release` pushes to `main` |
 | QA engineer subagent | `.claude/agents/qa-engineer.md` | Same, in a fresh context | Same; instructed not to implement fixes |
 | On-call diagnostic | `backend/oncall/diagnose.py`, `.github/workflows/observability-alert-handler.yml` | GitHub Actions runner | OpenAI API only, with `OPENAI_API_KEY` |
-| Hub MCP server | `mcp-server/`, registered in `.mcp.json` | The developer's user account, started by their MCP client | The Hub API at `HUB_API_URL`, as the one account in `HUB_EMAIL`/`HUB_PASSWORD` |
+| Hub MCP server | `mcp-server/`, registered in `.mcp.json` | The developer's user account, started by their MCP client | The Hub API at `HUB_API_URL`, as the one account in `HUB_EMAIL`, with the password from the macOS keychain via `run-with-keychain.sh` |
 | Guard hook | `agent-hooks/guard.py`, registered in `.claude/settings.json` | The developer's user account, inside Claude Code | Nothing: reads the pending tool call, answers allow, ask or deny |
 
 None of these has production database credentials or AWS credentials of

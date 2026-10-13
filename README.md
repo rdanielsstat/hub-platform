@@ -744,7 +744,7 @@ agent-hooks/
   tests/test_guard.py         Every deny/ask/allow rule, and the hook's JSON contract
 ```
 
-Backend unit tests each get their own in-memory SQLite database, so they don't need a running server. The integration tests need the Compose Postgres, and the Playwright tests need a backend (see below). As of October 2026: 458 backend unit and 38 integration tests, 202 frontend unit tests, 204 Playwright tests, 74 MCP server unit tests plus 1 live test, and 36 agent hook tests. CI runs all of them on every push and pull request, along with the lint, format and build checks.
+Backend unit tests each get their own in-memory SQLite database, so they don't need a running server. The integration tests need the Compose Postgres, and the Playwright tests need a backend (see below). As of October 2026: 459 backend unit and 38 integration tests, 202 frontend unit tests, 204 Playwright tests, 74 MCP server unit tests plus 1 live test, and 36 agent hook tests. CI runs all of them on every push and pull request, along with the lint, format and build checks.
 
 ### Running tests
 
