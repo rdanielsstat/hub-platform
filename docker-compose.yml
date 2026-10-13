@@ -1,7 +1,10 @@
-# Prod-parity local stack: runs the backend against real Postgres
-# instead of the SQLite default. This is the Postgres path; a plain
-# `uv run uvicorn app.main:app --reload` (no Docker) stays SQLite and
-# needs none of this.
+# Prod-parity local stack: the whole system, with the backend on real
+# Postgres instead of the SQLite default. Open http://localhost:8080:
+# nginx serves the production frontend build and forwards /api/* to the
+# backend, as CloudFront does when deployed (frontend/nginx.conf). The
+# API is also published on :8000 for the Playwright API tests and
+# direct calls. A plain `uv run uvicorn app.main:app --reload` (no
+# Docker) stays SQLite and needs none of this.
 #
 # Sequence: postgres starts -> bootstrap connects as the local
 # superuser and creates the per-env database + a least-privilege login
@@ -9,7 +12,8 @@
 # backend/app/bootstrap_db.py and backend/app/db/migrations.py) ->
 # init_local re-checks the schema (a no-op at head) and seeds the demo
 # account (see backend/app/db/init_local.py) -> app starts and connects
-# as that limited role. The app itself does no database work at import.
+# as that limited role, and frontend (nginx) starts alongside it. The app
+# itself does no database work at import.
 #
 # An existing postgres_data volume from before Alembic is stamped at the
 # baseline revision on the next `up`, not recreated; data is kept.
@@ -80,6 +84,15 @@ services:
       - "8000:8000"
     volumes:
       - ./backend/app:/app/app
+
+  frontend:
+    build:
+      context: ./frontend
+    depends_on:
+      app:
+        condition: service_started
+    ports:
+      - "8080:8080"
 
 volumes:
   postgres_data:

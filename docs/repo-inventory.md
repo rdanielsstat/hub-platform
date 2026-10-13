@@ -2,15 +2,15 @@
 
 > Point-in-time snapshot, not a live description. Figures below were checked against the repo, test runs, and OpenTofu state on the date shown; re-run the commands in each section before relying on them later.
 
-Snapshot of `main` at `8ac75ae` (2026-10-04). Secret values are redacted throughout. Replaces the snapshot of `6bd192a` (2026-10-02), which predated Alembic, the integration tests, `ops/` and `security/`, the security headers, the length limits and usage caps, OTLP log export, and the dependency scan in CI.
+Snapshot of the working tree on 2026-10-13: `main` at `a60f6b7` plus the uncommitted agent extension pack (`mcp-server/`, `agent-hooks/`, `agent-capabilities/`) and the Compose frontend container. Secret values are redacted throughout. Replaces the snapshot of `8ac75ae` (2026-10-04), which predated Ruff, v1.0.0, those additions, and the frontend checks in CI; that one replaced `6bd192a` (2026-10-02). OpenTofu figures in section 8 are from state on 2026-10-04; no `.tf` file has changed since.
 
 ## 1. Tree (depth 3, generated/vendor dirs excluded)
 
 ```
-.                       root: AGENTS.md README.md product-spec.md LICENSE Makefile
-                              openapi.yaml docker-compose.yml .gitignore .gitleaksignore
-                              .prettierignore .pre-commit-config.yaml
-.claude/                CLAUDE.md, launch.json, agents/qa-engineer.md,
+.                       root: AGENTS.md README.md product-spec.md CHANGELOG.md LICENSE
+                              Makefile openapi.yaml docker-compose.yml .mcp.json .gitignore
+                              .gitleaksignore .prettierignore .pre-commit-config.yaml
+.claude/                CLAUDE.md, launch.json, settings.json (guard hook), agents/qa-engineer.md,
                         skills/{design-review,e2e-testing,release,security-scanning}/SKILL.md
 .github/                workflows/{ci,promote,observability-alert-handler}.yml
                         scripts/service-version.sh, scripts/pip_audit_gate.py
@@ -19,7 +19,7 @@ docs/                   7 files: agent-extension-pack design-notes permissions p
 ops/                    DEPLOYMENT HEALTH_CHECKS MONITORING TROUBLESHOOTING (.md)
 security/               AGENT_SECURITY DATA_POLICY DEPENDENCIES GITLEAKS_CONFIG IAC_SCANS
                         OPERATIONAL_DIAGNOSIS PR_AUDIT RATE_LIMITING SECURITY_CHECKLIST (.md)
-backend/                90 tracked files
+backend/                91 files
   app/  main.py lambda_handler.py bootstrap_db.py
         auth/ core/ db/ models/ routers/
   alembic/        env.py, versions/0001..0003 (migrations); alembic.ini
@@ -27,22 +27,27 @@ backend/                90 tracked files
   oncall/         diagnose.py (on-call diagnostic agent)
   tests/          27 unit test files, integration/ (4 files, real Postgres)
   Dockerfile pyproject.toml uv.lock .python-version .env.example README.md
-frontend/               93 tracked files
+frontend/               97 files
   src/  App.tsx main.tsx auth*.ts(x) store*.ts(x) use-*.ts test-setup.ts
         components/ lib/ pages/ services/
   public/ favicon.svg theme-init.js
   tests/  api.spec.ts app.spec.ts integration.spec.ts helpers.ts (Playwright)
   package.json pnpm-lock.yaml vite.config.ts playwright.config.ts tsconfig*.json
   eslint.config.js components.json .env.example README.md
-infra/                  20 tracked files
+  Dockerfile nginx.conf .dockerignore (the Compose frontend container)
+infra/                  20 files
   bootstrap/  GitHub OIDC trust, run once by hand
   hub/        apigateway backend bootstrap certs database dns ecr frontend lambda main
               outputs providers .tf, .terraform.lock.hcl, terraform.tfvars.example
   BOOTSTRAP.md PLACEMENT.md
+mcp-server/             15 files: hub_mcp/{server,client,__main__}.py, tests/ (6 files),
+                        pyproject.toml uv.lock README.md
+agent-hooks/            guard.py ruff.toml README.md tests/test_guard.py
+agent-capabilities/     README.md (index of every agent capability)
 custom-agent/           on-call-diagnostic/README.md
 ```
 
-247 tracked files in total. Gitignored and present on disk: `backend/.env`, `frontend/.env`, `backend/hub.db`, `infra/hub/terraform.tfvars`.
+276 files in total (tracked plus the new, not yet committed ones). Gitignored and present on disk: `backend/.env`, `frontend/.env`, `backend/hub.db`, `infra/hub/terraform.tfvars`.
 
 ## 2. Backend
 
@@ -97,16 +102,19 @@ Dependencies (`backend/uv.lock`): alembic 1.20.0, argon2-cffi 25.1.0, boto3 1.43
 | Backend unit | pytest 9.1.1 | 435 tests, 27 files | `cd backend && uv run pytest` |
 | Backend integration | pytest, real Postgres 17 | 38 tests, 4 files | `make test-integration` |
 | Frontend unit | Vitest 5.0.1 + RTL 16 + jsdom | 202 tests, 22 files | `cd frontend && pnpm test` |
-| E2E | Playwright 1.63.0 (Chromium) | 202 tests: `api.spec.ts` 104, `app.spec.ts` 90, `integration.spec.ts` 8 | `make test-e2e`, `make test-e2e-docker` |
+| E2E | Playwright 1.63.0 (Chromium) | 204 tests: `api.spec.ts` 104, `app.spec.ts` 90, `integration.spec.ts` 10 | `make test-e2e`, `make test-e2e-docker` |
+| MCP server | pytest, fake Hub API | 24 tests, 4 files; plus 1 live test (`integration` marker) | `make test-mcp`, `make test-mcp-live` |
+| Agent hook | unittest (standard library) | 19 tests, 1 file | `make test-hooks` |
 
-- CI (`ci.yml`) runs all four suites, the backend's Ruff lint and format check, the frontend's lint, format check and build, the dependency scan and gitleaks, on every PR and push; all gate the dev deploy.
+- CI (`ci.yml`) runs every suite (the MCP live test against the Compose stack in the `e2e` job), Ruff over the backend, MCP server and hook, the frontend's lint, format check and build, the dependency scan (backend, MCP server, frontend) and gitleaks, on every PR and push; all gate the dev deploy.
 - The backend unit run is warning-free (Mangum's one known warning is filtered, with the reason, in `pyproject.toml`).
 
 ## 7. Containers
 
 - `backend/Dockerfile`: `deps` (uv export of the lock); `prod` (`public.ecr.aws/lambda/python:3.12`, OS security updates applied at build, pip removed after installing, CMD `app.lambda_handler.handler`); `dev` (`python:3.12-slim`, uvicorn). The bootstrap Lambda reuses the prod image.
-- `docker-compose.yml`: `postgres`, `bootstrap`, `init_local`, `app`. `backend/observability/docker-compose.yml`: optional local collector, Tempo, Prometheus, Loki, Grafana.
-- trivy on the patched prod image (2026-10-03): no CRITICAL, HIGH, MEDIUM or LOW findings.
+- `frontend/Dockerfile`: `build` (`node:22-alpine`, `pnpm build`), then `nginxinc/nginx-unprivileged:1.30-alpine` (uid 101, port 8080, OS packages upgraded, healthcheck) serving `dist/` with `nginx.conf` (CloudFront's headers and SPA routing, `/api/*` proxied to `app`). Local Compose only.
+- `docker-compose.yml`: `postgres`, `bootstrap`, `init_local`, `app` (:8000), `frontend` (:8080). `backend/observability/docker-compose.yml`: optional local collector, Tempo, Prometheus, Loki, Grafana.
+- trivy on the patched prod image (2026-10-03): no CRITICAL, HIGH, MEDIUM or LOW findings. On the Compose frontend image (2026-10-13): none after the zlib fix; `trivy config` clean.
 
 ## 8. Infrastructure and CI/CD
 
@@ -125,10 +133,11 @@ Dependencies (`backend/uv.lock`): alembic 1.20.0, argon2-cffi 25.1.0, boto3 1.43
 - Root `README.md`, `product-spec.md` (product and data model, the source of truth), `AGENTS.md` (agent instructions), `openapi.yaml`, `Makefile`, `LICENSE`.
 - `ops/`: deployment (including backup testing), health checks, monitoring, troubleshooting. `security/`: checklist, rate limiting, IaC and image scans, dependencies, data policy, gitleaks, agent security, PR audit, operational diagnosis.
 - `docs/`: tech-debt, design-notes, agent-extension-pack, permissions, this file; `prompts.md` and `results.md` are historical session logs.
+- Agent extension pack: `AGENTS.md`, `.claude/skills/` (4), `.claude/agents/qa-engineer.md`, `mcp-server/` (`.mcp.json`), `agent-hooks/` (`.claude/settings.json`) and the gitleaks pre-commit hook, `custom-agent/`, indexed in `agent-capabilities/README.md`.
 
 ## 10. Git state
 
-- Branch `main`, HEAD `8ac75ae`, remote `origin` (GitHub `rdanielsstat/hub-platform`, public). Other branches, local and on origin: `chore/update-github-actions-node24` (merged as PR #5), `observability-oncall-agent`, `otel-enabled-dev-lambda`, `semver-service-version`, `service-version-dev-lambda`.
+- Branch `main`, HEAD `a60f6b7` (with uncommitted changes, above), remote `origin` (GitHub `rdanielsstat/hub-platform`, public). Other branches, local and on origin: `chore/update-github-actions-node24` (merged as PR #5), `observability-oncall-agent`, `otel-enabled-dev-lambda`, `semver-service-version`, `service-version-dev-lambda`.
 
 ## Risks
 

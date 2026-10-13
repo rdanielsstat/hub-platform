@@ -1,20 +1,28 @@
 # Agent Extension Pack
 
-This document describes the AI agent infrastructure for Hub-Platform: reusable skills, specialized subagents, custom agents, and how they orchestrate.
+This document describes the AI agent infrastructure for Hub-Platform: project instructions, reusable skills, a specialized subagent, an MCP server, guard hooks, a custom agent, and how they fit together. `agent-capabilities/README.md` lists every capability in one table.
 
 ## Overview
 
 The extension pack enables AI agents to assist with development workflows without hands-on intervention. It consists of:
 
+- **Project instructions**: `AGENTS.md`, the standing rules and commands every agent reads first
 - **Skills**: Reusable, discoverable workflows for repeatable tasks (release, security scanning, E2E testing, design review)
 - **Subagents**: Specialized agents in fresh contexts for focused tasks (QA engineer for independent validation)
+- **MCP server**: Five tools that let an agent work with Hub data through the API, as one signed-in user, with no deletes (`mcp-server/`)
+- **Hooks and guardrails**: A Claude Code hook that denies commits, deploys and secret access and asks before pushes and data loss (`agent-hooks/`), plus the gitleaks pre-commit hook
 - **Custom agents**: Agents a person runs in response to an event, with reviewer approval (on-call diagnostic for Grafana alerts in dev)
-- **Permissions & guardrails**: Clear boundaries on what agents can and cannot do
+- **Permissions**: Clear boundaries on what agents can and cannot do (`docs/permissions.md`)
 
 ## Structure
 
 ```
+AGENTS.md                       project instructions
+.mcp.json                       registers the MCP server for Claude Code
+.pre-commit-config.yaml         gitleaks pre-commit hook
 .claude/
+  ├── settings.json             registers the guard hook (PreToolUse)
+  ├── CLAUDE.md                 intentionally empty; AGENTS.md is the source
   ├── skills/
   │   ├── release/SKILL.md
   │   ├── security-scanning/SKILL.md
@@ -23,9 +31,24 @@ The extension pack enables AI agents to assist with development workflows withou
   └── agents/
       └── qa-engineer.md
 
+agent-capabilities/
+  └── README.md                 every capability, in one table
+
+agent-hooks/
+  ├── README.md
+  ├── guard.py                  the PreToolUse hook (standard library, Python 3.9+)
+  ├── ruff.toml
+  └── tests/test_guard.py
+
+mcp-server/
+  ├── README.md
+  ├── hub_mcp/                  server.py (tools), client.py (API client), __main__.py
+  ├── tests/                    fake API, tools, contract, stdio, live
+  └── pyproject.toml, uv.lock
+
 custom-agent/
   └── on-call-diagnostic/
-      └── README.md
+      └── README.md             code in backend/oncall/
 
 docs/
   ├── agent-extension-pack.md (this file)
@@ -88,7 +111,7 @@ Skills are discoverable workflows that agents load automatically when they match
 
 **Test scope**: Auth and sessions, dashboard states, project create/edit/delete, filtering, sorting and search, notes, error states, multiple tabs, rapid sequences, responsive layouts, and every API endpoint with its error cases and user isolation.
 
-**Key point**: The suite is done: 202 Playwright tests in `frontend/tests/` cover all workflows, run against a real backend (local uvicorn, or the Docker Compose stack with Postgres). CI runs them against the Compose stack on every PR and push, and they gate the dev deploy.
+**Key point**: The suite is done: 204 Playwright tests in `frontend/tests/` cover all workflows, run against a real backend (local uvicorn, or the Docker Compose stack with Postgres). CI runs them against the Compose stack on every PR and push, and they gate the dev deploy.
 
 ### design-review
 
@@ -134,6 +157,44 @@ Subagents run in fresh contexts with specialized roles, preventing implementatio
 
 **Key point**: Fresh context prevents the "implementer bias" where the person who built something overlooks their own mistakes.
 
+## MCP Server
+
+**Purpose**: Let an AI agent (Claude Code, Claude Desktop, any MCP client) read and update the user's project ideas, the same way the web app does.
+
+**Location**: `mcp-server/` (Python 3.12, the official `mcp` SDK v2, stdio). Registered for Claude Code as the `hub` server in `.mcp.json`.
+
+**Tools**:
+
+| Tool | Kind | Does |
+|---|---|---|
+| `list_projects` | read-only | Ideas filtered by status, tag or a search query, most recently updated first |
+| `get_project` | read-only | One idea in full, with its notes |
+| `create_project` | write | Capture a new idea (only the name is required) |
+| `update_project` | write | Change only the fields given |
+| `add_note` | write | Add a note to an idea |
+
+**How it works**: Logs in once with `HUB_EMAIL`/`HUB_PASSWORD` (environment variables, never a file), then calls the REST API at `HUB_API_URL` with a Bearer token, logging in again once if the token expires. Every path it calls is checked against `openapi.yaml` by a test.
+
+**Key point**: No delete tools. The API's ownership checks, limits and caps apply exactly as for the web app, and deleting stays a human action. Details and security notes: `mcp-server/README.md`.
+
+## Hooks and Guardrails
+
+### Guard hook (`agent-hooks/guard.py`)
+
+**Purpose**: Enforce the `AGENTS.md` boundaries mechanically, before an agent's tool call runs, rather than relying on the agent following instructions.
+
+**Trigger**: Claude Code's `PreToolUse` event for `Bash`, `Read`, `Edit`, `Write`, `MultiEdit`, `NotebookEdit` and `Grep` (registered in `.claude/settings.json`; active for anyone using Claude Code in the repo).
+
+**Denies**: reading or editing real `.env` files, `.secrets` and `*.tfvars`; `git commit`; `tofu`/`terraform` apply, destroy, import, taint; `gh workflow run`; AWS calls that change resources.
+
+**Asks the human**: `git push`, `git tag`, `gh pr merge`, `gh release create`; `docker compose down -v` and other volume deletion; `alembic downgrade`.
+
+**Key point**: Standard library only (Python 3.9+), tested rule by rule (`agent-hooks/tests/`). A guardrail against accidents and casual prompt injection, not a sandbox: human review, CI and branch protection stay in place behind it. Details: `agent-hooks/README.md`.
+
+### Secret scan (gitleaks)
+
+`.pre-commit-config.yaml` runs gitleaks on the staged changes before every commit, where a developer has installed it, and CI scans the full history on every push regardless (`security/GITLEAKS_CONFIG.md`).
+
 ## Custom Agents
 
 Custom agents are run by a person in response to an external event, with a reviewer approving each run.
@@ -166,12 +227,12 @@ Custom agents are run by a person in response to an external event, with a revie
 ### Solo Developer Workflow (Current)
 
 1. **Develop a feature**: Write code, commit regularly
-2. **Self-review**: Use Claude Code interactively to iterate and refine
-3. **Run tests locally**: `make check` (unit, lint, format, build), plus `make test-integration` for database changes
+2. **Self-review**: Use Claude Code interactively to iterate and refine (the guard hook stops it committing, deploying or reading secrets)
+3. **Run tests locally**: `make check` (unit tests, lint, format, build, for the backend, frontend, MCP server and hook), plus `make test-integration` for database changes
 4. **Request QA**: Launch QA subagent to validate independently
 5. **Address QA findings**: Fix issues if QA reports problems
 6. **Commit and push**: Human commits and pushes to main
-7. **CI runs**: GitHub Actions runs unit tests, the dependency scan, gitleaks, integration and E2E tests, and deploys to dev only if all pass
+7. **CI runs**: GitHub Actions runs unit tests, lint and build, the dependency scan, gitleaks, integration tests, and the E2E and live MCP tests against Docker Compose, and deploys to dev only if all pass
 8. **Verify dev**: Check dev Lambda logs and dashboards
 9. **Release**: Use release skill to tag, push, verify dev deployment
 10. **Promote to prod**: Manual workflow_dispatch for promote.yml
@@ -196,8 +257,9 @@ See `docs/permissions.md` for detailed permissions model.
 
 **High-level boundaries**:
 
-- **Skills and subagents**: Never commit code, never deploy, never modify .env, never destructive data changes
+- **Skills and subagents**: Never commit code, never deploy, never modify .env, never destructive data changes (the first three enforced by the guard hook)
 - **Skills and subagents**: Can read code, run tests, generate reports, provide recommendations
+- **MCP server**: Acts as one configured user through the public API; can read, create and update that user's ideas and add notes; cannot delete
 - **Custom agents**: The on-call diagnostic makes one OpenAI call on the alert text it is given and writes the diagnosis to the run log; it has no access to data or infrastructure
 - **Human**: Reviews agent output, makes all decisions, commits and deploys manually
 
@@ -214,20 +276,24 @@ Project-level instructions that all agents read. Covers:
 
 ### CLAUDE.md
 
-`.claude/CLAUDE.md` exists but is empty; project instructions live in `AGENTS.md`. Use it for Claude Code-specific preferences if needed.
+`.claude/CLAUDE.md` exists but is empty on purpose; project instructions live in `AGENTS.md`, so there is one source and the two can't drift. Use it for Claude Code-specific preferences if needed.
+
+### .claude/settings.json and .mcp.json
+
+`.claude/settings.json` registers the guard hook; `.mcp.json` registers the MCP server (credentials come from the `HUB_EMAIL` and `HUB_PASSWORD` environment variables, never the file). Claude Code asks once before using a project MCP server.
 
 ### Environment setup
 
 Agents expect:
 - Backend running locally on http://localhost:8000
-- Frontend running locally on http://localhost:5173
+- Frontend running locally on http://localhost:5173 (Vite), or the whole system in Docker Compose with the web app on http://localhost:8080
 - Demo data seeded: `SEED_DEMO_DATA=true uv run python -m app.db.init_local`
 - GitHub Actions configured with OIDC trust for deployment
 - Grafana Cloud configured for observability (dev and prod Lambdas)
 
 ## Future Work
 
-- **Security scanning in releases**: The dependency scan (pip-audit, pnpm audit) and gitleaks already gate every deploy; the rest of the security-scanning skill (bandit, trivy, IaC scans) still runs by hand. Done: E2E tests in CI (2026-10-02).
+- **Security scanning in releases**: The dependency scan (pip-audit, pnpm audit) and gitleaks already gate every deploy; the rest of the security-scanning skill (bandit, trivy, IaC scans) still runs by hand. Done: E2E tests in CI (2026-10-02); the MCP server, the guard hook and the capability index (2026-10-13).
 - **Design review on schedule**: Quarterly design audits via GitHub Actions scheduled job
 - **Multi-agent orchestration**: Formal PM/SWE/QA workflow with git worktrees for feature backlogs
 - **Custom agents for other events**: Extend on-call agent to handle other production scenarios (deployment rollback, database alerts, etc.)

@@ -1,0 +1,45 @@
+[project]
+name = "hub-mcp-server"
+version = "1.0.0"
+description = "MCP server exposing the Hub API to AI agents"
+requires-python = ">=3.12"
+dependencies = [
+    # httpx2 is also what mcp itself uses; declared because hub_mcp
+    # imports it directly.
+    "httpx2>=2.13.1",
+    "mcp>=2.2.0,<3",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pyyaml>=6.0.3",
+    "ruff>=0.15",
+]
+
+# Not packaged: run in place with `uv run python -m hub_mcp` (see README).
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# `uv run pytest` runs the unit tests (a fake Hub API, no services).
+# `uv run pytest -m integration` runs tests/test_live_api.py against a
+# real backend at HUB_API_URL (default http://localhost:8000), such as
+# the Docker Compose stack.
+addopts = "-m 'not integration'"
+markers = [
+    "integration: needs a running Hub backend; deselected by default",
+]
+
+# Same Ruff setup as backend/ (`make lint-mcp`, `make fmt`).
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["hub_mcp", "tests"]

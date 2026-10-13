@@ -209,8 +209,10 @@ Two ways to run this app locally:
   Postgres. `docker compose up --build` from the repo root starts, in
   order: a `postgres` service (Postgres 17, matching Neon), a
   `bootstrap` service, an `init_local` service that seeds the demo
-  account, then the `app` service, which connects as a limited role.
-  Compose sets all the env vars for you.
+  account, then the `app` service, which connects as a limited role,
+  and a `frontend` service (nginx on :8080 serving the built web app
+  and forwarding `/api/*` to `app`, as CloudFront does; see
+  `frontend/README.md`). Compose sets all the env vars for you.
 
 `app/bootstrap_db.py`, run via `python -m app.bootstrap_db` (or its
 `lambda_handler` in AWS), owns the schema and has two modes:

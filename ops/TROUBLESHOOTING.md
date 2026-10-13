@@ -113,7 +113,8 @@ or query span is Neon resuming.
 
 ## Local reproduction of an outage
 
-With the Compose stack up (`make docker-up`) and the frontend on :5173:
+With the Compose stack up (`make docker-up`) and the web app open on
+:8080 (or the Vite dev server on :5173):
 
 ```
 docker compose stop postgres     # API answers 503; app shows "Can't reach the server"

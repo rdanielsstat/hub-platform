@@ -114,8 +114,17 @@ Usage caps bound how much one account can store: 500 projects per user,
   the alert text a human pastes into the workflow, plus a fixed
   description of the stack. Never logs, traces, database content or
   user data. Don't paste user data into the alert summary.
-- **No AI processing of user content.** Projects and notes are never
-  sent to an AI service.
+- **Hub MCP server** (`mcp-server/`): when a user connects an AI client
+  (Claude Code, Claude Desktop) to it, the tools return that user's own
+  projects and notes, which become part of the agent's context and so go
+  to the model provider behind the client they chose. It only ever
+  covers the account the user configured it with, nothing runs unless
+  they connect a client, and Hub itself sends nothing anywhere: the
+  user's AI provider is their choice and under their own terms, not a
+  Hub processor. Use the demo account to try it without real data.
+- **Otherwise, no AI processing of user content.** Hub never sends
+  projects or notes to an AI service on its own, and the on-call
+  diagnostic sees only alert text.
 
 See `security/AGENT_SECURITY.md` for how the agents themselves are
 contained.

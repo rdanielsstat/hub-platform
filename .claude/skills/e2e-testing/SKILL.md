@@ -16,7 +16,7 @@ Run Hub-Platform's Playwright end-to-end suite against the real local backend an
 
 ## The suite
 
-All tests live in `frontend/tests/` (202 tests as of October 2026; the count grows as tests are added):
+All tests live in `frontend/tests/` (204 tests as of October 2026; the count grows as tests are added):
 
 ```
 frontend/tests/
@@ -31,8 +31,9 @@ frontend/tests/
                 between users
   integration.spec.ts
                 The Docker Compose stack (Playwright project `docker-compose`):
-                a full journey on Postgres, browser error reporting, and backend
-                and database outages. Its outage tests stop and pause the Compose
+                a full journey on Postgres, the nginx frontend container on
+                :8080 (headers, routing, a browser journey), browser error
+                reporting, and backend and database outages. Its outage tests stop and pause the Compose
                 Postgres, so they run only with E2E_DOCKER=1 and --workers=1
                 (`make test-e2e-docker`)
   helpers.ts    Shared setup: register users and create projects or notes

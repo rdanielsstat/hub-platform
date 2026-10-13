@@ -6,6 +6,18 @@ comes from the git tag (`.github/scripts/service-version.sh`).
 
 ## [Unreleased]
 
+### Added
+- MCP server (`mcp-server/`): five tools over the Hub API for AI agents
+  (list, get, create, update, add note; no deletes), registered for
+  Claude Code in `.mcp.json`
+- Guard hook (`agent-hooks/guard.py`, `.claude/settings.json`): Claude Code
+  can't commit, deploy or read real `.env` files and secrets, and asks
+  before pushes and commands that delete data
+- `agent-capabilities/README.md`: every agent capability in one table
+- Docker Compose runs the whole system: a `frontend` service (nginx on
+  :8080) serves the production build with CloudFront's security headers
+  and SPA routing, and proxies `/api/*` to the backend
+
 ### Fixed
 - Mobile: the page no longer stays zoomed in after logging in. Form fields
   are 16px on phones (iOS Safari zooms in on focusing anything smaller) and
@@ -15,14 +27,31 @@ comes from the git tag (`.github/scripts/service-version.sh`).
 
 ### Changed
 - CI runs the frontend's lint, format check and build in the `test` job
+- CI also lints and tests the MCP server and the guard hook, runs the MCP
+  server against the Compose stack, and audits `mcp-server/uv.lock`
+- The `security-scanning` skill runs trivy (backend and frontend images,
+  the frontend Dockerfile) and the IaC scans, and audits the MCP server
+- `make docker-up` waits for the web app as well as the API; new targets
+  `test-mcp`, `test-mcp-live`, `test-hooks`, `lint-mcp`, `lint-hooks`
 - `pnpm lint` fails on any ESLint warning (`--max-warnings 0`)
+
+### Security
+- Compose frontend image: OS packages upgraded at build (fixes a MEDIUM
+  zlib CVE), non-root, healthcheck, no nginx version in responses
+- Data policy states that the opt-in MCP server returns a user's own data
+  to the AI client they connect
 
 ### Documentation
 - README lists every `make` target (new "Make Targets" section)
+- README's AI workflow section documents the tools and their roles, the
+  prompt log, context files, and manual review and verification; Mermaid
+  architecture and CI/CD diagrams replace the placeholders
 
 ### Testing
-- 202 Playwright E2E tests (a phone-width check that every form field is
-  16px or larger)
+- 204 Playwright E2E tests (a phone-width check that every form field is
+  16px or larger; the Compose frontend container's headers, routing,
+  proxy and a browser journey)
+- 24 MCP server unit tests and a live test; 19 guard hook tests
 
 ## [1.0.0] - 2026-10-03
 

@@ -1,6 +1,6 @@
 # Image and infrastructure scans
 
-Results of the container image scan (trivy) and the infrastructure-as-code
+Results of the container image scans (trivy) and the infrastructure-as-code
 scans (tfsec, checkov), with the decision taken for every finding. Re-run
 before each release and update the dates.
 
@@ -16,6 +16,11 @@ trivy image --scanners vuln "$IMG"
 # Or a local build of the current Dockerfile
 docker build --platform linux/amd64 --target prod -t hub-backend:scan backend
 trivy image --scanners vuln hub-backend:scan
+
+# The local Compose frontend image (nginx), and its Dockerfile
+docker compose build frontend
+trivy image --scanners vuln hub-platform-frontend:latest
+trivy config frontend/Dockerfile
 
 # Infrastructure (from the repo root). Keep terraform.tfvars out of the
 # scan: it holds real secrets, and scanners print code snippets.
@@ -68,6 +73,21 @@ is a Linux image. It goes away when AWS rebuilds the emulator.
 `hub-prod-backend:20261003-230501-f34d327` (built by CI from the patched
 Dockerfile), scanned by digest: no findings in the OS packages or Python
 packages; the same single UNKNOWN in `aws-lambda-rie`.
+
+## trivy: Compose frontend image (2026-10-13)
+
+`frontend/Dockerfile`: the production build served by
+`nginxinc/nginx-unprivileged:1.30-alpine` (Alpine 3.24.2), for the local
+Docker Compose stack only; deployments serve the build from S3.
+
+| Finding | Severity | Decision |
+|---|---|---|
+| CVE-2026-85091, zlib 1.3.2-r0 (heap buffer overflow), fixed in 1.3.2-r1 | MEDIUM | **Fixed**: the Dockerfile runs `apk upgrade --no-cache` as root, then switches back to the image's `nginx` user (uid 101), the same approach as the backend's `dnf upgrade` |
+| DS-0026, no `HEALTHCHECK` (`trivy config`) | LOW | **Fixed**: a healthcheck fetches the page every 10 seconds; `docker compose ps` shows `(healthy)` |
+
+**Result after the fixes**: `trivy image`: 0 vulnerabilities at any
+severity. `trivy config frontend/Dockerfile`: 0 misconfigurations. The
+container runs as uid 101, not root.
 
 ## tfsec: infra/hub (2026-10-03, HIGH and CRITICAL)
 

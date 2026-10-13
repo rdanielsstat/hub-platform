@@ -28,6 +28,29 @@ push to `main`; `promote.yml` rebuilds it from the current `main` for
 prod (`ops/DEPLOYMENT.md`). Static files in `public/` (`favicon.svg`,
 `theme-init.js`) are copied as they are.
 
+## Docker (local Compose only)
+
+`Dockerfile` builds the same production artifact (`pnpm build`, with
+`VITE_API_BASE_URL` unset, and `.env` kept out by `.dockerignore`) and
+serves it with nginx (`nginxinc/nginx-unprivileged`, non-root, port
+8080). It's the `frontend` service in the repo root's
+`docker-compose.yml`, at `http://localhost:8080`; deployments don't use
+it. `nginx.conf` stands in for CloudFront:
+
+- `/api/*` goes to the Compose `app` service with the `/api` prefix
+  stripped, as Mangum strips it when deployed. nginx re-resolves `app`
+  through Docker's DNS, so a recreated backend container doesn't break
+  the proxy.
+- Paths with a file extension are files (a 404 if missing); anything else
+  gets `index.html`, like the CloudFront Function in
+  `infra/hub/frontend.tf`.
+- The same security headers as CloudFront (`local.content_security_policy`
+  there; keep the two in step), except HSTS and the CSP's
+  `upgrade-insecure-requests`, which only make sense over HTTPS.
+- No nginx version in responses (`server_tokens off`); OS packages are
+  upgraded at build (trivy: no findings, `security/IAC_SCANS.md`); a
+  Docker healthcheck fetches the page.
+
 ## Checks
 
 All must pass before a change is done (`make check` from the repo root
@@ -63,9 +86,12 @@ backend: run one first. Install the browser once with
 | `chromium`       | `app.spec.ts` (browser), `api.spec.ts` (API only) | Any backend on :8000: `uv run uvicorn app.main:app` in `backend/` (SQLite), or the Compose stack (Postgres) | `make test-e2e`, or `pnpm exec playwright test --project=chromium`                                       |
 | `docker-compose` | `integration.spec.ts`                             | The Compose stack (`make docker-up`)                                                                        | `make test-e2e-docker`, or `E2E_DOCKER=1 pnpm exec playwright test --project=docker-compose --workers=1` |
 
-`integration.spec.ts` covers a full journey on Postgres, browser error
-reporting, and how the app behaves when the backend or database is
-unavailable. Its "database outage" tests stop, start and pause the
+`integration.spec.ts` covers a full journey on Postgres, the Compose
+`frontend` container on :8080 (`E2E_WEB_URL`; its security headers, SPA
+routing, `/api` proxy, and a browser journey with no CSP violations),
+browser error reporting, and how the app behaves when the backend or
+database is unavailable. The `frontend` container tests also need
+`E2E_DOCKER=1`. Its "database outage" tests stop, start and pause the
 Compose `postgres` service through the docker CLI, so they only run with
 `E2E_DOCKER=1`, and the project must run alone with one worker, or other
 tests would lose their database mid-run.

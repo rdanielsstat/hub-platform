@@ -32,6 +32,20 @@ jobs:
       - name: Backend tests
         working-directory: backend
         run: uv run pytest -q
+      # The MCP server: Ruff, then its unit tests (a fake Hub API; the live
+      # test runs in the e2e job, against the Compose stack).
+      - name: MCP server lint, format check and tests
+        working-directory: mcp-server
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run pytest -q
+      # The Claude Code guard hook: standard library only, linted with the
+      # backend's Ruff (agent-hooks/ruff.toml).
+      - name: Agent hook lint, format check and tests
+        run: |
+          (cd backend && uv run ruff check ../agent-hooks && uv run ruff format --check ../agent-hooks)
+          python3 -m unittest discover -s agent-hooks/tests -t agent-hooks
 
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
@@ -101,6 +115,16 @@ jobs:
         working-directory: frontend
         run: pnpm exec playwright test --project=chromium
 
+      # The MCP server's tools end to end against the Compose API, before
+      # the outage tests below take Postgres away.
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - name: MCP server against the Compose stack
+        if: ${{ !cancelled() }}
+        working-directory: mcp-server
+        env:
+          HUB_API_URL: http://localhost:8000
+        run: uv run pytest -m integration -q
+
       # Run alone, one worker: these stop and pause the Compose Postgres.
       - name: E2E (Compose stack, database outages)
         if: ${{ !cancelled() }}
@@ -150,6 +174,20 @@ jobs:
             exit 1
           fi
           python3 ../.github/scripts/pip_audit_gate.py "$RUNNER_TEMP/pip-audit.json"
+      - name: MCP server (pip-audit, fails on HIGH and above)
+        working-directory: mcp-server
+        run: |
+          uv export --frozen --no-hashes --format requirements-txt -o "$RUNNER_TEMP/mcp-requirements.txt"
+          set +e
+          uvx pip-audit==2.10.1 --disable-pip --no-deps \
+            -r "$RUNNER_TEMP/mcp-requirements.txt" --format json -o "$RUNNER_TEMP/mcp-pip-audit.json"
+          status=$?
+          set -e
+          if [ "$status" -gt 1 ] || [ ! -s "$RUNNER_TEMP/mcp-pip-audit.json" ]; then
+            echo "pip-audit did not complete (exit $status)"
+            exit 1
+          fi
+          python3 ../.github/scripts/pip_audit_gate.py "$RUNNER_TEMP/mcp-pip-audit.json"
 
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:

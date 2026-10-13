@@ -40,7 +40,8 @@ Nobody deploys from a laptop, and agents never deploy (`AGENTS.md`).
 
 `deploy-dev` waits for every check: `test`, `dependency-scan` (pip-audit
 and pnpm audit; fails on HIGH and CRITICAL), `secrets-scan`, `integration`
-(Postgres) and `e2e` (Playwright against Docker Compose).
+(Postgres) and `e2e` (Playwright and the MCP server's live test against
+Docker Compose).
 Any failure means no deploy.
 
 ## Prod: promote.yml

@@ -95,6 +95,12 @@
 - Form `maxLength` matching the API limits: done (2026-10-04, every text
   field, from `frontend/src/lib/limits.ts`; a backend test keeps the two in
   step).
+- MCP server and guard hook tests in CI: done (2026-10-13). Unit tests and
+  Ruff in the `test` job, the MCP live test against the Compose stack in
+  `e2e`, pip-audit over `mcp-server/uv.lock` in `dependency-scan`.
+- Playwright tests for the Compose frontend container: done (2026-10-13),
+  in `integration.spec.ts` (security headers, SPA routing, the `/api`
+  proxy, a browser journey with no CSP violations).
 - Frontend lint, format check and build in CI: done (2026-10-08), in the
   `test` job, gating the dev deploy like the rest. `pnpm lint` now passes
   `--max-warnings 0`, since plain `eslint .` exits 0 on warnings and the
@@ -159,6 +165,36 @@
 - Root `README.md` documents every `make` target (a new "Make Targets"
   section); eight were missing, including `install` and `docker-down`.
 
+**2026-10-13, agent extension pack and the full system in Compose**
+
+- `mcp-server/`: the Hub MCP server (official `mcp` SDK 2.2.0), with unit,
+  contract, stdio and live tests; `.mcp.json`.
+- `agent-hooks/guard.py`: the Claude Code guard hook, with tests;
+  `.claude/settings.json`. Confirmed live: it denied a `git commit`.
+- `agent-capabilities/README.md`: the capability index.
+- `frontend/Dockerfile`, `nginx.conf`: the web app in Docker Compose on
+  :8080; `make docker-up` waits for it.
+- README: the "AI-Native Development Workflow" section rewritten (tools
+  and roles, the prompt log, context files, manual review and
+  verification); the two diagram placeholders replaced by Mermaid
+  diagrams; v0's role in the first frontend stated accurately.
+- Issues found and fixed in the same session: the frontend image had a
+  MEDIUM zlib CVE (OS packages now upgraded at build) and no healthcheck;
+  nginx advertised its version (`server_tokens off`); nginx would have
+  kept proxying to a recreated backend's old IP (now re-resolves through
+  Docker's DNS); the root `.gitignore` had no Python entries, so the new
+  folders' `__pycache__/` and `.venv/` showed as untracked;
+  `security/DATA_POLICY.md` said user content never reaches an AI
+  service, which the MCP server changes (now stated, with who and how);
+  the README's frontend history credited Claude Code with the v0
+  scaffold; the first version of the guard hook denied two harmless
+  things (heredoc bodies mentioning a secrets file, and the documented
+  `tfsec --exclude-path terraform.tfvars` scan), so it now skips heredoc
+  bodies and exclusion-option values, with tests; `AGENTS.md` and the
+  README said the `security-scanning` skill runs trivy and the IaC scans,
+  but it didn't (its own limitations said so), so it now has that step,
+  plus pip-audit and bandit for the MCP server and the hook.
+
 ## Project requirements
 
 - Root `README.md`: done.
@@ -177,8 +213,14 @@
   - operational diagnosis output: done (2026-10-04, `OPERATIONAL_DIAGNOSIS.md`)
 - `agent-capabilities/`, `agent-hooks/`, `mcp-server/`, and either `plugins/`
   or `custom-agent/`, plus `docs/agent-extension-pack.md` and
-  `docs/permissions.md`. Needs a reusable workflow, a subagent, an MCP tool or
-  server, and a hook or guardrail.
+  `docs/permissions.md`: done (2026-10-13). Reusable workflows (the four
+  skills), a subagent (QA engineer), an MCP server (`mcp-server/`, five
+  tools, no deletes), a hook (`agent-hooks/guard.py`, plus the gitleaks
+  pre-commit hook), `custom-agent/`, and the index in
+  `agent-capabilities/README.md`.
+- The full system in Docker Compose, frontend included: done (2026-10-13).
+  A `frontend` service (nginx on :8080) serves the production build and
+  proxies `/api/*` like CloudFront.
 - Promote to prod so `hub.dnls.dev` is live: done.
 - Make the repo public before peer review: done (https://github.com/rdanielsstat/hub-platform).
 - Do not destroy the stack until peer review is finished.

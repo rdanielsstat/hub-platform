@@ -22,7 +22,7 @@ A personal idea management system for capturing, triaging, and tracking ideas fr
 - [openapi.yaml](openapi.yaml) - API contract (hand-written; a backend test checks the app matches it)
 - [ops/](ops/) - Runbooks: [deployment](ops/DEPLOYMENT.md), [health checks](ops/HEALTH_CHECKS.md), [monitoring](ops/MONITORING.md), [troubleshooting](ops/TROUBLESHOOTING.md)
 - [security/](security/) - [Security checklist](security/SECURITY_CHECKLIST.md), [rate limiting](security/RATE_LIMITING.md), [scan results](security/IAC_SCANS.md), [dependencies](security/DEPENDENCIES.md), [data policy](security/DATA_POLICY.md), [PR audit](security/PR_AUDIT.md), and more
-- [docs/agent-extension-pack.md](docs/agent-extension-pack.md) - AI skills and subagent workflows
+- [docs/agent-extension-pack.md](docs/agent-extension-pack.md) - The agent extension pack: skills, subagent, MCP server, guard hook ([agent-capabilities/](agent-capabilities/README.md) lists them all)
 - [docs/permissions.md](docs/permissions.md) - Agent security boundaries and permissions
 - [docs/tech-debt.md](docs/tech-debt.md) - What's done, what's left
 
@@ -78,7 +78,7 @@ Hub-Platform is a personal hub for capturing ideas, scoring them, and tracking t
 - Node.js 22 (install with a version manager such as nvm or fnm)
 - pnpm 12.3 (the version is pinned in `frontend/package.json`)
 - Git
-- Docker, only for the optional Postgres and observability stacks
+- Docker, only for the optional Compose stack (the whole system on Postgres; Docker alone is enough to run it) and the observability stack
 
 ### Run locally
 
@@ -115,21 +115,22 @@ pnpm dev
 
 Visit `http://localhost:5173` and log in as `demo@hub.dev` / `demo1234`, or sign up. Interactive API docs are at `http://localhost:8000/docs`.
 
-### Run with Docker Compose (Postgres)
+### Run with Docker Compose (the whole system)
 
-To run the backend against Postgres 17 instead of SQLite, from the repo root:
+To run everything in containers, with the backend on Postgres 17 instead of SQLite, from the repo root (only Docker needed):
 
 ```bash
 docker compose up --build
 ```
 
-This starts:
+Then open `http://localhost:8080` and log in as `demo@hub.dev` / `demo1234`, or sign up. This starts:
 - Postgres 17
 - `bootstrap`: creates the database and a least-privilege login role, then applies the Alembic migrations as that role
 - `init_local`: checks the schema is at the latest migration and seeds the demo account
-- `app`: the FastAPI backend on `http://localhost:8000`
+- `app`: the FastAPI backend, also published on `http://localhost:8000` (API docs at `/docs`)
+- `frontend`: nginx serving the production build of the web app on `http://localhost:8080`, forwarding `/api/*` to `app` the way CloudFront does when deployed, with the same security headers (`frontend/Dockerfile`, `frontend/nginx.conf`)
 
-It doesn't include the frontend (run `pnpm dev` as above) or the observability stack, which is a separate compose file (see [Observability](#observability)).
+`make docker-up` does the same in the background and waits until both answer; `make docker-down` stops it (the database volume is kept). The observability stack is a separate compose file (see [Observability](#observability)).
 
 ---
 
@@ -137,11 +138,33 @@ It doesn't include the frontend (run `pnpm dev` as above) or the observability s
 
 ### System design
 
-[**ARCHITECTURE DIAGRAM PLACEHOLDER**]
+```mermaid
+flowchart LR
+    user["Browser"] --> cflare["Cloudflare<br/>DNS and proxy"]
+    cflare --> cfront["CloudFront<br/>HTTPS, security headers"]
+    cfront -->|"static files"| s3[("S3<br/>built React app")]
+    cfront -->|"/api/* + X-Origin-Verify"| apigw["API Gateway<br/>HTTP API"]
+    apigw --> api["API Lambda<br/>FastAPI via Mangum<br/>image from ECR"]
+    api --> neon[("Neon Postgres")]
+    boot["Bootstrap Lambda<br/>migrations, demo seed"] --> neon
+    ssm["SSM SecureStrings"] -.->|"secrets at startup"| api
+    api -.->|"OTLP traces, metrics, logs"| grafana["Grafana Cloud"]
+    agent["AI agent<br/>mcp-server/"] -->|"Bearer token"| cfront
+```
 
-Visual description: A user opens Hub-Platform in a web browser. Requests go through Cloudflare (DNS and proxy) to CloudFront (HTTPS), which adds security headers (CSP, HSTS and related) to every response. CloudFront serves the built React app from a private S3 bucket and forwards `/api/*` requests to an API Gateway HTTP API, adding a secret origin-verification header, so the frontend and API share one origin. API Gateway invokes the backend Lambda, a container image from ECR running FastAPI through Mangum, which strips the `/api` prefix. The Lambda stores data in Neon Postgres. A separate bootstrap Lambda applies the Alembic migrations (and seeds the demo account) on every deploy, before the API Lambda switches to new code. In both dev and prod, OpenTelemetry sends traces, metrics and selected logs (including frontend error reports) from the backend to Grafana Cloud.
+A user opens Hub-Platform in a web browser. Requests go through Cloudflare (DNS and proxy) to CloudFront (HTTPS), which adds security headers (CSP, HSTS and related) to every response. CloudFront serves the built React app from a private S3 bucket and forwards `/api/*` requests to an API Gateway HTTP API, adding a secret origin-verification header, so the frontend and API share one origin. API Gateway invokes the backend Lambda, a container image from ECR running FastAPI through Mangum, which strips the `/api` prefix. The Lambda stores data in Neon Postgres. A separate bootstrap Lambda applies the Alembic migrations (and seeds the demo account) on every deploy, before the API Lambda switches to new code. In both dev and prod, OpenTelemetry sends traces, metrics and selected logs (including frontend error reports) from the backend to Grafana Cloud.
 
-Locally, the frontend runs on the Vite dev server (`http://localhost:5173`) and calls the backend directly on `http://localhost:8000`, which uses SQLite.
+An AI agent can use the same API through the MCP server in `mcp-server/`, signed in as one user with a Bearer token (see [AI-Native Development Workflow](#ai-native-development-workflow)).
+
+Locally, the frontend runs on the Vite dev server (`http://localhost:5173`) and calls the backend directly on `http://localhost:8000`, which uses SQLite. Docker Compose runs the whole system instead: nginx on `http://localhost:8080` serves the production build and forwards `/api/*` to the backend, which uses Postgres 17, mirroring CloudFront and Neon:
+
+```mermaid
+flowchart LR
+    browser["Browser"] --> nginx["frontend: nginx :8080<br/>built app, security headers"]
+    nginx -->|"/api/*, prefix stripped"| app["app: FastAPI :8000"]
+    app --> pg[("postgres: Postgres 17")]
+    boot["bootstrap, init_local<br/>migrations, demo seed"] --> pg
+```
 
 ### Component overview
 
@@ -255,6 +278,17 @@ Grafana Cloud                   Traces, metrics, logs, alerting
 OpenTofu 1.12.6                 Infrastructure as code
 GitHub Actions                  CI/CD
 Docker                          Containerization
+nginx 1.30 (unprivileged)       Serves the web app in local Docker Compose
+```
+
+### Agent Extension Stack
+
+```
+MCP Python SDK (mcp) 2.2        MCP server (mcp-server/)
+httpx2 2.13                     Its HTTP client for the Hub API
+Claude Code hooks               PreToolUse guard (agent-hooks/, standard library Python 3.9+)
+Claude Code skills, subagents   .claude/skills/, .claude/agents/
+gitleaks 8.30 (pre-commit)      Secret scan before each commit
 ```
 
 ---
@@ -325,13 +359,15 @@ Visit `http://localhost:5173`.
 The `Makefile` at the repo root wraps the common commands; `make help` lists every target. Setup, linting and Docker (the test targets are in the next section):
 
 ```bash
-make install           # uv sync (backend) and pnpm install (frontend)
+make install           # uv sync (backend, mcp-server) and pnpm install (frontend)
 make check             # every local gate: lint, format check, unit tests and frontend build
-make lint              # lint-backend + lint-frontend
+make lint              # lint-backend + lint-frontend + lint-mcp + lint-hooks
 make lint-backend      # Ruff lint and format check
 make lint-frontend     # ESLint (fails on any warning) and Prettier check
-make fmt               # auto-fix: Ruff (backend), Prettier (frontend)
-make docker-up         # build and start the Compose stack; waits until the API answers
+make lint-mcp          # Ruff lint and format check of mcp-server/
+make lint-hooks        # Ruff lint and format check of agent-hooks/ (Python 3.9 target)
+make fmt               # auto-fix: Ruff (backend, mcp-server, agent-hooks), Prettier (frontend)
+make docker-up         # build and start the Compose stack; waits until the API and the web app answer
 make docker-db-up      # start only the Compose Postgres; waits until it's healthy
 make docker-down       # stop the Compose stack (keeps the database volume)
 make docker-logs       # follow the Compose logs
@@ -342,12 +378,15 @@ make docker-logs       # follow the Compose logs
 From the repo root. The test layers:
 
 ```bash
-make test-unit         # backend pytest (in-memory SQLite) + frontend Vitest; no services
+make test-unit         # backend, frontend, MCP server and agent hook unit tests; no services
 make test-backend      # just the backend unit tests (`make test` is an alias for test-unit)
 make test-frontend     # just the frontend Vitest tests
+make test-mcp          # just the MCP server's tests (a fake Hub API)
+make test-hooks        # just the agent hook's tests (standard library unittest)
 make test-integration  # backend tests against the Docker Compose Postgres (starts it)
+make test-mcp-live     # the MCP server's tools against a real backend on :8000
 make test-e2e          # Playwright browser + API tests; needs a backend on :8000
-make test-e2e-docker   # Playwright against the full Compose stack, incl. Postgres outages
+make test-e2e-docker   # Playwright against the full Compose stack, incl. the nginx frontend and Postgres outages
 make check             # lint, format, unit tests and build: the pre-commit gate
 ```
 
@@ -364,9 +403,16 @@ pnpm lint
 pnpm build
 pnpm format:check
 pnpm exec playwright test --project=chromium   # E2E; needs a backend on :8000
+
+# MCP server (from mcp-server/)
+uv run pytest                  # unit tests (fake API)
+uv run pytest -m integration   # live test; needs a backend on HUB_API_URL (default :8000)
+
+# Agent hook (from the repo root)
+python3 -m unittest discover -s agent-hooks/tests -t agent-hooks
 ```
 
-Details: `backend/README.md` ("Run the tests") and `frontend/README.md`.
+Details: `backend/README.md` ("Run the tests"), `frontend/README.md`, `mcp-server/README.md` and `agent-hooks/README.md`.
 
 ### Database Management
 
@@ -392,13 +438,15 @@ docker compose down -v
 
 ### Local Docker Compose (Production Parity)
 
-To run the backend against Postgres, as it does when deployed (from the repo root):
+To run the whole system as it runs when deployed, with Postgres and the production frontend build (from the repo root):
 
 ```bash
 docker compose up --build
 ```
 
-This starts Postgres 17 (with a persistent volume), creates the database and role, applies the migrations, seeds the demo account, then serves the API on `http://localhost:8000`. `make docker-up` does the same in the background and waits until the API answers; `make docker-logs` follows its logs and `make docker-down` stops it, keeping the database volume. The frontend isn't part of it: start it with `pnpm dev` from `frontend/` and open `http://localhost:5173`. Stop the API from Terminal 1 first if it's running, since both use port 8000.
+This starts Postgres 17 (with a persistent volume), creates the database and role, applies the migrations, seeds the demo account, serves the API on `http://localhost:8000`, and serves the web app on `http://localhost:8080` (nginx, forwarding `/api/*` to the API). `make docker-up` does the same in the background and waits until both answer; `make docker-logs` follows its logs and `make docker-down` stops it, keeping the database volume. Stop the API from Terminal 1 first if it's running, since both use port 8000.
+
+The nginx container stands in for CloudFront: the same security headers (minus HSTS and `upgrade-insecure-requests`, which need HTTPS), the same SPA routing (extensionless paths get `index.html`, missing files a 404), and `/api/*` forwarded with the prefix stripped, as Mangum does. To work on the frontend with hot reload instead, run `pnpm dev` from `frontend/` against the Compose API and open `http://localhost:5173`.
 
 **Test the workflow:**
 1. Sign up with an email and password
@@ -416,9 +464,20 @@ This starts Postgres 17 (with a persistent volume), creates the database and rol
 
 ### CI/CD Pipeline
 
-[**CI/CD DIAGRAM PLACEHOLDER**]
+```mermaid
+flowchart LR
+    push["Push to main<br/>or pull request"] --> test["test<br/>unit tests, lint, build"]
+    push --> integ["integration<br/>backend on Postgres"]
+    push --> e2e["e2e<br/>Playwright and MCP on Compose"]
+    push --> secrets["secrets-scan<br/>gitleaks, full history"]
+    test --> deps["dependency-scan<br/>pip-audit, pnpm audit"]
+    test & integ & e2e & secrets & deps --> deploy["deploy-dev<br/>main only"]
+    deploy --> dev["Dev<br/>hub-dev.dnls.dev"]
+    dev -.->|"manual: typed confirm,<br/>reviewer approval"| promote["promote.yml"]
+    promote --> prod["Prod<br/>hub.dnls.dev"]
+```
 
-Visual description: A developer pushes code to main. GitHub Actions runs five checks: backend and frontend unit tests, a dependency scan (pip-audit and pnpm audit; HIGH and CRITICAL fail it) after the unit tests, a gitleaks history scan, backend integration tests against Postgres, and Playwright E2E tests against the Docker Compose stack (pull requests run only these checks). All five gate the deploy. If they pass, CI builds a Docker image, tags it with a timestamp and short SHA (e.g., 20261001-163457-83242da), and pushes it to the dev ECR repository (tags are immutable). It then points the bootstrap Lambda at the new image and runs it, which applies any database migrations; only then does it apply the rest of the dev infrastructure with OpenTofu, which switches the API Lambda to the new code. Finally it builds the frontend, uploads it to S3, and smoke-tests `/api/health`. After testing in dev, a release owner manually runs the promote workflow (typed confirmation plus a reviewer's approval), which copies the same image from dev ECR to prod ECR (no rebuild), runs the prod migrations the same way, deploys the image to the production Lambda, and builds and uploads the frontend. Every action is pinned to a commit SHA. Details: `ops/DEPLOYMENT.md`.
+A developer pushes code to main. GitHub Actions runs five checks: unit tests (backend, frontend, MCP server and agent hook) with the backend, frontend and MCP lint, format and build checks, a dependency scan (pip-audit and pnpm audit over the backend, MCP server and frontend locks; HIGH and CRITICAL fail it) after the unit tests, a gitleaks history scan, backend integration tests against Postgres, and the Playwright E2E tests and the MCP server's live test against the Docker Compose stack (pull requests run only these checks). All five gate the deploy. If they pass, CI builds a Docker image, tags it with a timestamp and short SHA (e.g., 20261001-163457-83242da), and pushes it to the dev ECR repository (tags are immutable). It then points the bootstrap Lambda at the new image and runs it, which applies any database migrations; only then does it apply the rest of the dev infrastructure with OpenTofu, which switches the API Lambda to the new code. Finally it builds the frontend, uploads it to S3, and smoke-tests `/api/health`. After testing in dev, a release owner manually runs the promote workflow (typed confirmation plus a reviewer's approval), which copies the same image from dev ECR to prod ECR (no rebuild), runs the prod migrations the same way, deploys the image to the production Lambda, and builds and uploads the frontend. Every action is pinned to a commit SHA. Details: `ops/DEPLOYMENT.md`.
 
 ### Environments
 
@@ -666,11 +725,24 @@ frontend/
   tests/
     app.spec.ts               Playwright: browser flows
     api.spec.ts               Playwright: live API tests
-    integration.spec.ts       Playwright: the Compose stack, error reporting, outages
+    integration.spec.ts       Playwright: the Compose stack (incl. the nginx
+                              frontend), error reporting, outages
     helpers.ts                Shared setup
+
+mcp-server/
+  tests/
+    test_client.py            Login, token refresh, error reporting
+    test_server.py            Each tool through a real MCP client session
+    test_contract.py          Every API call it makes is in openapi.yaml
+    test_stdio.py             The real `python -m hub_mcp` entry point
+    test_live_api.py          The tools against a real backend (integration)
+    fake_api.py               In-memory Hub API the unit tests run against
+
+agent-hooks/
+  tests/test_guard.py         Every deny/ask/allow rule, and the hook's JSON contract
 ```
 
-Backend unit tests each get their own in-memory SQLite database, so they don't need a running server. The integration tests need the Compose Postgres, and the Playwright tests need a backend (see below). As of October 2026: 435 backend unit and 38 integration tests, 202 frontend unit tests, 202 Playwright tests. CI runs all of them on every push and pull request, along with the backend and frontend lint, format and build checks.
+Backend unit tests each get their own in-memory SQLite database, so they don't need a running server. The integration tests need the Compose Postgres, and the Playwright tests need a backend (see below). As of October 2026: 435 backend unit and 38 integration tests, 202 frontend unit tests, 204 Playwright tests, 24 MCP server unit tests plus 1 live test, and 19 agent hook tests. CI runs all of them on every push and pull request, along with the lint, format and build checks.
 
 ### Running tests
 
@@ -725,29 +797,86 @@ cd frontend
 pnpm exec playwright test --project=chromium   # browser and API tests
 ```
 
-The `docker-compose` project (`integration.spec.ts`) is meant for the Compose stack and includes tests that stop and pause its Postgres; run it with `make test-e2e-docker`. Details: `frontend/README.md`.
+The `docker-compose` project (`integration.spec.ts`) is meant for the Compose stack: it also tests the nginx frontend container on port 8080 (security headers, routing, a full journey in the browser) and includes tests that stop and pause its Postgres; run it with `make test-e2e-docker`. Details: `frontend/README.md`.
 
-Two optional environment variables (read in `frontend/tests/helpers.ts`) point the tests elsewhere:
+Optional environment variables point the tests elsewhere:
 
-- `E2E_API_URL`: the backend the tests call directly (default `http://localhost:8000`)
+- `E2E_API_URL` (read in `frontend/tests/helpers.ts`): the backend the tests call directly (default `http://localhost:8000`)
+- `E2E_WEB_URL` (read in `frontend/tests/integration.spec.ts`): the Compose frontend container (default `http://localhost:8080`)
 - `E2E_JWT_SECRET`: the JWT secret the backend signs tokens with, used by the expired- and forged-token tests (default: the backend's built-in dev secret). If it doesn't match the server, those tests skip themselves.
 
 ---
 
 ## AI-Native Development Workflow
 
-Hub-Platform was built using AI-native development practices: spec-driven development, context engineering, and AI agent teams.
+Hub-Platform was built with AI tools doing most of the writing and a human reviewing, verifying and committing every change: spec-driven development, written context for the agents, delegated tasks with explicit rules, and checks that don't depend on trusting the agent.
+
+### Tools and what each did
+
+| Tool | Role |
+|---|---|
+| Claude (chat) | Brainstormed the problem, users, features and data model into `product-spec.md` |
+| [v0](https://v0.app) | Scaffolded the first React frontend, with an in-memory mock of a single API layer, from one prompt (the "v0.app front-end specification" in `docs/prompts.md`) |
+| Claude Code | Everything since: the real API layer, the OpenAPI contract, the FastAPI backend, the database and migrations, every test suite, Docker, OpenTofu, CI/CD, observability, the security hardening, and the agent extension pack |
+| OpenAI GPT-4o-mini | Only the on-call diagnostic, at run time ([On-Call Diagnostic](#on-call-diagnostic)) |
 
 ### How it was built
 
-1. **Specification**: Brainstormed with Claude to define the problem, users, features, and workflows (saved in `product-spec.md`)
-2. **Frontend first**: Created a React prototype with mocked backend calls using Claude Code
-3. **API contract**: Defined OpenAPI specification for frontend-backend communication
-4. **Backend from spec**: Built FastAPI backend from the OpenAPI contract
-5. **Database**: Added Postgres persistence via SQLAlchemy
-6. **Deployment**: Containerized, deployed to AWS, and set up CI/CD
-7. **Observability**: Instrumented with OpenTelemetry and added a manual on-call diagnostic workflow
-8. **Agent extension pack**: Created reusable skills and autonomous agents
+1. **Specification**: the problem, users, features, workflows and data model, in `product-spec.md`
+2. **Frontend first**: the v0 prototype, every backend call already behind one `services/api` layer backed by a mock
+3. **API contract**: `openapi.yaml`, written from what the frontend needed
+4. **Backend from the contract**: FastAPI, with a test that fails if the app and `openapi.yaml` disagree (`backend/tests/test_openapi_contract.py`), then the frontend's mock swapped for real HTTP
+5. **Database**: SQLAlchemy and Alembic, SQLite locally, Postgres in Compose and on Neon
+6. **Tests**: backend unit and integration, frontend unit and component, Playwright end to end
+7. **Delivery**: Docker, OpenTofu on AWS, CI/CD that deploys only when every check passes
+8. **Observability**: OpenTelemetry to Grafana Cloud, and the on-call diagnostic
+9. **Hardening and audits**: rate limits, quotas, headers, scans, and the reviews in `security/`
+10. **Agent extension pack**: skills, a subagent, an MCP server, a guard hook, permissions
+
+### Prompts and task delegation
+
+- **The prompt log.** `docs/prompts.md` has the v0 prompt and the 34 numbered Claude Code prompts, verbatim; `docs/results.md` has the agent's final report for each, also verbatim, so every prompt can be read next to what came back. Later sessions are recorded in `docs/tech-debt.md` ("Completed work, by session") and `CHANGELOG.md`.
+- **How tasks are written.** Each prompt scopes one task, says what to read first, sets rules (for example "Do NOT change app code to make it testable... STOP and tell me what and why"), defines done (tests, lint and build clean, with counts reported), and ends with "Don't commit, I'll review." Prompt 34, the React Testing Library pass, is a full example.
+- **What's delegated, and to what.** Repeatable workflows are skills (release, E2E testing, security scanning, design review); independent review goes to the QA subagent in a fresh context, so it doesn't share the implementer's assumptions; alert triage goes to the on-call diagnostic; and an agent working with the app's data uses the MCP server.
+
+### Context files
+
+What the agents read before working, so instructions don't have to be repeated in every prompt:
+
+| File | What it gives the agent |
+|---|---|
+| `AGENTS.md` | Standing instructions: structure, stack, commands, the definition of done, and the boundaries (never commit, deploy, read secrets or delete data) |
+| `product-spec.md` | The product and data model, the source of truth |
+| `openapi.yaml` | The API contract both sides are built against |
+| `docs/design-notes.md` | Why the main design decisions were made |
+| `docs/tech-debt.md` | What's done and what's open |
+| `.claude/skills/`, `.claude/agents/` | The skills and the QA subagent (Claude Code discovers them) |
+| `.claude/settings.json`, `.mcp.json` | The guard hook and the MCP server, for Claude Code |
+| `.claude/CLAUDE.md` | Intentionally empty: `AGENTS.md` is the single source, so the two can't drift |
+
+### Manual review and verification
+
+Nothing an agent writes reaches `main` or a user without these:
+
+1. **A human reviews and commits every change.** Agents leave their work in the working tree with a summary and a suggested commit message; the human reads the diff and commits. `agent-hooks/guard.py` enforces it: `git commit` is denied, and a push asks first.
+2. **A definition of done the agent must meet and show.** Every test suite, lint (0 warnings), format and build clean, with the counts reported (`AGENTS.md`, "Testing"). `make check` re-runs all of it locally in one command.
+3. **CI re-checks everything independently.** Unit, integration and E2E tests, the dependency scan and gitleaks gate the dev deploy, whatever the agent reported.
+4. **Independent review.** The QA subagent validates features in a fresh context; security reviews of AI-made changes are written up in `security/PR_AUDIT.md`.
+5. **Verification in the real environment.** The human checks dev after each deploy before promoting, including on real devices (the iOS zoom-after-login fix was confirmed on a phone, 2026-10-08), and reviews the on-call diagnostic's output before acting on it (`security/OPERATIONAL_DIAGNOSIS.md`).
+6. **Reports are checked, not trusted.** When an agent's report was wrong, the correction was recorded: report 9 in `docs/results.md` opens with one, for a lint warning the previous report miscounted.
+
+### Agent extension pack
+
+| Part | Where | What it is |
+|---|---|---|
+| Project instructions | `AGENTS.md` | Standing rules and commands for every agent |
+| Reusable workflows | `.claude/skills/` | `release`, `e2e-testing`, `security-scanning`, `design-review` |
+| Subagent | `.claude/agents/qa-engineer.md` | Independent QA in a fresh context |
+| MCP server | `mcp-server/`, registered in `.mcp.json` | Five tools over the Hub API (list, get, create, update, add note; no deletes) |
+| Hook / guardrail | `agent-hooks/`, registered in `.claude/settings.json` | Denies commits, deploys and secret access; asks before pushes and data loss. Plus the gitleaks pre-commit hook (`.pre-commit-config.yaml`) |
+| Custom agent | `custom-agent/on-call-diagnostic/` | The on-call diagnostic for Grafana alerts |
+| Capability index | `agent-capabilities/README.md` | Every capability above, in one list |
+| Permissions | `docs/permissions.md`, `security/AGENT_SECURITY.md` | What each part may do, and the risks behind the rules |
 
 ### Reusable Skills
 
@@ -788,11 +917,36 @@ Subagents are AI agents in fresh contexts with specific roles:
 - Reports findings with severity levels
 - Outputs PASS or FAIL verdict
 
+### Custom Agent
+
 **On-Call Diagnostic** (.github/workflows/observability-alert-handler.yml)
 - Run by hand, with reviewer approval, for a given alert summary
 - Makes one OpenAI call (GPT-4o-mini) for a short diagnosis
 - Writes the result to the GitHub Actions run log; changes nothing
 - See [On-Call Diagnostic](#on-call-diagnostic)
+
+### MCP Server
+
+`mcp-server/` is an [MCP](https://modelcontextprotocol.io) server (Python, the official `mcp` SDK) that lets an agent such as Claude Code or Claude Desktop work with Hub data as one signed-in user:
+
+| Tool | Does |
+|---|---|
+| `list_projects` | Lists ideas, filtered by status, tag or a search query (read-only) |
+| `get_project` | One idea in full, with its notes (read-only) |
+| `create_project` | Captures a new idea |
+| `update_project` | Changes the fields given (status, next action, scores, ...) |
+| `add_note` | Adds a note to an idea |
+
+There are no delete tools: deleting stays a human action in the web app. It calls the same API as the web app, with a Bearer token, so the API's ownership checks, limits and caps apply. To use it from Claude Code in this repo, set `HUB_EMAIL` and `HUB_PASSWORD` (and `HUB_API_URL`, default `http://localhost:8000`) in your shell and approve the `hub` server from `.mcp.json`. Setup, Claude Desktop config and security notes: [mcp-server/README.md](mcp-server/README.md).
+
+### Guard Hook
+
+`agent-hooks/guard.py` is a Claude Code `PreToolUse` hook (registered in `.claude/settings.json`) that turns the `AGENTS.md` boundaries into checks that run before every shell command and file access:
+
+- **Denied:** reading or editing real `.env` files, `.secrets` and `*.tfvars`; `git commit`; deploys (`tofu apply`/`destroy`, `gh workflow run`, AWS calls that change resources)
+- **Asks the human first:** `git push`, `git tag`, `gh pr merge`, and commands that delete data (`docker compose down -v`, `alembic downgrade`)
+
+Standard library only, so it runs under any `python3` (3.9+). Rules and tests: [agent-hooks/README.md](agent-hooks/README.md).
 
 ### Example workflow
 
@@ -800,11 +954,12 @@ Subagents are AI agents in fresh contexts with specific roles:
 
 1. Write a feature spec with acceptance criteria
 2. Request QA subagent to review the spec
-3. Develop the feature with Claude Code
-4. Request QA subagent to validate independently
-5. If QA says FAIL, fix and retest
-6. When QA says PASS, commit and push
-7. Request security-scanning skill before release
+3. Develop the feature with Claude Code (the guard hook keeps it from committing, deploying or touching secrets)
+4. Review the diff and the agent's report; run `make check`
+5. Request QA subagent to validate independently
+6. If QA says FAIL, fix and retest
+7. When QA says PASS, the human commits and pushes
+8. Request security-scanning skill before release
 
 **Releasing to production:**
 
@@ -815,8 +970,10 @@ Subagents are AI agents in fresh contexts with specific roles:
 
 For more details, see:
 - `AGENTS.md` - Project instructions for AI agents
-- `docs/agent-extension-pack.md` - Skills and subagent architecture
+- `agent-capabilities/README.md` - Every agent capability, in one list
+- `docs/agent-extension-pack.md` - Skills, subagent, MCP server, hook and how they fit together
 - `docs/permissions.md` - Agent security boundaries
+- `docs/prompts.md` and `docs/results.md` - The prompt log and the agent's reports
 
 ---
 

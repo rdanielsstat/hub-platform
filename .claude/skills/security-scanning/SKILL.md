@@ -16,7 +16,8 @@ Perform a thorough security audit of the codebase: check for dependency vulnerab
 ## Prerequisites
 
 - You are in the repo root
-- Backend and frontend dependencies are installed (`uv sync` in backend/, `pnpm install` in frontend/)
+- Backend, frontend and MCP server dependencies are installed (`make install`, or `uv sync` in backend/ and mcp-server/, `pnpm install` in frontend/)
+- Docker running and trivy, tfsec and checkov available for step 9 (`brew install trivy tfsec`; checkov runs with `uvx`)
 - No uncommitted changes (or they are staged for review)
 
 ## Steps
@@ -31,6 +32,13 @@ uvx pip-audit --disable-pip --no-deps -r /tmp/hub-requirements.txt
 ```
 
 (`uv export` pins every dependency, so `--disable-pip --no-deps` audits that exact list without building a temporary virtualenv.)
+
+Then the same for the MCP server, from `mcp-server/`:
+
+```bash
+uv export --frozen --no-hashes --format requirements-txt > /tmp/hub-mcp-requirements.txt
+uvx pip-audit --disable-pip --no-deps -r /tmp/hub-mcp-requirements.txt
+```
 
 Report any vulnerabilities found:
 - If severity is HIGH or CRITICAL, report the issue and stop
@@ -88,6 +96,12 @@ From `backend/`:
 
 ```bash
 uvx bandit -r app/ --severity-level=medium
+```
+
+And, from the repo root, the MCP server and the guard hook:
+
+```bash
+uvx bandit -r mcp-server/hub_mcp agent-hooks/guard.py --severity-level=medium
 ```
 
 (Bandit exits non-zero when it finds issues at or above that severity.)
@@ -173,7 +187,28 @@ grep -r "print(" backend/app --include="*.py" | grep -v "test" | head -5
 
 (These are not necessarily exploits, but risky patterns worth reviewing.)
 
-### 9. Deep threat analysis with the latest Claude model optimized for security
+### 9. Container images and infrastructure as code
+
+The commands, and the decision recorded for every past finding, are in `security/IAC_SCANS.md` ("How to run"). From the repo root:
+
+```bash
+# Backend: a local build of the prod image (or the deployed one, per IAC_SCANS.md)
+docker build --platform linux/amd64 --target prod -t hub-backend:scan backend
+trivy image --scanners vuln hub-backend:scan
+
+# The Compose frontend image (nginx) and its Dockerfile
+docker compose build frontend
+trivy image --scanners vuln hub-platform-frontend:latest
+trivy config frontend/Dockerfile
+
+# OpenTofu. Keep terraform.tfvars out: it holds real secrets, and scanners print snippets.
+tfsec infra/hub --exclude-path terraform.tfvars --minimum-severity HIGH
+uvx checkov -d infra/hub --framework terraform --skip-path terraform.tfvars --compact
+```
+
+Compare against the accepted findings in `security/IAC_SCANS.md`; anything new at HIGH or CRITICAL stops the scan, as in step 1. Record the results and dates there, and in the results table in `security/DEPENDENCIES.md`.
+
+### 10. Deep threat analysis with the latest Claude model optimized for security
 
 For nuanced risk assessment and context-aware judgment, escalate findings to Claude's most capable model with cybersecurity expertise. As of October 2026, this is Claude Fable 5.1 (Mythos-tier with cybersecurity safety measures), but future releases may offer better alternatives.
 
@@ -185,7 +220,7 @@ This model excels at:
 
 **Prepare a summary for the model:**
 
-Collect all findings from steps 1-8 and ask the latest Claude security model to evaluate:
+Collect all findings from steps 1-9 and ask the latest Claude security model to evaluate:
 
 ```
 I've run a comprehensive security scan on the Hub-Platform codebase.
@@ -246,9 +281,9 @@ Output a prioritized risk report.
 - Risk acceptance guidance (when fixing is infeasible)
 - Compensating control suggestions
 
-Record Fable's assessment for the final summary (step 10).
+Record Fable's assessment for the final summary (step 11).
 
-### 10. Summarize findings (incorporating Fable's assessment)
+### 11. Summarize findings (incorporating Fable's assessment)
 
 Produce a comprehensive report that combines tool findings with Fable's risk evaluation:
 
@@ -287,6 +322,10 @@ Tool findings:
   Dangerous patterns: [✓ NONE | X REVIEW]
     - Unvalidated file writes: [Y|N]
     - Hardcoded URLs: [Y|N]
+
+  Images and IaC: [✓ PASS | X FINDINGS]
+    - trivy (backend image, frontend image, frontend Dockerfile): <N> new findings
+    - tfsec / checkov: <N> new findings beyond those accepted in IAC_SCANS.md
 
 Fable's risk assessment (Claude 5.1 Mythos-tier cybersecurity evaluation):
   Real vs. false positive breakdown:
@@ -336,7 +375,7 @@ This ensures the final risk assessment is accurate and actionable, not just raw 
 ## Tech debt and limitations
 
 This skill does not yet:
-- Run container image scans (ECR image vulnerability scanning)
+- Scan the image actually deployed to prod without AWS read access (step 9 scans a local build; ECR also scans every pushed image)
 - Check for exposed AWS credentials or IAM misconfigurations
 - Perform network/infrastructure security tests
 - Run DAST (dynamic application security testing)

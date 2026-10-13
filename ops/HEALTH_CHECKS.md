@@ -88,9 +88,12 @@ Signs a cold start is actually failing rather than slow:
 
 ## Local stack
 
-`make docker-up` waits until `http://localhost:8000/health` answers. The
-Compose services start in order (`postgres` healthy, then `bootstrap`
-and `init_local` complete, then `app`), so a healthy `/health` locally
-also means the migrations ran. `docker compose ps -a` shows each one-shot
+`make docker-up` waits until `http://localhost:8000/health` answers, and
+`http://localhost:8080/api/health` through the nginx `frontend`
+container. The Compose services start in order (`postgres` healthy, then
+`bootstrap` and `init_local` complete, then `app` and `frontend`), so a
+healthy `/health` locally also means the migrations ran. The `frontend`
+container has its own Docker healthcheck (it fetches the page), shown as
+`(healthy)` in `docker compose ps`. `docker compose ps -a` shows each one-shot
 service's exit code; a non-zero `bootstrap` or `init_local` means look at
 `docker compose logs bootstrap init_local`.

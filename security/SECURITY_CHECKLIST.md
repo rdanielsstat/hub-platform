@@ -2,7 +2,7 @@
 
 Pre-launch security validation: what's been checked, with evidence, and
 what's still open. Update the date and the status column whenever an
-item changes. Last reviewed: 2026-10-04.
+item changes. Last reviewed: 2026-10-13.
 
 Legend: **Done** (implemented, and tested or configured in code),
 **Verified** (also confirmed by hand on a deployed environment),
@@ -28,6 +28,8 @@ Legend: **Done** (implemented, and tested or configured in code),
 |---|---|---|
 | Every project and note query is scoped to the owner | Done | `app/db/store.py`, `tests/test_projects.py`, `tests/test_notes.py`, integration tests |
 | Another user's resource is a 404, indistinguishable from missing | Done | Same; `openapi.yaml` `NotFound` |
+| MCP server limited to one account's data, with no delete tools | Done | `mcp-server/hub_mcp/server.py`; `tests/test_server.py` (tool list), `tests/test_contract.py` (no DELETE in the client), `tests/test_live_api.py` (404 for another id) |
+| MCP server has no scoped or read-only token | Accepted | The API issues one kind of token; the server holds the configured account's full non-delete access. Mitigated by no delete tools and per-call confirmation in Claude Code (`security/AGENT_SECURITY.md`) |
 | Link URLs restricted to http(s) (no `javascript:`) | Done | `Link` validator, tests |
 
 ## Abuse and resource limits
@@ -73,13 +75,14 @@ Legend: **Done** (implemented, and tested or configured in code),
 | Item | Status | Evidence |
 |---|---|---|
 | Secret scan of full history on every PR and push, gating deploys | Done | `security/GITLEAKS_CONFIG.md` |
-| Dependency audit (pip-audit, pnpm audit) | Verified | Runs in CI on every push (`dependency-scan`); clean on run 37164319484 (2026-10-04); `security/DEPENDENCIES.md` |
-| Container image scan (trivy) | Done | 2026-10-03: 8 HIGH in the base image fixed in the Dockerfile; patched build has no CRITICAL/HIGH/MEDIUM/LOW. ECR also scans on push. `security/IAC_SCANS.md` |
+| Dependency audit (pip-audit, pnpm audit) | Verified | Runs in CI on every push (`dependency-scan`), over the backend, MCP server and frontend locks; clean on run 37164319484 (2026-10-04); MCP server lock clean locally with the same gate (2026-10-13); `security/DEPENDENCIES.md` |
+| Container image scan (trivy) | Done | Backend, 2026-10-03: 8 HIGH in the base image fixed in the Dockerfile; patched build has no CRITICAL/HIGH/MEDIUM/LOW. ECR also scans on push. Local Compose frontend (nginx), 2026-10-13: 1 MEDIUM (zlib) fixed by an OS upgrade at build; no findings after, and `trivy config` clean on its Dockerfile. `security/IAC_SCANS.md` |
 | GitHub Actions pinned to commit SHAs | Verified | Every `uses:` in `.github/workflows/` since 2026-10-03; CI has run green on the pins |
 | Every CI check gates the dev deploy | Verified | `deploy-dev` needs `test`, `dependency-scan`, `secrets-scan`, `integration`, `e2e`; run timings show the deploy starting only after the last check |
 | ECR image tags immutable | Verified | `infra/hub/ecr.tf`; `imageTagMutability: IMMUTABLE` on the prod repository; `promote.yml` skips re-copying an existing tag |
 | Dependency scans in CI | Verified | `dependency-scan` job, gates the deploy on HIGH and CRITICAL; gate tested against known HIGH, MODERATE-only and unknown-severity cases (`security/DEPENDENCIES.md`) |
 | PR audit | Done | `security/PR_AUDIT.md` (PR #5, ec830d6, f34d327) |
+| Agent guardrail: no commits, deploys or secret access by a coding agent | Done | `agent-hooks/guard.py` (Claude Code `PreToolUse`, `.claude/settings.json`); `agent-hooks/tests/test_guard.py`; confirmed live 2026-10-13 (a `git commit --dry-run` was denied) |
 | Operational diagnosis run | Done | `security/OPERATIONAL_DIAGNOSIS.md` (drill, run 37164038288) |
 | Branch protection on `main` (no force-push or deletion) | Verified | Repository ruleset `protect-main` (id 24435773), active since 2026-10-04; GitHub reports `deletion` and `non_fast_forward` applying to `main`; direct pushes still allowed |
 
@@ -99,7 +102,7 @@ Legend: **Done** (implemented, and tested or configured in code),
 |---|---|---|
 | Data inventory and processors documented | Done | `security/DATA_POLICY.md` |
 | Self-service account deletion and export | **Open** | Manual today |
-| No user data sent to AI services | Done | `security/DATA_POLICY.md`, `security/AGENT_SECURITY.md` |
+| No user data sent to AI services by Hub | Done | Hub sends none; the opt-in MCP server returns a user's own data to the AI client that user connects (`security/DATA_POLICY.md`, "AI tools"; `security/AGENT_SECURITY.md`) |
 
 ## Highest-priority open items
 

@@ -23,11 +23,14 @@ here and don't let this file drift from it.
   dev and prod). See `infra/BOOTSTRAP.md` for deployment setup.
 - `.github/workflows/`: CI/CD pipelines (ci, promote, observability
   alert handling).
-- `docker-compose.yml` (repo root): local Postgres 17, bootstrap, and app for
-  prod-parity testing.
+- `docker-compose.yml` (repo root): the whole system for prod-parity
+  testing: Postgres 17, bootstrap, the backend (`app`, :8000), and the
+  frontend (`frontend`: nginx on :8080 serving the production build and
+  proxying `/api/*` like CloudFront; `frontend/Dockerfile`, `nginx.conf`).
 - `Makefile` (repo root): common commands (`make help`), including the test
-  layers (`test-unit`, `test-integration`, `test-e2e`, `test-e2e-docker`),
-  `docker-up`/`docker-down`, and `check` (every local gate below).
+  layers (`test-unit`, `test-integration`, `test-mcp-live`, `test-e2e`,
+  `test-e2e-docker`), `docker-up`/`docker-down`, and `check` (every local
+  gate below).
 - `backend/alembic/`: Alembic migration scripts (`versions/`); run by
   `backend/app/db/migrations.py`.
 - `ops/`: runbooks: deployment, health checks, troubleshooting, monitoring.
@@ -36,8 +39,17 @@ here and don't let this file drift from it.
   checklist (what's checked and what's open).
 - `backend/observability/`: OpenTelemetry setup, local Grafana/Tempo/Prometheus
   stack.
-- `backend/oncall/`: on-call agent (OpenAI diagnostic for dev alerts).
-- `.claude/`: agent configuration, skills, and subagent definitions.
+- `backend/oncall/`: on-call agent (OpenAI diagnostic for dev alerts);
+  its runbook is `custom-agent/on-call-diagnostic/README.md`.
+- `mcp-server/`: MCP server exposing the Hub API to AI agents (five tools,
+  no deletes), self-contained (`pyproject.toml`, `uv.lock`, `tests/`);
+  registered for Claude Code in `.mcp.json`. See "MCP server and hooks".
+- `agent-hooks/`: the Claude Code guard hook (`guard.py`), registered in
+  `.claude/settings.json`. See "MCP server and hooks".
+- `agent-capabilities/`: index of every agent capability (skills,
+  subagent, MCP server, hooks, custom agent).
+- `.claude/`: agent configuration (`settings.json`: the guard hook),
+  skills, and subagent definitions.
 
 ## Frontend
 
@@ -144,13 +156,14 @@ against the Docker Compose Postgres (`docker compose up -d --wait postgres`, or
 migrations. `tests/test_startup.py` imports the app in a subprocess to check
 startup behaviour (secret guards, deployed defaults, origin verification).
 
-E2E: Playwright, 202 tests in `frontend/tests/`, in two projects. `chromium`:
+E2E: Playwright, 204 tests in `frontend/tests/`, in two projects. `chromium`:
 `app.spec.ts` (90 browser tests) and `api.spec.ts` (104 API tests) cover signup,
 login, the session cookie, dashboard, projects, filters, sorts, edits, deletes,
 and API endpoints, against any backend on :8000. `docker-compose`:
-`integration.spec.ts` (8 tests) covers the Compose stack, error reporting, and
-backend and database outages; its outage tests stop and pause the Compose
-Postgres and only run with `E2E_DOCKER=1` and `--workers=1`. Playwright starts
+`integration.spec.ts` (10 tests) covers the Compose stack, including the nginx
+`frontend` container on :8080, error reporting, and backend and database
+outages; its frontend-container and outage tests only run with
+`E2E_DOCKER=1`, and the outage tests also need `--workers=1`. Playwright starts
 the Vite dev server itself (or reuses one); the backend must already be running
 (`make docker-up`, or uvicorn; the `e2e-testing` skill starts one if needed).
 Against a local or Compose backend, origin verification and the rate limits
@@ -167,26 +180,35 @@ are off. See `frontend/README.md`.
   `make fmt` fixes it)
 - TypeScript build must be clean (`pnpm build` from `frontend/`)
 - Format must pass (`pnpm format:check` from `frontend/`)
+- MCP server tests, lint and format (`uv run pytest`, `uv run ruff check .`,
+  `uv run ruff format --check .` from `mcp-server/`) when a change touches
+  `mcp-server/` or the API it calls; `make test-mcp-live` against a running
+  backend when it changes a tool or the API
+- Agent hook tests and lint (`make test-hooks`, `make lint-hooks`) when a
+  change touches `agent-hooks/`
 
 Note: CI runs the unit tests, a dependency scan (pip-audit and pnpm audit,
 failing on HIGH and CRITICAL), a gitleaks secret scan of the full git
-history, the backend integration tests and the Playwright suite (against
-the Compose stack) on every PR and push; all five must pass before the
-dev deploy runs. Actions in `.github/workflows/` are pinned to commit SHAs
+history, the backend integration tests, and the Playwright suite and the
+MCP server's live test (against the Compose stack) on every PR and push;
+all five jobs must pass before the dev deploy runs. Actions in `.github/workflows/` are pinned to commit SHAs
 (version in a trailing comment); keep it that way when adding or bumping one.
-CI also runs the backend's Ruff lint and format check and the frontend's
-lint, format check and build (all in the `test` job), the same gates as
-`make check`. Reviewed gitleaks false positives go in `.gitleaksignore` (by
+CI also runs Ruff (lint and format) over the backend, the MCP server and
+the guard hook, the MCP server's and the hook's unit tests, and the
+frontend's lint, format check and build (all in the `test` job), the
+same gates as `make check`; the dependency scan covers
+`mcp-server/uv.lock` too. Reviewed gitleaks false positives go in `.gitleaksignore` (by
 fingerprint); never add a real secret there.
 
 ## Working Conventions
 
 - Keep changes small and scoped to what was asked.
-- Run lint, typecheck, build, and both test suites, and confirm they're
-  clean before considering a task done.
+- Run lint, typecheck, build, and every test suite (`make check` runs
+  them all), and confirm they're clean before considering a task done.
 - Match the existing code style. ESLint + Prettier are configured in
-  `frontend/`, Ruff (lint and format) in `backend/`; lint must stay at
-  0 errors / 0 warnings on both.
+  `frontend/`, Ruff (lint and format) in `backend/`, `mcp-server/` and
+  `agent-hooks/` (Python 3.9 target there); lint must stay at
+  0 errors / 0 warnings everywhere.
 - No em dashes in any prose you write here, in commit messages, in code
   comments, or in chat responses. Use a period, comma, or colon instead; or 
   rephrase.
@@ -234,6 +256,27 @@ Invoked as: "Launch QA subagent to review [feature/change]"
 
 Definition: `.claude/agents/qa-engineer.md`
 
+## MCP server and hooks
+
+**Hub MCP server** (`mcp-server/`, `mcp-server/README.md`): Python 3.12,
+the official `mcp` SDK v2 (`MCPServer`; v1's `FastMCP` no longer exists),
+stdio. Tools: `list_projects`, `get_project` (read-only),
+`create_project`, `update_project`, `add_note`. It signs in with
+`HUB_EMAIL`/`HUB_PASSWORD` and calls the API at `HUB_API_URL` with a
+Bearer token. Keep it a subset of the API: never add a delete tool, and
+keep every path it calls in `openapi.yaml` (`tests/test_contract.py`
+checks). A change to an endpoint it uses means running its tests too.
+
+**Guard hook** (`agent-hooks/guard.py`, `agent-hooks/README.md`): a Claude
+Code `PreToolUse` hook that denies `git commit`, deploys and access to
+real `.env` files and other secrets, and asks the human before
+`git push`, `git tag` and commands that delete data. It enforces the
+rules in "Agent Permissions and Security Boundaries"; it doesn't replace
+them. If it denies something, don't try
+to get around it: stop and tell the human. Standard library only and
+Python 3.9 compatible; a new rule needs a test in
+`agent-hooks/tests/test_guard.py`.
+
 ## Deployment Architecture
 
 **Infrastructure**: OpenTofu 1.12 (`infra/`), two roots: bootstrap (GitHub OIDC trust,
@@ -267,8 +310,10 @@ GitHub secrets to the dev and prod Lambdas' environments (`TF_VAR_otel_headers_d
 in `ci.yml`, `TF_VAR_otel_headers_prod` in `promote.yml`); they are not stored in SSM.
 
 **CI/CD** (`.github/workflows/`):
-- `ci.yml`: on PR, run unit tests, the dependency scan, integration tests,
-  Playwright E2E against Docker Compose, and the gitleaks history scan; on push to main, run them,
+- `ci.yml`: on PR, run unit tests (backend, frontend, MCP server, guard hook)
+  with lint, format and build, the dependency scan, integration tests,
+  Playwright E2E and the MCP server's live test against Docker Compose, and
+  the gitleaks history scan; on push to main, run them,
   then (only if all of them pass) deploy to dev (build
   image, update and run the bootstrap Lambda (migrations), apply infra, build
   frontend, sync to S3, invalidate CloudFront, smoke-test `/api/health`).
@@ -287,10 +332,13 @@ Local dev: off by default; optional local Grafana/Tempo/Prometheus/Loki stack in
 ## Deployment and Release Gates
 
 **Per-commit CI/CD (runs on every push to main):**
-- Unit tests (frontend + backend), the backend's Ruff lint and format check,
-  and the frontend's lint, format check and build
-- Dependency scan (pip-audit and pnpm audit; HIGH and CRITICAL fail it)
-- Backend integration tests against Postgres and Playwright E2E against Docker Compose
+- Unit tests (backend, frontend, MCP server, guard hook), Ruff lint and
+  format checks (backend, MCP server, hook), and the frontend's lint,
+  format check and build
+- Dependency scan (pip-audit over the backend and MCP server locks, pnpm
+  audit; HIGH and CRITICAL fail it)
+- Backend integration tests against Postgres; Playwright E2E and the MCP
+  server's live test against Docker Compose
 - Gitleaks scan of the full history (`secrets-scan` job)
 - The deploy waits on all of the above
 - Build and push backend image to dev ECR (timestamp-sha tag, e.g., 20260930-123456-abc123)

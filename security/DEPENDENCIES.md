@@ -16,6 +16,9 @@ results table.
 | pip-audit 2.10.1 | 2026-10-03 | Backend runtime + dev deps, 71 packages, after adding `opentelemetry-instrumentation-logging` | No known vulnerabilities |
 | bandit (medium and above) | 2026-10-03 | `backend/app/` | No issues |
 | pnpm audit --prod | 2026-10-03 | Frontend production dependencies | No known vulnerabilities |
+| pip-audit 2.10.1, with the CI severity gate | 2026-10-13 | MCP server runtime + dev deps, 38 packages from `mcp-server/uv.lock` (30 runtime) | No known vulnerabilities |
+| bandit 1.9.4 (medium and above) | 2026-10-13 | `mcp-server/hub_mcp/`, `agent-hooks/guard.py` | No issues |
+| trivy 0.75.0 (image and config) | 2026-10-13 | Local Compose frontend image (nginx) and `frontend/Dockerfile` | 1 MEDIUM (zlib) and 1 LOW config finding, both fixed; 0 after. `security/IAC_SCANS.md` |
 
 Commands used:
 
@@ -48,12 +51,18 @@ Python base image's OS packages (`public.ecr.aws/lambda/python:3.12`).
   package, transitive ones included, with hashes. The image installs
   exactly the lock (`uv export --frozen` in the Dockerfile), so dev, CI
   and the deployed Lambda run the same versions.
+- **MCP server** (`mcp-server/`): the same as the backend, `pyproject.toml`
+  minimums and `uv.lock` pins; CI's `dependency-scan` audits its lock
+  with the same HIGH/CRITICAL gate.
+- **Agent hook** (`agent-hooks/`): standard library only, no
+  dependencies.
 - **Frontend**: `package.json` ranges, `pnpm-lock.yaml` pins;
   `pnpm install --frozen-lockfile` in CI fails on any drift. pnpm itself
   is pinned (`packageManager`).
-- **Base images**: `public.ecr.aws/lambda/python:3.12` (prod) and
-  `python:3.12-slim` (local Compose) by tag, not digest, so each build
-  picks up the latest patch of that tag.
+- **Base images**: `public.ecr.aws/lambda/python:3.12` (prod),
+  `python:3.12-slim` (local Compose backend), and `node:22-alpine` plus
+  `nginxinc/nginx-unprivileged:1.30-alpine` (local Compose frontend), by
+  tag, not digest, so each build picks up the latest patch of that tag.
 - **CI tooling**: every GitHub Action pinned to a full commit SHA, with
   the version in a trailing comment; gitleaks by version plus a SHA-256
   check of the download; pip-audit pinned (`pip-audit==2.10.1`).
@@ -92,6 +101,20 @@ as the FastAPI and SQLAlchemy instrumentation already in use.
 Changed on 2026-10-03, prod image (`backend/Dockerfile`): OS security
 updates applied at build time and pip removed from the final image,
 after the trivy findings in `security/IAC_SCANS.md`.
+
+Added on 2026-10-13: the MCP server (`mcp-server/`), a separate project
+with its own lock. Runtime: `mcp` (the official Model Context Protocol
+Python SDK, maintained by the MCP project; locked at 2.2.0, released
+2026-09-07, rather than the 11-day-old 2.3.0) and `httpx2` 2.13.1, which
+`mcp` already depends on and the backend already uses in its tests.
+Brings in `pydantic`, `starlette`, `uvicorn`, `sse-starlette`, `pyjwt`,
+`jsonschema` and their dependencies (30 runtime packages). Dev: `pytest`,
+`pyyaml`, `ruff`, as in the backend. pip-audit: no known vulnerabilities.
+
+Added on 2026-10-13, local Compose only (`frontend/Dockerfile`): the
+`node:22-alpine` build stage and the `nginxinc/nginx-unprivileged`
+serving stage, with OS updates applied at build after trivy's zlib
+finding.
 
 ## Supply-chain notes and gaps
 

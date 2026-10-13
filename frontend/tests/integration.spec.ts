@@ -7,6 +7,7 @@ import {
   apiRoute,
   bearer,
   createProjectViaApi,
+  detailNameInput,
   registerViaApi,
   signInAs,
   uid,
@@ -28,6 +29,9 @@ import {
 
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url))
 const DOCKER = process.env.E2E_DOCKER === '1'
+// The Compose `frontend` service: nginx serving the production build and
+// proxying /api/* to the backend (frontend/nginx.conf).
+const WEB_URL = process.env.E2E_WEB_URL ?? 'http://localhost:8080'
 
 function compose(...args: string[]): void {
   execFileSync('docker', ['compose', ...args], {
@@ -98,6 +102,81 @@ test.describe('compose stack: full journey', () => {
     await page.locator('#login-password').fill(PASSWORD)
     await page.getByRole('button', { name: 'Log in' }).click()
     await expect(page.getByRole('heading', { name, exact: true })).toBeVisible()
+  })
+})
+
+test.describe('compose stack: web app container (nginx)', () => {
+  test.skip(!DOCKER, 'Set E2E_DOCKER=1 to test the Compose frontend service.')
+
+  test('security headers, SPA routing, and the /api proxy', async ({
+    request,
+  }) => {
+    const home = await request.get(`${WEB_URL}/`)
+    expect(home.status()).toBe(200)
+    const headers = home.headers()
+    expect(headers['content-security-policy']).toContain("default-src 'self'")
+    // HTTPS-only parts of the deployed policy are left out over http.
+    expect(headers['content-security-policy']).not.toContain(
+      'upgrade-insecure-requests',
+    )
+    expect(headers['x-frame-options']).toBe('DENY')
+    expect(headers['x-content-type-options']).toBe('nosniff')
+    expect(headers['referrer-policy']).toBe('strict-origin-when-cross-origin')
+    expect(headers['server']).toBe('nginx')
+
+    // Extensionless paths are client-side routes; files are files.
+    const deepLink = await request.get(`${WEB_URL}/project/some-id`)
+    expect(deepLink.status()).toBe(200)
+    expect(await deepLink.text()).toContain('<div id="root">')
+    expect((await request.get(`${WEB_URL}/assets/missing.js`)).status()).toBe(
+      404,
+    )
+
+    // /api/* reaches the backend with the prefix stripped.
+    const health = await request.get(`${WEB_URL}/api/health`)
+    expect(await health.json()).toEqual({ status: 'ok' })
+    expect((await request.get(`${WEB_URL}/api/projects`)).status()).toBe(401)
+  })
+
+  test('sign up, capture, reload a deep link, sign out, all on :8080', async ({
+    page,
+  }) => {
+    const violations: string[] = []
+    page.on('console', (msg) => {
+      if (/content security policy/i.test(msg.text())) {
+        violations.push(msg.text())
+      }
+    })
+    const name = `Nginx idea ${uid()}`
+
+    await page.goto(`${WEB_URL}/signup`)
+    await page.locator('#signup-email').fill(uniqueEmail())
+    await page.locator('#signup-password').fill(PASSWORD)
+    await page.getByRole('button', { name: 'Sign up' }).click()
+    await expect(page.getByRole('heading', { name: 'Ideas' })).toBeVisible()
+
+    await page
+      .getByRole('banner')
+      .getByRole('button', { name: 'Quick capture' })
+      .click()
+    const dialog = page.getByRole('dialog', { name: 'Quick capture' })
+    await dialog.locator('#qc-name').fill(name)
+    const created = page.waitForResponse(
+      (res) =>
+        res.request().method() === 'POST' &&
+        res.url() === `${WEB_URL}/api/projects`,
+    )
+    await dialog.getByRole('button', { name: 'Capture', exact: true }).click()
+    const project = (await (await created).json()) as { id: string }
+
+    // A full page load of a deep link: nginx serves index.html and the
+    // same-origin session cookie keeps the user signed in.
+    await page.goto(`${WEB_URL}/project/${project.id}`)
+    await expect(detailNameInput(page)).toHaveValue(name)
+
+    await page.getByRole('button', { name: 'Sign out' }).click()
+    await expect(page.locator('#login-email')).toBeVisible()
+    expect(violations).toEqual([])
   })
 })
 

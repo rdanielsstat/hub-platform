@@ -31,6 +31,10 @@ Signed-out is decided only by a 401. On load the web app asks `/auth/me`; any ot
 
 All frontend data access goes through `frontend/src/services/api/`; components never call `fetch` directly. This is the single seam between the UI and the backend, so a different consumer of the same backend would only need to implement this layer, not touch any component.
 
+## Agents use the public API
+
+AI agents reach Hub data only through the MCP server in `mcp-server/`, which calls the same REST API as the web app with a Bearer token (the API already accepted Bearer alongside the cookie, so that clients other than the browser, agents included, could use it). No database access, no internal shortcut: ownership checks, limits, caps and rate limits apply to agents exactly as to people, and `openapi.yaml` stays the one contract (a test checks every path the MCP server calls is in it). The server exposes a subset of the API on purpose: no delete tools, so deleting stays a human action.
+
 ## Errors and logs go through the backend
 
 The browser reports errors to the backend (`POST /client-errors`), which logs them; the backend exports those logs to Grafana with the same OpenTelemetry pipeline as traces and metrics. No browser SDK, no third-party script, and one place to rate-limit and scrub what's recorded.

@@ -1,0 +1,9 @@
+# Same rules as backend/ and mcp-server/, but targeting Python 3.9: the
+# hook runs under whatever `python3` the machine has (macOS ships 3.9).
+# Linted with the backend's Ruff: `make lint-hooks`.
+line-length = 88
+target-version = "py39"
+
+[lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E501"]

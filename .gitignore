@@ -22,6 +22,13 @@ tfplan*
 *.tfplan
 plan.out
 
+# Python (mcp-server/, agent-hooks/; backend/ has its own .gitignore too)
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
 # Playwright output
 playwright-report/
 test-results/

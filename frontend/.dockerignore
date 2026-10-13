@@ -1,0 +1,17 @@
+node_modules
+dist
+*.tsbuildinfo
+.vite
+
+# Local settings: a VITE_API_BASE_URL here would point the build away
+# from same-origin /api.
+.env
+.env.*
+!.env.example
+
+tests
+playwright-report
+test-results
+
+Dockerfile
+.dockerignore

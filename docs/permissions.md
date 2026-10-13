@@ -20,6 +20,10 @@ This document defines what AI agents can and cannot do in the Hub-Platform exten
    - Agents have only the minimum access needed for their task
    - Agents do not have production database access
 
+5. **Enforced, not only stated.**
+   - The guard hook (`agent-hooks/guard.py`) denies commits, deploys and secret access before the command runs, and asks the human before pushes and data loss
+   - The MCP server has no delete tools at all, rather than a rule against using them
+
 ## Reusable Skills (.claude/skills/)
 
 Skills are workflows that agents execute at human request. The human invokes the skill; the agent follows it.
@@ -32,7 +36,7 @@ Skills are workflows that agents execute at human request. The human invokes the
 - Query local databases (SQLite)
 - Generate reports and analyses
 - Provide recommendations and suggestions
-- Run git commands (status, log, tag, push)
+- Run git commands (status, log, diff); `tag` and `push` only after the human confirms (the guard hook asks)
 
 **CANNOT do:**
 - Commit code (agent generates summary + suggested message; human commits)
@@ -103,6 +107,44 @@ Subagents run in fresh, isolated contexts with a specialized role.
 - Subagent starts with no knowledge of how the feature was built
 - This prevents "implementer bias" where builders overlook their own mistakes
 - QA report is independent and objective
+
+## MCP Server (mcp-server/)
+
+An MCP client (Claude Code, Claude Desktop) the user connects calls these tools, each one a request to the Hub API as one configured user.
+
+**CAN do:**
+- List and read that user's project ideas and notes (`list_projects`, `get_project`)
+- Create ideas, update their fields, and add notes (`create_project`, `update_project`, `add_note`)
+
+**CANNOT do:**
+- Delete an idea or a note (no tool for it; the client has no DELETE call, and a test keeps it that way)
+- See or change another user's data (the API scopes every request to the signed-in user)
+- Go beyond the API's checks: field limits, usage caps and the login rate limit apply as for the web app
+- Reach the database, AWS, or anything but the Hub API at `HUB_API_URL`
+
+**Credentials**:
+- `HUB_EMAIL` and `HUB_PASSWORD` from the environment only (`.mcp.json` references them; never commit a real one)
+- The Bearer token is held in memory for the server's lifetime
+- The API has no scoped or read-only tokens, so the agent has the account's full non-delete access: use your own account or a dedicated one, and the demo account locally
+
+**Human control**:
+- The user decides whether to connect a client at all, and with which account
+- Claude Code asks before using a project MCP server, and before each tool call unless the user has allowed it
+
+## Guard Hook (agent-hooks/)
+
+`agent-hooks/guard.py` runs before every Claude Code `Bash`, `Read`, `Edit`, `Write`, `MultiEdit`, `NotebookEdit` and `Grep` call (`.claude/settings.json`).
+
+**Denies** (the agent is told why and stops):
+- Reading, editing or searching real `.env` files, `.secrets` and `*.tfvars` (templates such as `.env.example` are allowed)
+- `git commit`
+- `tofu`/`terraform` apply, destroy, import, taint; `gh workflow run`; AWS calls that change resources
+
+**Asks the human** (proceeds only on a yes):
+- `git push`, `git tag`, `gh pr merge`, `gh release create`
+- `docker compose down -v`, `docker volume rm`/`prune`, `alembic downgrade`
+
+**Limits**: It reads command lines as written, so it stops accidents and casual prompt injection, not a determined bypass; the other layers (human review, CI gates, branch protection, no agent credentials) stay in place. Rules and tests: `agent-hooks/README.md`.
 
 ## Custom Agents (custom-agent/)
 
@@ -179,6 +221,8 @@ Custom agents are run by people in response to external events, with a human app
 - Grafana metrics (dev only; app-level, no PII)
 - General documentation
 
+**Through the MCP server, an agent can read** the project ideas and notes of the one account it's configured with, and nothing else.
+
 **Agents cannot read:**
 - Production database (no credentials)
 - User data or PII (even from logs; logs sanitized by design)
@@ -210,6 +254,8 @@ Custom agents are run by people in response to external events, with a human app
 Where agent activity is recorded:
 - GitHub Actions logs, for workflow runs including the on-call diagnostic (timestamped, accessible)
 - Git history, for any changes a human commits
+- The agent session, for guard hook decisions (each deny or ask shows its reason) and MCP tool calls
+- The Hub API's own logs and traces, for MCP tool calls (they are ordinary API requests)
 
 Skill runs, QA reports, and security scan reports are not saved automatically; they exist only in the agent session unless a human saves them.
 
@@ -246,6 +292,15 @@ To audit what an agent did:
 - Runs locally against demo account
 - No production access
 - Human-invoked
+
+**MCP server:**
+- Against the local API with the demo account, or the deployed API with the user's own account
+- Only what that account can do through the API, minus deletes
+- Connected by the user; nothing runs until they do
+
+**Guard hook:**
+- Runs on the developer's machine, inside Claude Code, before each tool call
+- Restricts only; it grants nothing
 
 ### Production (via GitHub Actions)
 
