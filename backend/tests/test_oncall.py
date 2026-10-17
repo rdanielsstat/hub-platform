@@ -251,3 +251,62 @@ def test_rollback_outcome_comment_comes_from_the_module() -> None:
     assert "python -m oncall.rollback_record comment" in step["run"]
     assert "oncall:rollback" not in step["run"]
     assert step["env"]["APPLY_OUTCOME"] == "${{ steps.apply.outcome }}"
+
+
+# One rollback per incident (oncall/rollback_record.py).
+
+from oncall.rollback_record import (  # noqa: E402
+    RESOLVED_MARKER,
+    SUCCESS_MARKER,
+    resolved_comment,
+    rollbacks_since_resolved,
+)
+
+BOT = "github-actions"
+ROLLED_BACK = f"{SUCCESS_MARKER}\n**Rollback** ... Rolled dev back from `a` to `b`."
+
+
+def test_a_rollback_followed_by_a_resolved_marker_does_not_block_a_new_one() -> None:
+    thread = [(BOT, ROLLED_BACK), (BOT, resolved_comment("2026-10-17T19:38:55Z"))]
+    assert rollbacks_since_resolved(thread) == 0
+
+
+def test_a_rollback_with_no_later_resolved_marker_blocks_a_new_one() -> None:
+    thread = [(BOT, resolved_comment("2026-10-17T18:50:48Z")), (BOT, ROLLED_BACK)]
+    assert rollbacks_since_resolved(thread) == 1
+
+
+def test_a_new_incident_after_a_resolution_counts_from_zero() -> None:
+    thread = [
+        (BOT, ROLLED_BACK),
+        (BOT, resolved_comment("t1")),
+        (BOT, ROLLED_BACK),
+    ]
+    assert rollbacks_since_resolved(thread) == 1
+
+
+def test_a_resolution_only_counts_from_the_bot() -> None:
+    """A person can't reset the allowance by pasting the marker."""
+    thread = [(BOT, ROLLED_BACK), ("someone", f"{RESOLVED_MARKER}\nresolved")]
+    assert rollbacks_since_resolved(thread) == 1
+
+
+def test_issue_23_as_it_stands_no_longer_blocks() -> None:
+    """Issue #23: the 19:35 rollback succeeded, and the resolved job posted
+    its (pre-marker) resolution at 19:38:55, so that incident is over."""
+    legacy_resolved = (
+        "**Resolved:** Grafana reports the alert resolved at "
+        "2026-10-17T19:38:55Z. Close this issue once the cause is understood."
+    )
+    thread = [
+        (BOT, "**Diagnosis** (OpenAI, gpt-4o-mini)"),
+        (BOT, ROLLED_BACK),
+        (BOT, legacy_resolved),
+    ]
+    assert rollbacks_since_resolved(thread) == 0
+
+
+def test_resolved_job_posts_the_marker(workflow: dict) -> None:
+    steps = workflow["jobs"]["resolved"]["steps"]
+    (step,) = [s for s in steps if s.get("name") == "Record the resolution"]
+    assert "python -m oncall.rollback_record resolved" in step["run"]

@@ -311,7 +311,36 @@ before each prod promotion that includes a migration.
 
 ## Rolling back
 
-There's no rollback workflow. Options, fastest first:
+### Dev: `rollback-dev.yml`
+
+The on-call agent runs it when the dev alert fires; anyone can run it
+from Actions > "Roll back dev". It rolls dev back to the newest older
+image built from a **different commit**, and only counts as done once it
+has proved the fault is gone:
+
+- **Target**: the images in the dev ECR repository, newest push first;
+  the first one older than the running tag whose commit (the text after
+  the tag's last dash) differs from the running tag's commit
+  (`backend/oncall/rollback_target.py`). A rerun of the dev deploy builds
+  a new tag from the same commit, and going back to it would redeploy the
+  same code. No such image, a running tag ECR doesn't know, or a
+  migration between the two commits: the run fails and changes nothing.
+- **Proof**: after the targeted apply of the two dev Lambdas, GET
+  `/api/health` must return 200 and a probe must create a project as
+  dev's demo account (POST `/projects` 2xx, `backend/oncall/fault_probe.py`,
+  password from the `DEMO_PASSWORDS` secret). The probe project is
+  deleted again. A 5xx on every try fails the run.
+- **Allowance**: one successful rollback per incident. The tracking issue
+  records each attempt's outcome, and the handler's resolved job posts
+  `<!-- oncall:resolved -->` when Grafana reports the alert resolved.
+  Only successful rollbacks after the last resolution count
+  (`backend/oncall/rollback_record.py`), so a failed attempt never uses
+  up the allowance, and a new incident on the same open issue gets a
+  new rollback.
+
+### Prod and by hand
+
+Options, fastest first:
 
 - **Backend only, prod**: re-run `tofu apply` on the prod workspace
   with the previous image tag (`-var=lambda_image_tag=<old tag>`). The

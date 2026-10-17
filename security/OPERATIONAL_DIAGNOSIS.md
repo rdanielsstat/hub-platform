@@ -54,6 +54,14 @@ each diagnosis. Add a new section per run, newest first.
   because a human turned the fault off and redeployed, not because of the
   agent. Run the drill again with both fixes merged and record it here.
 
+**Note, added later:** the rerun's 19:35 rollback (run 39062983586)
+reported success but chose `20261017-192115-98370fc`, a rebuild of the
+same commit as the running `20261017-192835-98370fc`, so the fault
+stayed on; its health check didn't send POST /projects, so it couldn't
+tell. PR "fix(oncall): rollback target, fault probe and per-incident
+allowance" fixes both: the rollback goes back to a different commit and
+must create a project before it counts.
+
 ### Data sent to OpenAI
 
 The rule's summary annotation and the fixed system prompt, three times
