@@ -2,19 +2,19 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.60"
+      version = "= 5.100.0"
     }
     cloudflare = {
       source  = "cloudflare/cloudflare"
-      version = "~> 4.40"
+      version = "= 4.52.9"
     }
     random = {
       source  = "hashicorp/random"
-      version = "~> 3.9"
+      version = "= 3.9.1"
     }
     grafana = {
       source  = "grafana/grafana"
-      version = "~> 4.46.0"
+      version = "= 4.46.0"
     }
   }
 }
