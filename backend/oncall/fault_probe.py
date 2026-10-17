@@ -41,6 +41,11 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 
 DEFAULT_EMAIL = "demo@hub.dev"
+# Sent on every request. Cloudflare, in front of the site, answers 403
+# ("error code: 1010") to urllib's default Python-urllib/3.x signature
+# before the request reaches CloudFront or the app; a browser, and this
+# named client, get through.
+USER_AGENT = "hub-platform-oncall-probe/1.0"
 _TIMEOUT_S = 30
 
 OK, FAULT, CANNOT_RUN = 0, 1, 2
@@ -68,7 +73,10 @@ def _request(
     urlopen: Callable[..., object] = urllib.request.urlopen,
 ) -> _Response | None:
     req = urllib.request.Request(
-        url, data=data, method=method, headers=dict(headers or {})
+        url,
+        data=data,
+        method=method,
+        headers={"User-Agent": USER_AGENT, **dict(headers or {})},
     )
     try:
         with urlopen(req, timeout=_TIMEOUT_S) as res:  # type: ignore[attr-defined]
@@ -126,6 +134,10 @@ def run(
             continue
         token = login.json().get("access_token")
         if login.status != 200 or not isinstance(token, str) or not token:
+            print(
+                f"::error title=Fault probe::login failed: POST /auth/login "
+                f"answered {login.status}"
+            )
             return CANNOT_RUN
         auth = {"Authorization": f"Bearer {token}", "Origin": origin}
 
@@ -156,6 +168,10 @@ def run(
         if created.status >= 500:
             last = FAULT
             continue
+        print(
+            f"::error title=Fault probe::create failed: POST /projects "
+            f"answered {created.status}"
+        )
         return CANNOT_RUN
     return FAULT if last == FAULT else CANNOT_RUN
 

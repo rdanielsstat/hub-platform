@@ -179,6 +179,12 @@ tell. PR "fix(oncall): rollback target, fault probe and per-incident
 allowance" fixes both: the rollback goes back to a different commit and
 must create a project before it counts.
 
+**Note, added later:** run 39067154127 rolled dev back to `1843165`, but
+its probe failed on login with a 403: Cloudflare refused Python's
+default User-Agent (error code 1010) before the request reached the app.
+Run 39068305687 of probe-dev on main reproduced it. PR "fix(oncall):
+named User-Agent for the rollback probe" fixes it.
+
 ### Data sent to OpenAI
 
 The rule's summary annotation and the fixed system prompt, three times
