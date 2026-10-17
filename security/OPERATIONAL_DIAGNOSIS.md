@@ -121,6 +121,38 @@ OpenTofu (`guard_fault_inject`) and never passed by `promote.yml`.
 | Alert resolved, "Resolved" comment | | run URL, screenshot |
 | `FAULT_INJECT_5XX` removed from dev | | `gh variable list --env dev` |
 
+## 2026-10-17: drill closed, automatic rollback proven on dev
+
+| | |
+|---|---|
+| Type | **Drill.** `FAULT_INJECT_5XX` on dev made `POST /projects` answer 500; no real incident. |
+| Tracking issue | [#23](https://github.com/rdanielsstat/hub-platform/issues/23) |
+| Outcome | **Passed.** The alert woke the agent with no human action, the agent rolled dev back to an image built from a different commit, the create-project probe passed, and the alert resolved. |
+
+### Timeline (UTC)
+
+| Time | What happened | Evidence |
+|---|---|---|
+| 20:59:52 to 21:04:57 | Fault deploy: CI run by hand at `c70ef57` deployed dev as image `20261017-210226-c70ef57`, with `FAULT_INJECT_5XX` on | [CI run 39069048554](https://github.com/rdanielsstat/hub-platform/actions/runs/39069048554) |
+| 21:07:33 | The alert's dispatch started the handler (`repository_dispatch`). Grafana's own firing time was not recorded separately | [handler run 39069607931](https://github.com/rdanielsstat/hub-platform/actions/runs/39069607931) |
+| 21:07:57 | Diagnosis posted on #23 | issue #23 |
+| 21:08:22 | Rollback target chosen: from `20261017-210226-c70ef57` to `20261017-205138-e18ee99`, an image built from a different commit (`e18ee99`) | run 39069607931, job `rollback / rollback` |
+| 21:09:03 | GET /api/health returned 200 | same job |
+| 21:09:17 | Probe passed: `POST /auth/login 200`, `POST /projects 201`, and the probe project deleted (`DELETE /projects/<probe> 204`) | same job |
+| 21:09:18 | Rollback recorded on #23 as `outcome=success` | issue #23 |
+| 21:09:21 | Handler run finished: success | run 39069607931 |
+| 21:10:08 | `FAULT_INJECT_5XX` set to `false` on the dev environment (the variable was kept, not deleted) | dev environment variable |
+| 21:12:57 | Grafana reported the alert resolved (back to Normal); recorded on #23 at 21:12:58 with the `oncall:resolved` marker | [handler run 39069963693](https://github.com/rdanielsstat/hub-platform/actions/runs/39069963693) |
+
+### What the drills found, and the fix for each
+
+| Failure | Fixed in |
+|---|---|
+| The rollback's apply failed: `rollback-dev.yml` didn't pass `grafana_default_contact_point` | [#24](https://github.com/rdanielsstat/hub-platform/pull/24) |
+| A failed rollback counted toward the one rollback per incident, so the retries were refused | [#25](https://github.com/rdanielsstat/hub-platform/pull/25) |
+| The rollback picked a rebuild of the same commit, and its health check couldn't see the fault; the create-project probe was added | [#26](https://github.com/rdanielsstat/hub-platform/pull/26) |
+| The probe's sign-in got Cloudflare's 403 (error code 1010) because of Python's default User-Agent | [#28](https://github.com/rdanielsstat/hub-platform/pull/28) |
+
 ## 2026-10-17: drill, automatic path on dev (rollback did not complete)
 
 | | |

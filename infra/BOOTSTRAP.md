@@ -140,6 +140,11 @@ What CI passes, and why:
   outside dev.
 - The secrets and per-environment settings in the table above.
 
+Provider versions are pinned exactly in `infra/hub/providers.tf`. Lock
+file changes are not committed: the tracked `infra/hub/.terraform.lock.hcl`
+predates the grafana provider, and CI's `tofu init` adds that entry in
+the runner only.
+
 To see what a change will do: `tofu fmt` and `tofu validate` run on
 every pull request (the `infra-check` job), and the dev deploy's apply
 prints the plan it applies, in the run log. Changing infrastructure

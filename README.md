@@ -626,7 +626,7 @@ Interactive agents (Claude Code) never deploy: `AGENTS.md` says so and the guard
 
 The runbook (turn on `FAULT_INJECT_5XX` on dev, send project creations until the alert fires, watch the agent roll back, confirm health and resolution, turn it off) and the record of each drill, with run URLs and timestamps, are in [security/OPERATIONAL_DIAGNOSIS.md](security/OPERATIONAL_DIAGNOSIS.md). `FAULT_INJECT_5XX` is off by default, set only through the dev GitHub environment, ignored by the app in prod and refused by OpenTofu outside dev.
 
-Latest drill: *not yet run with the automatic path; record it here (run URLs, timestamps) when it is.*
+Latest drill: the automatic rollback was proven on dev on 2026-10-17 ([security/OPERATIONAL_DIAGNOSIS.md, "2026-10-17: drill closed, automatic rollback proven on dev"](security/OPERATIONAL_DIAGNOSIS.md#2026-10-17-drill-closed-automatic-rollback-proven-on-dev)).
 
 ---
 
