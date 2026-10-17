@@ -25,6 +25,12 @@ LINKS_MAX_ITEMS = 50
 LINK_URL_MAX_LENGTH = 2048
 LINK_LABEL_MAX_LENGTH = 200
 
+# A project name (and a note body, app/models/note.py) must hold at least
+# one non-whitespace character: empty and whitespace-only are a 422. An
+# unanchored search, as in JSON Schema, so the stored text is exactly
+# what was sent; nothing is trimmed.
+NOT_BLANK = r"\S"
+
 Tag = Annotated[str, StringConstraints(max_length=TAG_MAX_LENGTH)]
 
 
@@ -71,7 +77,7 @@ class Project(CamelModel):
 
 
 class CreateProjectInput(CamelModel):
-    name: str = Field(max_length=NAME_MAX_LENGTH)
+    name: str = Field(max_length=NAME_MAX_LENGTH, pattern=NOT_BLANK)
     pitch: str = Field(default="", max_length=PITCH_MAX_LENGTH)
     description: str = Field(default="", max_length=DESCRIPTION_MAX_LENGTH)
     status: Status = Status.INBOX
@@ -88,7 +94,9 @@ class UpdateProjectInput(CamelModel):
     """Partial update. Only fields the client actually sent should be
     applied; routers must use `exclude_unset=True` when reading this."""
 
-    name: str | None = Field(default=None, max_length=NAME_MAX_LENGTH)
+    name: str | None = Field(
+        default=None, max_length=NAME_MAX_LENGTH, pattern=NOT_BLANK
+    )
     pitch: str | None = Field(default=None, max_length=PITCH_MAX_LENGTH)
     description: str | None = Field(default=None, max_length=DESCRIPTION_MAX_LENGTH)
     status: Status | None = None
