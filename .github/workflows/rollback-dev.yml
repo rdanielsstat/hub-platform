@@ -160,6 +160,7 @@ jobs:
           echo "SERVICE_VERSION=$VERSION"
 
       - name: Point the dev Lambdas at the previous image
+        id: apply
         working-directory: infra/hub
         env:
           PREVIOUS: ${{ steps.tags.outputs.previous }}
@@ -185,22 +186,27 @@ jobs:
           echo "::error title=Rollback::health check never returned 200"
           exit 1
 
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        if: ${{ always() && inputs.issue_number != '' }}
+        with:
+          python-version: "3.12"
+
+      # Every attempt is recorded, but only a success carries the marker the
+      # handler counts (backend/oncall/rollback_record.py): a failed attempt
+      # never uses up the one rollback per incident.
       - name: Comment the outcome on the tracking issue
         if: ${{ always() && inputs.issue_number != '' }}
+        working-directory: backend
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           ISSUE: ${{ inputs.issue_number }}
-          STATUS: ${{ job.status }}
+          ROLLBACK_STATUS: ${{ job.status }}
+          APPLY_OUTCOME: ${{ steps.apply.outcome }}
           CURRENT: ${{ steps.tags.outputs.current }}
           PREVIOUS: ${{ steps.tags.outputs.previous }}
           REASON: ${{ inputs.reason }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          if [ "$STATUS" = "success" ]; then
-            RESULT="Rolled dev back from \`$CURRENT\` to \`$PREVIOUS\`. GET /api/health returned 200."
-          else
-            RESULT="Rollback of dev **failed** ($STATUS); dev may still be on \`${CURRENT:-unknown}\`. A human needs to look."
-          fi
-          gh issue comment "$ISSUE" --body "$(printf '<!-- oncall:rollback -->\n**Rollback** (on-call agent, no human approval, dev only)\n\n%s\n\nReason: %s\n\nRun: %s' \
-            "$RESULT" "$REASON" "$RUN_URL")"
+          python -m oncall.rollback_record comment "$RUNNER_TEMP/rollback-comment.md"
+          gh issue comment "$ISSUE" --body-file "$RUNNER_TEMP/rollback-comment.md"
