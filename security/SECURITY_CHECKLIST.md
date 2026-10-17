@@ -97,8 +97,11 @@ Legend: **Done** (implemented, and tested or configured in code),
 | Traces and metrics in Grafana Cloud for dev and prod | Done | `ops/MONITORING.md` |
 | Frontend errors reported | Verified | `POST /client-errors`; a report to dev returned 204 and was logged (2026-10-03) |
 | Frontend errors visible in Grafana | Verified | Exported as OTLP logs; the dev report was found in Grafana Cloud Loki with its labels and trace id (2026-10-03); `ops/MONITORING.md` |
-| Alerting beyond the registration error rate | **Open** | Suggestions in `ops/MONITORING.md` |
-| Deploy and rollback runbook | Done | `ops/DEPLOYMENT.md` |
+| Alerting on user impact, as code | Done | Project creation 5xx rate, dev and prod (`infra/hub/grafana.tf`); end-to-end drill pending (`security/OPERATIONAL_DIAGNOSIS.md`) |
+| On-call agent's deploy scope (dev rollback only) | Done | `rollback-dev.yml`; scope checked by `backend/tests/test_workflow_permissions.py` |
+| Alerts beyond project creation (all-endpoint 5xx, latency, client errors) | **Open** | Suggestions in `ops/MONITORING.md` |
+| Deploy and rollback runbook | Done | `ops/DEPLOYMENT.md`, "Rolling back" (automatic for dev) |
+| Key journey log carries no user data | Done | `backend/tests/test_journey_log.py` |
 
 ## Privacy
 
@@ -110,7 +113,8 @@ Legend: **Done** (implemented, and tested or configured in code),
 
 ## Highest-priority open items
 
-1. Alerts beyond the registration error rate (`ops/MONITORING.md`).
+1. Alerts beyond project creation (`ops/MONITORING.md`), and the
+   end-to-end drill of the automatic on-call path on dev.
 2. Self-service account deletion and data export.
 3. Optionally, require the CI checks before merging into `main` (would
    mean moving to pull requests for every change).

@@ -11,7 +11,7 @@ The extension pack enables AI agents to assist with development workflows withou
 - **Subagents**: Specialized agents in fresh contexts for focused tasks (QA engineer for independent validation)
 - **MCP server**: Five tools that let an agent work with Hub data through the API, as one signed-in user, with no deletes (`mcp-server/`)
 - **Hooks and guardrails**: A Claude Code hook that denies commits, deploys, publishing and secret access, asks before pushes and data loss, and fails closed (`agent-hooks/`), plus the gitleaks pre-commit hook
-- **Custom agents**: Agents a person runs in response to an event, with reviewer approval (on-call diagnostic for Grafana alerts in dev)
+- **Custom agents**: Agents that respond to an event (the on-call agent: wakes on a Grafana alert, diagnoses it, rolls dev back)
 - **Permissions**: Clear boundaries on what agents can and cannot do (`docs/permissions.md`)
 
 ## Structure
@@ -197,46 +197,47 @@ Subagents run in fresh contexts with specialized roles, preventing implementatio
 
 ## Custom Agents
 
-Custom agents are run by a person in response to an external event, with a reviewer approving each run.
+Custom agents respond to external events. The on-call agent is started by a Grafana alert, with no human in the loop on its automatic path.
 
-### On-Call Diagnostic Agent
+### On-Call Agent
 
-**Purpose**: Give the on-call person a quick first diagnosis of a Grafana alert in the dev environment.
+**Purpose**: Respond first to an alert on real user impact: diagnose it, and on dev fix it by rolling back to the previous image.
 
-**Trigger**: The Grafana Cloud alert rule "Registration Error Rate > 10%" fires when more than 10% of dev registration requests return an error (4xx or 5xx) for 5 minutes. Its webhook notifies the on-call person, who starts `observability-alert-handler.yml` by hand in GitHub Actions.
+**Trigger**: The Grafana Cloud rules "Project creation 5xx rate above 2% (dev)" and "(prod)" (`infra/hub/grafana.tf`): more than 2% of `POST /projects` requests answer 5xx over 5 minutes, with at least 10 requests. The contact point calls GitHub's `repository_dispatch` API (event type `grafana-alert`), which starts `observability-alert-handler.yml`.
 
-**Technology**: Python + OpenAI GPT-4o-mini (no new dependencies; uses stdlib urllib)
+**Technology**: Python + OpenAI GPT-4o-mini (no new dependencies; uses stdlib urllib), GitHub Actions, OpenTofu for the rollback
 
 **Workflow**:
-1. The on-call person starts the workflow with two inputs: `alert_summary` (the alert text) and `runs_per_month` (for the cost estimate)
-2. The run waits for a reviewer's approval in the `observability-oncall` environment
-3. The script estimates the monthly cost and skips the call, with a warning, if it would exceed $5/month
-4. It makes one OpenAI API call for a 2-3 sentence diagnosis: likely causes and the first thing to check or fix
-5. The diagnosis and cost estimate are written to the GitHub Actions run log and job summary
+1. `triage` (`backend/oncall/alert.py`) reads the payload and ignores anything that isn't a firing or resolved alert from a rule labeled `hub_oncall="true"`
+2. `record` opens or reuses the tracking issue
+3. `diagnose` makes one OpenAI call (spend guard: $5/month) and posts the diagnosis on the issue
+4. On dev, `rollback` calls `rollback-dev.yml`: previous image from ECR, targeted apply of the two dev Lambdas, health check, outcome on the issue (once per incident, never across a migration)
+5. On prod, nothing more: a human decides and promotes
+6. A resolved notification is recorded on the issue
 
-**Location**: `backend/oncall/diagnose.py` (see `custom-agent/on-call-diagnostic/README.md`)
+**Location**: `backend/oncall/` (see `custom-agent/on-call-diagnostic/README.md`)
 
-**Trigger mechanism**: `.github/workflows/observability-alert-handler.yml` (manual `workflow_dispatch`, with reviewer approval)
+**Trigger mechanism**: `.github/workflows/observability-alert-handler.yml` (`repository_dispatch`, automatic; `workflow_dispatch`, manual diagnosis with reviewer approval)
 
-**Cost**: one GPT-4o-mini call per approved run, kept under an estimated $5/month by the spend guard
+**Cost**: one GPT-4o-mini call per firing notification, kept under an estimated $5/month by the spend guard
 
-**Key point**: A read-only diagnostic aid. The on-call person reads the diagnosis and decides what to do.
+**Key point**: The one agent allowed to deploy, and only a dev rollback. Interactive agents still never deploy (`AGENTS.md`, `docs/permissions.md`).
 
 ## Orchestration and Workflow
 
 ### Solo Developer Workflow (Current)
 
-1. **Develop a feature**: Write code, commit regularly
+1. **Develop a feature**: Start from a GitHub issue with acceptance criteria; the agent comments progress on it (`AGENT_TEAM.md`)
 2. **Self-review**: Use Claude Code interactively to iterate and refine (the guard hook stops it committing, deploying or reading secrets)
-3. **Run tests locally**: `make check` (unit tests, lint, format, build, for the backend, frontend, MCP server and hook), plus `make test-integration` for database changes
+3. **Run tests locally**: `make check` (unit tests, lint, format, build, for the backend, frontend, MCP server and hook), then `make test-all` (every test layer, on the Compose stack)
 4. **Request QA**: Launch QA subagent to validate independently
 5. **Address QA findings**: Fix issues if QA reports problems
 6. **Commit and push**: Human commits and pushes to main
-7. **CI runs**: GitHub Actions runs unit tests, lint and build, the dependency scan, gitleaks, integration tests, and the E2E and live MCP tests against Docker Compose, and deploys to dev only if all pass
+7. **CI runs**: GitHub Actions runs unit tests, lint and build, the dependency scan, gitleaks, integration tests, the E2E and live MCP tests against Docker Compose, and the OpenTofu checks, and deploys to dev only if all pass
 8. **Verify dev**: Check dev Lambda logs and dashboards
 9. **Release**: Use release skill to tag, push, verify dev deployment
 10. **Promote to prod**: Manual workflow_dispatch for promote.yml
-11. **Respond to alerts**: When the Grafana alert notifies you, run the on-call diagnostic and review its output
+11. **Respond to alerts**: The on-call agent responds first (diagnosis, and a rollback on dev); read its tracking issue and take it from there
 
 ### Parallel Workflow (Future, with git worktrees and multiple agents)
 
@@ -260,8 +261,8 @@ See `docs/permissions.md` for detailed permissions model.
 - **Skills and subagents**: Never commit code, never deploy, never modify .env, never destructive data changes (the first three enforced by the guard hook)
 - **Skills and subagents**: Can read code, run tests, generate reports, provide recommendations
 - **MCP server**: Acts as one configured user through the public API; can read, create and update that user's ideas and add notes; cannot delete
-- **Custom agents**: The on-call diagnostic makes one OpenAI call on the alert text it is given and writes the diagnosis to the run log; it has no access to data or infrastructure
-- **Human**: Reviews agent output, makes all decisions, commits and deploys manually
+- **Custom agents**: The on-call agent makes one OpenAI call on the alert summary, records it on a tracking issue, and on dev only rolls back to the previous image; it has no access to user data and no way to reach prod
+- **Human**: Reviews agent output, makes all decisions, commits, and promotes to prod; the on-call agent's dev rollback is the only deploy that doesn't wait for a human
 
 ## Configuration and Environment
 
@@ -296,4 +297,4 @@ Agents expect:
 - **Security scanning in releases**: The dependency scan (pip-audit, pnpm audit) and gitleaks already gate every deploy; the rest of the security-scanning skill (bandit, trivy, IaC scans) still runs by hand. Done: E2E tests in CI (2026-10-02); the MCP server, the guard hook and the capability index (2026-10-13).
 - **Design review on schedule**: Quarterly design audits via GitHub Actions scheduled job
 - **Multi-agent orchestration**: Formal PM/SWE/QA workflow with git worktrees for feature backlogs
-- **Custom agents for other events**: Extend on-call agent to handle other production scenarios (deployment rollback, database alerts, etc.)
+- **Custom agents for other events**: Extend the on-call agent to other alerts (database outages, latency). Done: the automatic trigger and the dev rollback (2026-10-17).

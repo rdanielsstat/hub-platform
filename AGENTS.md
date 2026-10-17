@@ -9,6 +9,13 @@ small sparks to standalone builds. See `product-spec.md` (repo root) for the pro
 and data model. That document is the source of truth; don't duplicate it
 here and don't let this file drift from it.
 
+- Task tracker: [GitHub Issues](https://github.com/rdanielsstat/hub-platform/issues).
+  Work starts from an issue with an "Acceptance criteria" checklist;
+  comment your progress on the issue, and the PR closes it ("Closes #N").
+- Agent team: [AGENT_TEAM.md](AGENT_TEAM.md): every role (implementer, QA
+  subagent, security-scanning and design-review skills, on-call agent,
+  human reviewer), what each owns, and how work passes between them.
+
 ## Structure
 
 - `frontend/`: the app. Vite 6 + React 19 SPA, self-contained (its own
@@ -21,16 +28,18 @@ here and don't let this file drift from it.
   built against.
 - `infra/`: OpenTofu infrastructure as code (bootstrap and hub workspaces for
   dev and prod). See `infra/BOOTSTRAP.md` for deployment setup.
-- `.github/workflows/`: CI/CD pipelines (ci, promote, observability
-  alert handling).
+- `.github/workflows/`: CI/CD pipelines (`ci.yml`, `promote.yml`), the
+  on-call agent (`observability-alert-handler.yml`) and the dev rollback
+  it runs (`rollback-dev.yml`).
 - `docker-compose.yml` (repo root): the whole system for prod-parity
   testing: Postgres 17, bootstrap, the backend (`app`, :8000), and the
   frontend (`frontend`: nginx on :8080 serving the production build and
   proxying `/api/*` like CloudFront; `frontend/Dockerfile`, `nginx.conf`).
 - `Makefile` (repo root): common commands (`make help`), including the test
   layers (`test-unit`, `test-integration`, `test-mcp-live`, `test-e2e`,
-  `test-e2e-docker`), `docker-up`/`docker-down`, and `check` (every local
-  gate below).
+  `test-e2e-docker`), `test-all` (the single test command: every layer,
+  on a Compose stack it starts and stops), `docker-up`/`docker-down`, and
+  `check` (the fast gate: lint, format, unit tests, build).
 - `backend/alembic/`: Alembic migration scripts (`versions/`); run by
   `backend/app/db/migrations.py`.
 - `ops/`: runbooks: deployment, health checks, troubleshooting, monitoring.
@@ -39,8 +48,10 @@ here and don't let this file drift from it.
   checklist (what's checked and what's open).
 - `backend/observability/`: OpenTelemetry setup, local Grafana/Tempo/Prometheus
   stack.
-- `backend/oncall/`: on-call agent (OpenAI diagnostic for dev alerts);
-  its runbook is `custom-agent/on-call-diagnostic/README.md`.
+- `backend/oncall/`: the on-call agent's code: alert triage (`alert.py`)
+  and the OpenAI diagnosis (`diagnose.py`); its runbook is
+  `custom-agent/on-call-diagnostic/README.md`.
+- `AGENT_TEAM.md` (repo root): the agent team and its process.
 - `mcp-server/`: MCP server exposing the Hub API to AI agents (five tools,
   no deletes), self-contained (`pyproject.toml`, `uv.lock`, `tests/`);
   registered for Claude Code in `.mcp.json`. See "MCP server and hooks".
@@ -115,6 +126,13 @@ uv run ruff check . && uv run ruff format --check .  # lint and format check
   reports sent by `frontend/src/lib/error-reporting.ts`; the `app.client_errors`,
   `app.db` and `app.security` loggers are also exported to Grafana (Loki) as
   OTLP logs (`backend/observability/`).
+- Key journey: every `POST /projects` logs one JSON line on `app.projects`
+  (`app/journey_log.py`: outcome, status, duration, `trace_id`, never the
+  body, an email or a token), exported from INFO up. Endpoint metrics carry
+  `hub.environment`; the alert rules (`infra/hub/grafana.tf`) filter on it.
+- `FAULT_INJECT_5XX` (`app/core/config.py`): the on-call drill's switch,
+  makes `POST /projects` answer 500. Off by default, ignored in prod, and
+  only ever set on the dev Lambda through the dev GitHub environment.
 - Security headers: CloudFront sends a strict CSP (no inline scripts; Google
   Fonts allowed) and HSTS (`infra/hub/frontend.tf`). Anything the frontend
   loads from a new origin must be added to `local.content_security_policy`.
@@ -143,8 +161,12 @@ See `backend/README.md` for the full setup, config table, and details.
 
 ## Testing
 
+**The single test command is `make test-all`** (repo root): unit tests,
+then the Compose stack for the integration tests, the MCP server's live
+test and both Playwright projects, then the stack stopped again.
+
 Frontend: Vitest 5.0, React Testing Library 16, jsdom. `pnpm test`
-(from inside `frontend/`) runs `vitest run`; 202 tests in 22 files as of
+(from inside `frontend/`) runs `vitest run`; 206 tests in 22 files as of
 October 2026.
 
 - Vitest runs with `test.globals` off (tests import from vitest explicitly);
@@ -153,16 +175,16 @@ October 2026.
   queries to a landmark rather than the whole document to avoid matching hidden content.
 
 Backend: pytest 9.1, two layers told apart by the `integration` marker.
-`uv run pytest` (from inside `backend/`) runs the unit tests only: 459 tests in
-30 files as of October 2026, each with its own in-memory SQLite database.
+`uv run pytest` (from inside `backend/`) runs the unit tests only: 555 tests in
+34 files as of October 2026, each with its own in-memory SQLite database.
 `uv run pytest -m integration` runs `tests/integration/` (38 tests in 4 files)
 against the Docker Compose Postgres (`docker compose up -d --wait postgres`, or
 `make test-integration`), in a throwaway database built by the real
 migrations. `tests/test_startup.py` imports the app in a subprocess to check
 startup behaviour (secret guards, deployed defaults, origin verification).
 
-E2E: Playwright, 204 tests in `frontend/tests/`, in two projects. `chromium`:
-`app.spec.ts` (90 browser tests) and `api.spec.ts` (104 API tests) cover signup,
+E2E: Playwright, 207 tests in `frontend/tests/`, in two projects. `chromium`:
+`app.spec.ts` (91 browser tests) and `api.spec.ts` (106 API tests) cover signup,
 login, the session cookie, dashboard, projects, filters, sorts, edits, deletes,
 and API endpoints, against any backend on :8000. `docker-compose`:
 `integration.spec.ts` (10 tests) covers the Compose stack, including the nginx
@@ -174,7 +196,8 @@ the Vite dev server itself (or reuses one); the backend must already be running
 Against a local or Compose backend, origin verification and the rate limits
 are off. See `frontend/README.md`.
 
-**All tests must pass before a task is considered done.** This includes:
+**All tests must pass before a task is considered done** (`make test-all`
+runs every suite below in one command). This includes:
 - Frontend unit tests (`pnpm test` from `frontend/`)
 - Backend unit tests (`uv run pytest` from `backend/`)
 - Backend integration tests (`uv run pytest -m integration`) when a change
@@ -201,15 +224,17 @@ all five jobs must pass before the dev deploy runs. Actions in `.github/workflow
 CI also runs Ruff (lint and format) over the backend, the MCP server and
 the guard hook, the MCP server's and the hook's unit tests, and the
 frontend's lint, format check and build (all in the `test` job), the
-same gates as `make check`; the dependency scan covers
+same gates as `make check`, plus `tofu fmt` and `tofu validate` of
+`infra/` (the `infra-check` job, which gates the dev deploy too); the dependency scan covers
 `mcp-server/uv.lock` too. Reviewed gitleaks false positives go in `.gitleaksignore` (by
 fingerprint); never add a real secret there.
 
 ## Working Conventions
 
 - Keep changes small and scoped to what was asked.
-- Run lint, typecheck, build, and every test suite (`make check` runs
-  them all), and confirm they're clean before considering a task done.
+- Run lint, typecheck and build (`make check`) and every test suite
+  (`make test-all`), and confirm they're clean before considering a task
+  done.
 - Match the existing code style. ESLint + Prettier are configured in
   `frontend/`, Ruff (lint and format) in `backend/`, `mcp-server/` and
   `agent-hooks/` (Python 3.9 target there); lint must stay at
@@ -225,7 +250,8 @@ fingerprint); never add a real secret there.
 **Agents must follow these rules:**
 
 - **Never commit code.** Make the changes you're asked to make, write a summary of what changed, provide a suggested commit message (use conventional commit format: `feat:`, `fix:`, `refactor:`, etc.; no capital first letter; use semicolons to separate clauses, not periods). The human reviews and commits.
-- **Never deploy.** All deployment is manual or via CI/CD gates. Agents can verify that deployment would work, but cannot trigger it.
+- **Never deploy.** All deployment is manual or via CI/CD gates. Agents can verify that deployment would work, but cannot trigger it. The single exception is the on-call agent, a GitHub Actions workflow (not an interactive agent): `rollback-dev.yml` may roll dev, and only dev, back to its previous image when the dev alert fires (`custom-agent/on-call-diagnostic/README.md`). Interactive agents, Claude Code included, never deploy and never run Terraform; the guard hook still blocks it.
+- **Never run OpenTofu outside CI.** `tofu plan` and `tofu apply` against the `dev` or `prod` workspace run only in `ci.yml`, `promote.yml` and `rollback-dev.yml` (`infra/BOOTSTRAP.md`, "Where OpenTofu runs").
 - **Never modify real `.env` files or any secrets.** Files named `.env` (no `.example` suffix, e.g. `backend/.env`, `frontend/.env`) hold local configuration and possibly secrets: never read them into output, edit them, or commit them (they are gitignored). The tracked templates `backend/.env.example` and `frontend/.env.example` are different: they hold no secrets, and you CAN and SHOULD update them whenever a task adds, removes, or changes a setting, documenting what it does and its default. If a task needs a real value set somewhere, flag it and document what's needed.
 - **Never make destructive changes to data.** Do not delete user data, reset the database, or modify production state without explicit approval.
 - **Never restructure or refactor working code** unless explicitly asked. Stick to the task scope.
@@ -326,19 +352,30 @@ in `ci.yml`, `TF_VAR_otel_headers_prod` in `promote.yml`); they are not stored i
 **CI/CD** (`.github/workflows/`):
 - `ci.yml`: on PR, run unit tests (backend, frontend, MCP server, guard hook)
   with lint, format and build, the dependency scan, integration tests,
-  Playwright E2E and the MCP server's live test against Docker Compose, and
-  the gitleaks history scan; on push to main, run them,
+  Playwright E2E and the MCP server's live test against Docker Compose,
+  the gitleaks history scan and `infra-check` (`tofu fmt`, `tofu validate`);
+  on push to main, run them,
   then (only if all of them pass) deploy to dev (build
   image, update and run the bootstrap Lambda (migrations), apply infra, build
   frontend, sync to S3, invalidate CloudFront, smoke-test `/api/health`).
 - `promote.yml`: manual promotion of exact image tag from dev to prod (no rebuild).
-- `observability-alert-handler.yml`: manual on-call diagnostic (started manually after a Grafana alert).
+- `observability-alert-handler.yml`: the on-call agent. Started by the
+  Grafana alert through `repository_dispatch` (`grafana-alert`), no human:
+  triage, tracking issue, OpenAI diagnosis, and on dev `rollback-dev.yml`.
+  A manual `workflow_dispatch` path (diagnosis only, reviewer approval) remains.
+- `rollback-dev.yml`: rolls dev back to the previous image (ECR), with a
+  health check and a comment on the tracking issue; dev only.
 
 **Observability**: Grafana Cloud over OTLP/HTTP (dev and prod Lambdas). Traces and
 metrics exported via OpenTelemetry SDK + FastAPI and SQLAlchemy instrumentation, plus
 OTLP logs from `app.client_errors`, `app.db` and `app.security` (Loki). `SERVICE_VERSION` is set for both dev and
 prod Lambdas from git tags.
 Local dev: off by default; optional local Grafana/Tempo/Prometheus/Loki stack in `backend/observability/`.
+Alerting is code (`infra/hub/grafana.tf`, the Grafana provider, owned by
+the dev workspace because both environments share one stack): "Project
+creation 5xx rate above 2%" for dev and prod (at least 10 requests in 5
+minutes), a webhook contact point to GitHub's `repository_dispatch` API
+(`GH_DISPATCH_TOKEN`), and the notification policy.
 
 **Versioning**: SemVer `SERVICE_VERSION` from git tags (latest release v1.0.0) via
 `.github/scripts/service-version.sh`.
@@ -379,6 +416,9 @@ Local dev: off by default; optional local Grafana/Tempo/Prometheus/Loki stack in
 **Not yet wired:**
 - bandit, trivy and the IaC scans still run by hand (`security-scanning` skill); CI runs
   the dependency scan and gitleaks
+- A real `tofu plan` on pull requests: the AWS role only trusts jobs in
+  the `dev` or `prod` environment, which only allow `main`, so PRs get
+  `tofu fmt` and `tofu validate` only
 - Version sync: `pyproject.toml` and `package.json` are hardcoded (1.0.0, bumped by hand for v1.0.0); should sync with git tags
 - Package registry publishing (PyPI, npm) is not set up
 - Full backlog: `docs/tech-debt.md`

@@ -1,5 +1,8 @@
 # Common commands, run from the repo root. `make help` lists them.
 #
+# The single test command is `make test-all`: every test layer below, on
+# the Docker Compose stack, which it starts and stops itself.
+#
 # Test layers:
 #   test-unit         backend pytest (in-memory SQLite), frontend Vitest, the MCP
 #                     server (fake API) and the agent hook. No services.
@@ -22,7 +25,7 @@ WEB_URL ?= http://localhost:8080
 
 .PHONY: help install check lint lint-backend lint-frontend lint-mcp lint-hooks \
 	fmt test test-unit test-backend test-frontend test-mcp test-hooks \
-	test-integration test-mcp-live test-e2e test-e2e-docker docker-up \
+	test-integration test-mcp-live test-e2e test-e2e-docker test-all docker-up \
 	docker-db-up docker-down docker-logs
 
 help: ## List the targets
@@ -34,7 +37,7 @@ install: ## Install backend, frontend and MCP server dependencies
 	cd frontend && pnpm install
 	cd mcp-server && uv sync
 
-check: lint test-unit ## Every local gate AGENTS.md requires before a task is done
+check: lint test-unit ## Fast gate: lint, format, unit tests, build (no services; see test-all)
 	cd frontend && pnpm build
 
 lint: lint-backend lint-frontend lint-mcp lint-hooks ## Lint and format checks, everywhere
@@ -59,7 +62,7 @@ fmt: ## Format and auto-fix: Ruff (backend, MCP server, hook), Prettier (fronten
 	cd mcp-server && uv run ruff check --fix . && uv run ruff format .
 	cd frontend && pnpm format
 
-test: test-unit ## Alias for test-unit
+test: test-unit ## Alias for test-unit (unit tests only; test-all runs everything)
 
 test-unit: test-backend test-frontend test-mcp test-hooks ## Unit tests: backend, frontend, MCP server, agent hook
 
@@ -91,6 +94,21 @@ test-e2e: ## Playwright browser + API tests; needs a backend on :8000
 test-e2e-docker: docker-up ## Playwright Compose-stack tests, incl. stopping Postgres
 	cd frontend && E2E_DOCKER=1 E2E_API_URL=$(API_URL) \
 		pnpm exec playwright test --project=docker-compose --workers=1
+
+# Everything: unit tests, then the Compose stack for the integration tests,
+# the MCP server's live test and both Playwright projects (chromium, then
+# the Compose project that stops and pauses Postgres). The stack is
+# stopped at the end whether the tests pass or not, and the exit status
+# is the tests'. The database volume is kept, like docker-down.
+test-all: ## The single test command: unit, integration and E2E, on a Compose stack it starts and stops
+	$(MAKE) test-unit
+	$(MAKE) docker-up
+	@status=0; \
+	$(MAKE) test-integration test-mcp-live test-e2e test-e2e-docker || status=$$?; \
+	$(MAKE) docker-down; \
+	if [ $$status -eq 0 ]; then echo "test-all: every layer passed."; \
+	else echo "test-all: FAILED (exit $$status)."; fi; \
+	exit $$status
 
 docker-up: ## Build and start the Compose stack; wait until the API and the web app answer
 	docker compose up -d --build

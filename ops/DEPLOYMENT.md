@@ -7,16 +7,23 @@ it's done.
 
 | Environment | URL | Deployed by | When |
 |---|---|---|---|
-| dev | https://hub-dev.dnls.dev | `.github/workflows/ci.yml` (`deploy-dev`) | Every push to `main`, after the unit tests and the gitleaks scan pass |
+| dev | https://hub-dev.dnls.dev | `.github/workflows/ci.yml` (`deploy-dev`) | Every push to `main`, after every CI check passes |
+| dev (rollback) | https://hub-dev.dnls.dev | `.github/workflows/rollback-dev.yml` | The on-call agent, when the dev alert fires, or by hand |
 | prod | https://hub.dnls.dev | `.github/workflows/promote.yml` | By hand, with a typed confirmation and a reviewer's approval |
 
-Nobody deploys from a laptop, and agents never deploy (`AGENTS.md`).
+Nobody deploys from a laptop: OpenTofu runs in CI only
+(`infra/BOOTSTRAP.md`, "Where OpenTofu runs"). Agents never deploy
+(`AGENTS.md`), with one scoped exception: the on-call agent may run
+`rollback-dev.yml`, which only ever rolls dev back to its previous image
+("Rolling back" below).
 
 ## Dev: every push to main
 
 `ci.yml` runs on every pull request and push. On a push to `main`,
-`deploy-dev` runs once `test` (backend and frontend unit tests) and
-`secrets-scan` (gitleaks over the full history) pass:
+`deploy-dev` runs once every other job passes: `test` (unit tests, lint,
+format and build), `dependency-scan`, `secrets-scan` (gitleaks over the
+full history), `integration`, `e2e` and `infra-check` (`tofu fmt` and
+`tofu validate`):
 
 1. Computes an image tag, `<UTC timestamp>-<short sha>`, unique per
    build, and `SERVICE_VERSION` from the nearest `vX.Y.Z` tag
@@ -175,10 +182,14 @@ Cloudflare proxies the site, so the per-IP rate limits need to know
 Cloudflare's addresses to find the real client
 (`security/RATE_LIMITING.md`). The app reads them from
 `TRUSTED_PROXY_IPS`, which comes from the OpenTofu variable
-`trusted_proxy_ips`, which both workflows fill from a **GitHub
-environment variable** named `TRUSTED_PROXY_IPS` (on the `dev` and
-`prod` environments). Unset or empty means trust no proxy: the
-behaviour before this setting existed.
+`trusted_proxy_ips`, which every workflow that runs OpenTofu (`ci.yml`,
+`promote.yml`, `rollback-dev.yml`) fills from a **GitHub environment
+variable** named `TRUSTED_PROXY_IPS` (on the `dev` and `prod`
+environments; not a repo variable, so `gh variable list` without `--env`
+doesn't show it). The OpenTofu variable is required with no default, and
+`guard_trusted_proxies` refuses an empty value, so a run without it fails
+instead of quietly trusting no proxy. (The app itself still treats an
+unset `TRUSTED_PROXY_IPS` as "trust no proxy", which is right locally.)
 
 Get the current ranges (Cloudflare publishes them as plain text, one
 CIDR per line) as one comma-separated line:
@@ -311,14 +322,41 @@ before each prod promotion that includes a migration.
 
 ## Rolling back
 
-There's no rollback workflow. Options, fastest first:
+### Dev: `rollback-dev.yml` (automatic, or by hand)
 
-- **Backend only, prod**: re-run `tofu apply` on the prod workspace
-  with the previous image tag (`-var=lambda_image_tag=<old tag>`). The
-  previous tags stay in ECR (`aws_ecr_lifecycle_policy` keeps the 10
-  newest images; tags are immutable, so a tag always names the same
-  image). Older code runs fine on the newer schema as long as migrations
-  stay additive (see "Deploy order and migrations").
+The on-call agent runs it when the dev project creation alert fires
+(`custom-agent/on-call-diagnostic/README.md`); anyone with access can run
+it from Actions > "Roll back dev". No approval: it runs in the `dev`
+environment, which needs none. It:
+
+1. Reads the tag dev runs from the deployment record, the dev workspace's
+   `deployed_image_tag` output (taken from the API Lambda's image).
+2. Finds the previous tag: the tagged image pushed to the dev ECR
+   repository just before it (the lifecycle policy keeps the 10 newest;
+   tags are immutable, so a tag always names the same image). No older
+   image, or a current tag ECR doesn't know: it fails and changes nothing.
+3. Refuses if `backend/alembic/versions` changed between the two commits:
+   the old code might not run on the newer schema, so a human decides.
+4. Derives `SERVICE_VERSION` for the previous image's commit and runs a
+   targeted apply of `aws_lambda_function.backend` and
+   `aws_lambda_function.bootstrap` (and whatever they depend on) with that
+   tag. No migration runs. `FAULT_INJECT_5XX` isn't passed, so it's off.
+5. Checks GET `/api/health` returns 200, then comments the outcome on the
+   on-call tracking issue when there is one.
+
+Once dev is healthy, fix forward: revert or fix on `main`, and the next
+push deploys dev again. `promote.yml` promotes what dev runs, so after a
+rollback it would promote the previous (good) image.
+
+### Prod: by hand, through `promote.yml`
+
+Prod has no automatic rollback, on purpose. Options, fastest first:
+
+- **Backend**: roll dev back first (`rollback-dev.yml`), check it, then
+  run `promote.yml`: it promotes the tag dev runs, which is now the
+  previous one, with the usual confirmation and approval. Older code runs
+  fine on the newer schema as long as migrations stay additive (see
+  "Deploy order and migrations").
 - **Frontend**: rebuild from the older commit and sync it to the bucket,
   then invalidate.
 - **Revert on main**: `git revert`, push, let CI deploy dev, then
