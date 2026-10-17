@@ -61,12 +61,13 @@ variable "grafana_default_contact_point" {
   }
 }
 
-# Grafana Cloud's Prometheus (Mimir) data source, named
-# grafanacloud-<stack>-prom by Grafana Cloud.
-variable "grafana_prometheus_data_source" {
-  description = "Name of the Grafana Cloud Prometheus data source the alert queries."
+# UID of Grafana Cloud's Prometheus (Mimir) data source, which the alert
+# queries. Grafana Cloud gives it the UID grafanacloud-prom (its display
+# name is grafanacloud-<stack>-prom).
+variable "grafana_prometheus_data_source_uid" {
+  description = "UID of the Grafana Cloud Prometheus data source the alert queries."
   type        = string
-  default     = "grafanacloud-blackpoplar56-prom"
+  default     = "grafanacloud-prom"
 }
 
 locals {
@@ -79,11 +80,6 @@ locals {
   alert_ratio        = 0.02
   alert_min_traffic  = 10
   alert_environments = toset(["dev", "prod"])
-}
-
-data "grafana_data_source" "prometheus" {
-  count = local.manage_grafana ? 1 : 0
-  name  = var.grafana_prometheus_data_source
 }
 
 resource "grafana_folder" "hub" {
@@ -170,7 +166,7 @@ resource "grafana_rule_group" "project_creation" {
       # A: 5xx responses in the window (0 when there were none).
       data {
         ref_id         = "A"
-        datasource_uid = data.grafana_data_source.prometheus[0].uid
+        datasource_uid = var.grafana_prometheus_data_source_uid
         relative_time_range {
           from = 300
           to   = 0
@@ -186,7 +182,7 @@ resource "grafana_rule_group" "project_creation" {
       # B: all requests in the window.
       data {
         ref_id         = "B"
-        datasource_uid = data.grafana_data_source.prometheus[0].uid
+        datasource_uid = var.grafana_prometheus_data_source_uid
         relative_time_range {
           from = 300
           to   = 0
