@@ -144,6 +144,8 @@ jobs:
           SUMMARY: ${{ needs.triage.outputs.summary }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          # SC2016: $ENV.TITLE is jq syntax; the single quotes are required so bash does not expand it.
+          # shellcheck disable=SC2016
           ISSUE=$(gh issue list --state open --label oncall --limit 50 \
             --json number,title --jq '.[] | select(.title == $ENV.TITLE) | .number' | head -n1)
           if [ -z "$ISSUE" ]; then
