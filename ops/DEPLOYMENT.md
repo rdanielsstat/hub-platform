@@ -341,6 +341,8 @@ has proved the fault is gone:
   dev's demo account (POST `/projects` 2xx, `backend/oncall/fault_probe.py`,
   password from the `DEMO_PASSWORDS` secret). The probe project is
   deleted again. A 5xx on every try fails the run.
+  The probe sends a named User-Agent (`hub-platform-oncall-probe/1.0`)
+  because Cloudflare blocks Python's default one with a 403.
 - **Allowance**: one successful rollback per incident. The tracking issue
   records each attempt's outcome, and the handler's resolved job posts
   `<!-- oncall:resolved -->` when Grafana reports the alert resolved.
