@@ -1,0 +1,205 @@
+# Roll dev back to the previous image. Dev only: this workflow never
+# selects another workspace, never reads another environment's secrets,
+# and runs in the `dev` GitHub environment, which needs no approval
+# (backend/tests/test_workflow_permissions.py checks all of that).
+#
+# Called by the on-call agent (observability-alert-handler.yml) when a
+# dev alert fires, with no human in the loop; or started by hand
+# (workflow_dispatch) by the release owner.
+#
+# 1. The current tag comes from the deployment record: the dev
+#    workspace's `deployed_image_tag` output, which is the tag the dev
+#    API Lambda actually runs (infra/hub/outputs.tf).
+# 2. The previous tag is the tagged image pushed to the dev ECR
+#    repository just before it (ECR keeps the last 10, infra/hub/ecr.tf).
+#    No previous image, or a current tag ECR doesn't have: the run fails
+#    loudly and changes nothing.
+# 3. Refuses to cross a migration: if backend/alembic/versions changed
+#    between the two commits, the old code may not run on the new schema,
+#    so it stops and a human decides.
+# 4. A targeted apply points the dev API and bootstrap Lambdas at the
+#    previous image, with SERVICE_VERSION for that image's commit. No
+#    migration runs (the schema is already ahead or equal). Only those
+#    two resources change; FAULT_INJECT_5XX is not passed, so it's off.
+# 5. GET /api/health on dev must return 200, then the outcome goes on
+#    the tracking issue, success or failure.
+#
+# Prod has no automatic rollback: re-run promote.yml for the last good
+# tag (ops/DEPLOYMENT.md, "Rollback").
+
+name: Roll back dev
+
+on:
+  workflow_call:
+    inputs:
+      issue_number:
+        description: Tracking issue to comment on
+        type: string
+        required: false
+        default: ""
+      reason:
+        description: Why the rollback runs
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: Why you are rolling dev back
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rollback-dev
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  TOFU_VERSION: 1.12.6
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    environment: dev
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write # required to exchange the GitHub token for AWS credentials
+      issues: write # the outcome comment on the tracking issue
+    env:
+      TF_VAR_cloudflare_zone_id: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+      TF_VAR_neon_urls: ${{ secrets.NEON_URLS }}
+      TF_VAR_demo_passwords: ${{ secrets.DEMO_PASSWORDS }}
+      TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      TF_VAR_otel_endpoint_dev: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT_DEV }}
+      TF_VAR_otel_headers_dev: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS_DEV }}
+      TF_VAR_trusted_proxy_ips: ${{ vars.TRUSTED_PROXY_IPS }}
+      TF_VAR_grafana_url: ${{ vars.GRAFANA_URL }}
+      TF_VAR_github_dispatch_token: ${{ secrets.GH_DISPATCH_TOKEN }}
+      GRAFANA_AUTH: ${{ secrets.GRAFANA_AUTH }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history and tags: the migration check and service-version.sh.
+          fetch-depth: 0
+
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+
+      - name: Init the dev workspace
+        working-directory: infra/hub
+        run: |
+          tofu init -input=false
+          tofu workspace select dev
+
+      - name: Find the current and previous image tags
+        id: tags
+        working-directory: infra/hub
+        run: |
+          CURRENT=$(tofu output -raw deployed_image_tag)
+          REPO=$(tofu output -raw ecr_repository_url)
+          TAG_RE='^[0-9]{8}-[0-9]{6}-[0-9a-f]{7,40}$'
+          if ! echo "$CURRENT" | grep -Eq "$TAG_RE"; then
+            echo "::error title=Rollback::dev's deployed tag '$CURRENT' is not a CI build tag; nothing to roll back from"
+            exit 1
+          fi
+          # Every tagged image in the dev repository, oldest push first.
+          aws ecr describe-images --repository-name "${REPO#*/}" --filter tagStatus=TAGGED \
+            --query 'sort_by(imageDetails, &imagePushedAt)[].imageTags[0]' --output json \
+            | jq -r '.[]' > "$RUNNER_TEMP/tags.txt"
+          if ! grep -qx "$CURRENT" "$RUNNER_TEMP/tags.txt"; then
+            echo "::error title=Rollback::current tag $CURRENT is not in ECR"
+            exit 1
+          fi
+          PREVIOUS=$(grep -B1 -x "$CURRENT" "$RUNNER_TEMP/tags.txt" | head -n1)
+          if [ "$PREVIOUS" = "$CURRENT" ] || [ -z "$PREVIOUS" ]; then
+            echo "::error title=Rollback::no image older than $CURRENT in ECR; there is nothing to roll back to"
+            exit 1
+          fi
+          if ! echo "$PREVIOUS" | grep -Eq "$TAG_RE"; then
+            echo "::error title=Rollback::previous tag '$PREVIOUS' is not a CI build tag"
+            exit 1
+          fi
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "previous=$PREVIOUS" >> "$GITHUB_OUTPUT"
+          echo "Rolling dev back from $CURRENT to $PREVIOUS"
+
+      - name: Refuse to cross a migration
+        env:
+          CURRENT: ${{ steps.tags.outputs.current }}
+          PREVIOUS: ${{ steps.tags.outputs.previous }}
+        run: |
+          CUR_SHA=${CURRENT##*-}
+          PREV_SHA=${PREVIOUS##*-}
+          git cat-file -e "$CUR_SHA^{commit}" && git cat-file -e "$PREV_SHA^{commit}"
+          CHANGED=$(git diff --name-only "$PREV_SHA" "$CUR_SHA" -- backend/alembic/versions)
+          if [ -n "$CHANGED" ]; then
+            echo "::error title=Rollback::the migrations changed between $PREV_SHA and $CUR_SHA; a human must decide:"
+            echo "$CHANGED"
+            exit 1
+          fi
+
+      - name: Derive SERVICE_VERSION for the previous image
+        id: version
+        env:
+          PREVIOUS: ${{ steps.tags.outputs.previous }}
+        run: |
+          git switch --detach "${PREVIOUS##*-}"
+          VERSION=$(bash .github/scripts/service-version.sh)
+          git switch -
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "SERVICE_VERSION=$VERSION"
+
+      - name: Point the dev Lambdas at the previous image
+        working-directory: infra/hub
+        env:
+          PREVIOUS: ${{ steps.tags.outputs.previous }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          tofu workspace select dev
+          tofu apply -input=false -auto-approve \
+            -target=aws_lambda_function.backend \
+            -target=aws_lambda_function.bootstrap \
+            -var="lambda_image_tag=$PREVIOUS" \
+            -var="service_version=$VERSION"
+
+      - name: Health check
+        working-directory: infra/hub
+        run: |
+          URL=$(tofu output -raw site_url)
+          for _ in 1 2 3 4 5 6; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$URL/api/health") || true
+            echo "GET $URL/api/health: $code"
+            [ "$code" = "200" ] && exit 0
+            sleep 10
+          done
+          echo "::error title=Rollback::health check never returned 200"
+          exit 1
+
+      - name: Comment the outcome on the tracking issue
+        if: ${{ always() && inputs.issue_number != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ISSUE: ${{ inputs.issue_number }}
+          STATUS: ${{ job.status }}
+          CURRENT: ${{ steps.tags.outputs.current }}
+          PREVIOUS: ${{ steps.tags.outputs.previous }}
+          REASON: ${{ inputs.reason }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ "$STATUS" = "success" ]; then
+            RESULT="Rolled dev back from \`$CURRENT\` to \`$PREVIOUS\`. GET /api/health returned 200."
+          else
+            RESULT="Rollback of dev **failed** ($STATUS); dev may still be on \`${CURRENT:-unknown}\`. A human needs to look."
+          fi
+          gh issue comment "$ISSUE" --body "$(printf '<!-- oncall:rollback -->\n**Rollback** (on-call agent, no human approval, dev only)\n\n%s\n\nReason: %s\n\nRun: %s' \
+            "$RESULT" "$REASON" "$RUN_URL")"

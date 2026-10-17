@@ -156,27 +156,71 @@ def workflow() -> dict:
     return yaml.safe_load(WORKFLOW_PATH.read_text())
 
 
-def test_workflow_is_manual_dispatch_only(workflow: dict) -> None:
+def test_workflow_wakes_on_grafana_alerts_and_keeps_manual_runs(workflow: dict) -> None:
     # PyYAML reads the bare key `on` as the boolean True.
     triggers = workflow[True]
-    assert set(triggers) == {"workflow_dispatch"}
+    assert set(triggers) == {"repository_dispatch", "workflow_dispatch"}
+    assert triggers["repository_dispatch"] == {"types": ["grafana-alert"]}
 
 
-def test_workflow_job_requires_oncall_environment(workflow: dict) -> None:
-    (job,) = workflow["jobs"].values()
+def test_manual_run_still_requires_oncall_environment(workflow: dict) -> None:
+    job = workflow["jobs"]["diagnose-manual"]
+    assert job["if"] == "github.event_name == 'workflow_dispatch'"
     assert job["environment"] == "observability-oncall"
+
+
+def test_automatic_jobs_need_no_approval(workflow: dict) -> None:
+    """The dispatch path runs without a human: no job waits on the
+    observability-oncall reviewers, and the rollback runs in dev, whose
+    environment has no reviewers."""
+    for name, job in workflow["jobs"].items():
+        if name == "diagnose-manual":
+            continue
+        assert job.get("environment") is None, name
+
+
+def test_triage_gates_every_automatic_job(workflow: dict) -> None:
+    jobs = workflow["jobs"]
+    assert jobs["triage"]["if"] == "github.event_name == 'repository_dispatch'"
+    assert jobs["record"]["if"] == "needs.triage.outputs.action != 'ignore'"
+    rollback = jobs["rollback"]
+    assert "needs.triage.outputs.action == 'rollback'" in rollback["if"]
+    assert "needs.triage.outputs.environment == 'dev'" in rollback["if"]
+    assert "needs.record.outputs.rolled_back == 'false'" in rollback["if"]
+    assert rollback["uses"] == "./.github/workflows/rollback-dev.yml"
+
+
+def test_payload_reaches_triage_via_env_only(workflow: dict) -> None:
+    (step,) = [
+        s
+        for s in workflow["jobs"]["triage"]["steps"]
+        if "oncall.alert" in s.get("run", "")
+    ]
+    assert step["env"]["ALERT_PAYLOAD"] == "${{ toJSON(github.event.client_payload) }}"
+    assert "${{" not in step["run"]
 
 
 def test_workflow_permissions_are_read_only(workflow: dict) -> None:
     assert workflow["permissions"] == {"contents": "read"}
 
 
-def test_workflow_passes_key_and_inputs_via_env_only(workflow: dict) -> None:
-    (job,) = workflow["jobs"].values()
+@pytest.mark.parametrize("job_name", ["diagnose-manual", "diagnose"])
+def test_workflow_passes_key_and_inputs_via_env_only(
+    workflow: dict, job_name: str
+) -> None:
+    job = workflow["jobs"][job_name]
     (step,) = [s for s in job["steps"] if "oncall.diagnose" in s.get("run", "")]
     assert step["env"]["OPENAI_API_KEY"] == "${{ secrets.OPENAI_API_KEY }}"
-    assert step["env"]["ALERT_SUMMARY"] == "${{ inputs.alert_summary }}"
-    assert step["env"]["ONCALL_RUNS_PER_MONTH"] == "${{ inputs.runs_per_month }}"
+    assert "ALERT_SUMMARY" in step["env"]
+    assert "ONCALL_RUNS_PER_MONTH" in step["env"]
     # No expression interpolated into the shell script itself.
     assert "${{" not in step["run"]
     assert step["working-directory"] == "backend"
+
+
+def test_no_expression_is_interpolated_into_any_shell_script(workflow: dict) -> None:
+    """Alert fields are attacker-reachable text: every run script reads
+    them from env, never from a ${{ }} expression."""
+    for name, job in workflow["jobs"].items():
+        for step in job.get("steps", []):
+            assert "${{" not in step.get("run", ""), (name, step.get("name"))
