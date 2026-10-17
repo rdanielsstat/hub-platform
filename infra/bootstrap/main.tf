@@ -64,11 +64,13 @@ data "aws_iam_policy_document" "ci_assume" {
     }
 
     condition {
-      test     = "StringLike"
+      test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
       values = [
-        "repo:rdanielsstat@30297803/hub-platform@1376587935:environment:*",
-        "repo:${var.github_repo}:environment:*",
+        "repo:rdanielsstat@30297803/hub-platform@1376587935:environment:dev",
+        "repo:rdanielsstat@30297803/hub-platform@1376587935:environment:prod",
+        "repo:${var.github_repo}:environment:dev",
+        "repo:${var.github_repo}:environment:prod",
       ]
     }
   }
