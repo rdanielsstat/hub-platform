@@ -167,6 +167,22 @@ MAX_NOTES_PER_PROJECT = int(
     os.environ.get("MAX_NOTES_PER_PROJECT", "").strip() or "500"
 )
 
+
+# Drill only (security/OPERATIONAL_DIAGNOSIS.md): on, POST /projects
+# answers 500 so the project creation alert fires and the on-call agent
+# rolls dev back. Off by default and ignored in prod whatever the
+# variable says; OpenTofu only ever sets it on the dev Lambda
+# (infra/hub/lambda.tf, var.fault_inject_5xx).
+def fault_inject_5xx_enabled(
+    environment: str = ENVIRONMENT, flag: bool | None = None
+) -> bool:
+    if flag is None:
+        flag = env_flag("FAULT_INJECT_5XX")
+    return flag and environment != "prod"
+
+
+FAULT_INJECT_5XX = fault_inject_5xx_enabled()
+
 # Request header that carries the real client IP, set by a proxy in front
 # of the app (in AWS: CloudFront-Viewer-Address, "ip:port"). Unset means
 # use the TCP peer address. Only set this when every request comes
