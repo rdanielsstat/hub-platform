@@ -25,6 +25,12 @@ format and build), `dependency-scan`, `secrets-scan` (gitleaks over the
 full history), `integration`, `e2e` and `infra-check` (`tofu fmt` and
 `tofu validate`):
 
+Pull requests get the format and validate checks only. The OpenTofu
+plan runs in the dev deploy, after merge, as part of its apply. A plan on
+pull requests would need a change to the AWS trust policy and a
+plan-only GitHub environment; that is planned later as a separate
+project.
+
 1. Computes an image tag, `<UTC timestamp>-<short sha>`, unique per
    build, and `SERVICE_VERSION` from the nearest `vX.Y.Z` tag
    (`.github/scripts/service-version.sh`).
@@ -399,3 +405,23 @@ Migrations don't roll back on their own. Alembic can downgrade
 (`uv run alembic downgrade -1` against the database), but do that only
 deliberately, after checking the migration's `downgrade()` won't drop
 data you need.
+
+## Credential rotation
+
+A person rotates these credentials, never an agent: each step creates or
+revokes a credential or changes a GitHub secret. Never print a token
+value; the local `infra/.env` is named here, not shown.
+
+| Credential | What it is | Expires | How to rotate |
+|---|---|---|---|
+| `GRAFANA_AUTH` | Grafana service account token on the service account `terraform-local` | 2026-12-18 | Create a new token on the same service account. Update the GitHub secret `GRAFANA_AUTH` and the local `infra/.env`. Run `gh workflow run ci.yml --ref main` and watch it pass, then delete the old token in Grafana. |
+| `GH_DISPATCH_TOKEN` | Fine-grained personal access token `grafana-webhook`, which Grafana uses to call `repository_dispatch` | 2026-12-29 | Create a new token for `rdanielsstat/hub-platform` with Contents read and write, Actions read and write, and Metadata read. Update the GitHub secret `GH_DISPATCH_TOKEN`. Run `gh workflow run ci.yml --ref main`, so OpenTofu writes the new token into the `hub-oncall-github-dispatch` contact point. Press Test on that contact point in Grafana, then delete the old token. |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API token with DNS Edit and Zone Read, scoped to `dnls.dev` only | Not recorded | Create the new token. Update the GitHub secret `CLOUDFLARE_API_TOKEN`. Run the dev deploy (`gh workflow run ci.yml --ref main`), then revoke the old token. |
+
+### Grafana service account role
+
+`terraform-local` has the Admin role, because the Editor role lacked
+`folders:read` on this stack (the apply error on 2026-10-17). This
+Grafana Cloud plan has no custom roles, so Admin is kept and recorded
+here.
+
