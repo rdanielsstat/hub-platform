@@ -224,3 +224,30 @@ def test_no_expression_is_interpolated_into_any_shell_script(workflow: dict) -> 
     for name, job in workflow["jobs"].items():
         for step in job.get("steps", []):
             assert "${{" not in step.get("run", ""), (name, step.get("name"))
+
+
+def test_rollbacks_are_counted_by_the_tested_module(workflow: dict) -> None:
+    """The once-per-incident check counts only successful rollbacks
+    (oncall/rollback_record.py), not every comment with a marker."""
+    steps = workflow["jobs"]["record"]["steps"]
+    (count,) = [s for s in steps if s.get("id") == "count"]
+    assert "python -m oncall.rollback_record count" in count["run"]
+    assert workflow["jobs"]["record"]["outputs"]["rolled_back"] == (
+        "${{ steps.count.outputs.rolled_back }}"
+    )
+    assert not any("oncall:rollback" in s.get("run", "") for s in steps)
+
+
+def test_rollback_outcome_comment_comes_from_the_module() -> None:
+    rollback = yaml.safe_load(
+        (REPO_ROOT / ".github" / "workflows" / "rollback-dev.yml").read_text()
+    )
+    (job,) = rollback["jobs"].values()
+    (step,) = [
+        s
+        for s in job["steps"]
+        if s.get("name") == "Comment the outcome on the tracking issue"
+    ]
+    assert "python -m oncall.rollback_record comment" in step["run"]
+    assert "oncall:rollback" not in step["run"]
+    assert step["env"]["APPLY_OUTCOME"] == "${{ steps.apply.outcome }}"

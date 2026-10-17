@@ -126,8 +126,14 @@ jobs:
       issues: write
     outputs:
       issue: ${{ steps.issue.outputs.issue }}
-      rolled_back: ${{ steps.issue.outputs.rolled_back }}
+      rolled_back: ${{ steps.count.outputs.rolled_back }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
       - name: Find or open the tracking issue
         id: issue
         env:
@@ -153,11 +159,23 @@ jobs:
               "$SUMMARY" "$RUN_URL")")
             ISSUE=${URL##*/}
           fi
-          ROLLED_BACK=$(gh issue view "$ISSUE" --json comments \
-            --jq '[.comments[].body | select(contains("<!-- oncall:rollback -->"))] | length')
           echo "issue=$ISSUE" >> "$GITHUB_OUTPUT"
-          echo "rolled_back=$([ "$ROLLED_BACK" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-          echo "Tracking issue #$ISSUE (rollbacks so far: $ROLLED_BACK)"
+          echo "Tracking issue #$ISSUE"
+
+      # One rollback per incident, counting only rollbacks that succeeded
+      # (backend/oncall/rollback_record.py): a failed attempt is on the
+      # issue too, but doesn't stop the agent from trying again.
+      - name: Count successful rollbacks
+        id: count
+        if: steps.issue.outputs.issue != ''
+        working-directory: backend
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ISSUE: ${{ steps.issue.outputs.issue }}
+        run: |
+          gh issue view "$ISSUE" --json comments > "$RUNNER_TEMP/comments.json"
+          python -m oncall.rollback_record count "$RUNNER_TEMP/comments.json"
 
   diagnose:
     needs: [triage, record]
@@ -194,11 +212,14 @@ jobs:
           ISSUE: ${{ needs.record.outputs.issue }}
           ACTION: ${{ needs.triage.outputs.action }}
           MODEL: ${{ vars.ONCALL_OPENAI_MODEL || 'gpt-4o-mini' }}
+          ROLLED_BACK: ${{ needs.record.outputs.rolled_back }}
           DIAGNOSIS_FILE: ${{ runner.temp }}/diagnosis.md
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           if [ -s "$DIAGNOSIS_FILE" ]; then DIAGNOSIS=$(cat "$DIAGNOSIS_FILE"); else DIAGNOSIS="No diagnosis (OpenAI call failed or skipped; see the run)."; fi
-          if [ "$ACTION" = "rollback" ]; then NEXT="Next: rolling dev back to the previous image."; else NEXT="Prod: no automatic action. A human decides the fix and promotes it."; fi
+          if [ "$ACTION" != "rollback" ]; then NEXT="Prod: no automatic action. A human decides the fix and promotes it."
+          elif [ "$ROLLED_BACK" = "true" ]; then NEXT="No rollback: dev was already rolled back once for this incident."
+          else NEXT="Next: rolling dev back to the previous image."; fi
           gh issue comment "$ISSUE" --body "$(printf '**Diagnosis** (OpenAI, %s)\n\n%s\n\n%s\n\nRun: %s' \
             "$MODEL" "$DIAGNOSIS" "$NEXT" "$RUN_URL")"
 

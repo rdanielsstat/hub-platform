@@ -4,6 +4,62 @@ Output of the on-call diagnostic (`backend/oncall/diagnose.py`, run by
 `.github/workflows/observability-alert-handler.yml`), with a human review of
 each diagnosis. Add a new section per run, newest first.
 
+## 2026-10-17: drill, automatic path on dev (rollback did not complete)
+
+| | |
+|---|---|
+| Type | **Drill.** `FAULT_INJECT_5XX` on dev made `POST /projects` answer 500; no real incident. |
+| Tracking issue | [#23](https://github.com/rdanielsstat/hub-platform/issues/23), "On-call: Project creation 5xx rate above 2% (dev)" |
+| Outcome | The alert fired and woke the agent with no human action, and the agent opened the issue and posted diagnoses. **The rollback never changed dev**: the first attempt failed, and a counter bug then blocked every retry. Dev recovered when the fault was turned off and dev was redeployed at `d869a39`. |
+| Fixes | PR [#24](https://github.com/rdanielsstat/hub-platform/pull/24) (the missing variable); this change (the counter) |
+
+### Timeline (UTC)
+
+| Time | What happened | Evidence |
+|---|---|---|
+| 18:35 | CI run by hand (`workflow_dispatch`) at `1b3daad` deployed dev with `FAULT_INJECT_5XX` on, as image `20261017-183848-1b3daad` | [CI run 39058787616](https://github.com/rdanielsstat/hub-platform/actions/runs/39058787616) |
+| 18:45:32 | The dev alert fired; Grafana's dispatch started the handler (`repository_dispatch`) with no human action. Triage: `action=rollback` | [handler run 39059505242](https://github.com/rdanielsstat/hub-platform/actions/runs/39059505242), attempt 1 |
+| 18:45:46 | Issue #23 opened; diagnosis posted at 18:45:57 | issue #23 |
+| 18:46:26 | **Rollback failed**: the targeted apply in `rollback-dev.yml` stopped with "No value for required variable" for `grafana_default_contact_point`, which the workflow didn't pass. Dev stayed on `20261017-183848-1b3daad` | attempt 1, job `rollback / rollback` |
+| 18:46:27 | The failure was recorded on #23 with the same `<!-- oncall:rollback -->` marker a success would carry | issue #23 |
+| 18:50:48 | Grafana reported the alert resolved; the handler recorded it | [handler run 39059872492](https://github.com/rdanielsstat/hub-platform/actions/runs/39059872492) |
+| 18:52:55 | PR #24 merged (`d869a39`): `rollback-dev.yml` passes `TF_VAR_grafana_default_contact_point`. CI deployed dev at `d869a39` | [CI run 39060043473](https://github.com/rdanielsstat/hub-platform/actions/runs/39060043473) |
+| 18:54:32 | Handler rerun (attempt 2). **Counter bug**: it counted the failed attempt's marker as a rollback and refused ("Still firing after a rollback ...", 18:54:49). The diagnosis it then posted still said "Next: rolling dev back" | [handler run 39059505242](https://github.com/rdanielsstat/hub-platform/actions/runs/39059505242), attempt 2 |
+| 18:59:33 | The alert fired again; the handler refused again for the same reason (18:59:51) | [handler run 39060495270](https://github.com/rdanielsstat/hub-platform/actions/runs/39060495270) |
+| before 19:01 | `FAULT_INJECT_5XX` turned off on the dev environment, by hand | |
+| 19:01:34 | CI run by hand at `d869a39` redeployed dev with the fault off | [CI run 39060654192](https://github.com/rdanielsstat/hub-platform/actions/runs/39060654192) |
+| 19:04:48 | Grafana reported the alert resolved; recorded on #23 | [handler run 39060867122](https://github.com/rdanielsstat/hub-platform/actions/runs/39060867122) |
+
+### Human review
+
+- **Worked:** the alert on user impact fired within minutes of the
+  fault; the contact point's dispatch started the handler with no human
+  action; triage picked `rollback` for dev; the issue, the diagnoses and
+  both resolutions were recorded on #23.
+- **Failed - missing variable:** `rollback-dev.yml` didn't pass
+  `TF_VAR_grafana_default_contact_point`, a required `infra/hub` input
+  added after the rollback workflow was written. Fixed in PR #24, after a
+  check that it was the only required input missing.
+- **Failed - counter bug:** `rollback-dev.yml` posted the
+  `<!-- oncall:rollback -->` marker whatever the outcome, and the handler
+  counted every comment with it. A failed attempt therefore used up the
+  one rollback per incident, and the retries after PR #24 were refused.
+  Fixed now: the outcome comment carries `outcome=success` or
+  `outcome=failure`, only successes count (`backend/oncall/rollback_record.py`,
+  with tests that a failure doesn't increment the count and a success
+  does), and the diagnosis no longer promises a rollback the handler will
+  skip. The bare marker on #23's failed attempt doesn't count either, so
+  the thread needs no edit.
+- **Not shown yet:** a successful automatic rollback. Dev recovered
+  because a human turned the fault off and redeployed, not because of the
+  agent. Run the drill again with both fixes merged and record it here.
+
+### Data sent to OpenAI
+
+The rule's summary annotation and the fixed system prompt, three times
+(18:45, 18:54, 18:59). No logs, user data, credentials or database
+contents.
+
 ## 2026-10-04: drill, client error spike from database outages on dev
 
 | | |
