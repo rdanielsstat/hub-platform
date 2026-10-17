@@ -37,9 +37,9 @@ jobs:
       # this GitHub environment. Required: OpenTofu refuses an empty value
       # (guard_trusted_proxies). ops/DEPLOYMENT.md.
       TF_VAR_trusted_proxy_ips: ${{ vars.TRUSTED_PROXY_IPS }}
-      # Required by infra/hub (grafana.tf). The prod workspace manages no
-      # Grafana resources (the dev workspace owns the shared stack's
-      # alerting), but the variables and the provider still need values.
+      # Grafana (infra/hub/grafana.tf): the prod apply creates and changes
+      # the prod alert rule group, and only that; the shared folder,
+      # contact point and notification policy belong to the dev workspace.
       TF_VAR_grafana_url: ${{ vars.GRAFANA_URL }}
       GRAFANA_AUTH: ${{ secrets.GRAFANA_AUTH }}
       TF_VAR_github_dispatch_token: ${{ secrets.GH_DISPATCH_TOKEN }}
