@@ -1,0 +1,71 @@
+# Run the dev rollback's create-project probe on its own, by hand, with no
+# rollback: sign in as dev's demo account, create a project, delete it
+# (backend/oncall/fault_probe.py). The same setup and the same probe step
+# as rollback-dev.yml, so a pass here means the rollback's probe works
+# against the real dev site.
+#
+# It changes nothing else: no apply, no variable change, nothing outside
+# the probe project, which the probe deletes again. Dev only, from main
+# only (the dev environment allows main only, and the AWS role trusts
+# jobs in that environment).
+
+name: Probe dev
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: probe-dev
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  TOFU_VERSION: 1.12.6
+
+jobs:
+  probe:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: dev
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write # required to exchange the GitHub token for AWS credentials
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # backend/oncall/fault_probe.py, run as in rollback-dev.yml.
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      # Only to read the dev site URL from the dev workspace's outputs.
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+
+      - name: Init the dev workspace
+        working-directory: infra/hub
+        run: |
+          tofu init -input=false
+          tofu workspace select dev
+
+      # The same step as in rollback-dev.yml.
+      - name: Prove project creation works
+        working-directory: infra/hub
+        env:
+          DEMO_PASSWORDS: ${{ secrets.DEMO_PASSWORDS }}
+          PROBE_ENVIRONMENT: dev
+        run: |
+          PROBE_API_URL="$(tofu output -raw site_url)/api"
+          export PROBE_API_URL
+          cd "$GITHUB_WORKSPACE/backend"
+          python -m oncall.fault_probe
