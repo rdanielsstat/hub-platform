@@ -8,6 +8,12 @@ Every operation in openapi.yaml has an entry in ENDPOINT_METRICS
     {name}_total         counter, every request
     {name}_errors_total  counter, responses with status >= 400
     {name}_latency_ms    histogram, request duration in milliseconds
+
+Every point of those three carries hub.environment (dev, prod, ...),
+which reaches Prometheus as the hub_environment label: dev and prod
+share one Grafana Cloud stack, and the alert rules (infra/hub/grafana.tf)
+filter on it. Error points also carry http.status_code
+(http_status_code), so a rule can count 5xx responses alone.
 """
 
 import time
@@ -50,7 +56,8 @@ class _EndpointInstruments:
 class HttpMetrics:
     """Creates every instrument up front and records one request at a time."""
 
-    def __init__(self, meter: Meter) -> None:
+    def __init__(self, meter: Meter, environment: str = "dev") -> None:
+        self._environment = {"hub.environment": environment}
         self._endpoints = {
             key: _EndpointInstruments(
                 total=meter.create_counter(f"{name}_total", unit="1"),
@@ -73,10 +80,10 @@ class HttpMetrics:
         if instruments is None:
             return
         failed = status >= 400
-        instruments.total.add(1)
-        instruments.latency_ms.record(duration_ms)
+        instruments.total.add(1, self._environment)
+        instruments.latency_ms.record(duration_ms, self._environment)
         if failed:
-            instruments.errors.add(1, {"http.status_code": status})
+            instruments.errors.add(1, {**self._environment, "http.status_code": status})
 
         if key == _SIGNUP:
             self._signup_total.add(1)
