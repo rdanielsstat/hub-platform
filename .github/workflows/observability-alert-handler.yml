@@ -163,8 +163,9 @@ jobs:
           echo "Tracking issue #$ISSUE"
 
       # One rollback per incident, counting only rollbacks that succeeded
-      # (backend/oncall/rollback_record.py): a failed attempt is on the
-      # issue too, but doesn't stop the agent from trying again.
+      # since the alert last resolved (backend/oncall/rollback_record.py):
+      # a failed attempt is on the issue too, but doesn't stop the agent
+      # from trying again, and a new incident gets a new rollback.
       - name: Count successful rollbacks
         id: count
         if: steps.issue.outputs.issue != ''
@@ -258,7 +259,7 @@ jobs:
           ISSUE: ${{ needs.record.outputs.issue }}
         run: |
           echo "::warning title=On-call::Already rolled back once for issue #$ISSUE; not rolling back again"
-          gh issue comment "$ISSUE" --body "Still firing after a rollback. The agent rolls back once per incident, so it stops here: a human needs to look."
+          gh issue comment "$ISSUE" --body "Still firing after a rollback, with no resolution in between. The agent rolls back once per incident, so it stops here: a human needs to look."
 
   resolved:
     needs: [triage, record]
@@ -269,10 +270,21 @@ jobs:
       contents: read
       issues: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      # The resolution ends the incident: its <!-- oncall:resolved -->
+      # marker resets the one rollback per incident
+      # (backend/oncall/rollback_record.py).
       - name: Record the resolution
+        working-directory: backend
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           ISSUE: ${{ needs.record.outputs.issue }}
         run: |
-          gh issue comment "$ISSUE" --body "**Resolved:** Grafana reports the alert resolved at $(date -u +%Y-%m-%dT%H:%M:%SZ). Close this issue once the cause is understood."
+          python -m oncall.rollback_record resolved "$RUNNER_TEMP/resolved.md"
+          gh issue comment "$ISSUE" --body-file "$RUNNER_TEMP/resolved.md"

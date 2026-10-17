@@ -10,10 +10,12 @@
 # 1. The current tag comes from the deployment record: the dev
 #    workspace's `deployed_image_tag` output, which is the tag the dev
 #    API Lambda actually runs (infra/hub/outputs.tf).
-# 2. The previous tag is the tagged image pushed to the dev ECR
-#    repository just before it (ECR keeps the last 10, infra/hub/ecr.tf).
-#    No previous image, or a current tag ECR doesn't have: the run fails
-#    loudly and changes nothing.
+# 2. The previous tag is the newest older image in the dev ECR repository
+#    built from a different commit (backend/oncall/rollback_target.py;
+#    ECR keeps the last 10, infra/hub/ecr.tf). A rebuild of the same
+#    commit is skipped: it would redeploy the same code. No such image,
+#    or a current tag ECR doesn't have: the run fails loudly and changes
+#    nothing.
 # 3. Refuses to cross a migration: if backend/alembic/versions changed
 #    between the two commits, the old code may not run on the new schema,
 #    so it stops and a human decides.
@@ -21,8 +23,11 @@
 #    previous image, with SERVICE_VERSION for that image's commit. No
 #    migration runs (the schema is already ahead or equal). Only those
 #    two resources change; FAULT_INJECT_5XX is not passed, so it's off.
-# 5. GET /api/health on dev must return 200, then the outcome goes on
-#    the tracking issue, success or failure.
+# 5. GET /api/health on dev must return 200, and a probe must create a
+#    project (POST /projects 2xx, backend/oncall/fault_probe.py; the
+#    probe project is deleted again). Then the outcome goes on the
+#    tracking issue, success or failure; only a success counts toward the
+#    one rollback per incident.
 #
 # Prod has no automatic rollback: re-run promote.yml for the last good
 # tag (ops/DEPLOYMENT.md, "Rollback").
@@ -86,6 +91,12 @@ jobs:
           # Full history and tags: the migration check and service-version.sh.
           fetch-depth: 0
 
+      # backend/oncall/ (the rollback target, the probe, the issue comment),
+      # run as in observability-alert-handler.yml.
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
@@ -112,17 +123,20 @@ jobs:
             echo "::error title=Rollback::dev's deployed tag '$CURRENT' is not a CI build tag; nothing to roll back from"
             exit 1
           fi
-          # Every tagged image in the dev repository, oldest push first.
+          # Every tagged image in the dev repository, newest push first.
           aws ecr describe-images --repository-name "${REPO#*/}" --filter tagStatus=TAGGED \
-            --query 'sort_by(imageDetails, &imagePushedAt)[].imageTags[0]' --output json \
+            --query 'reverse(sort_by(imageDetails, &imagePushedAt))[].imageTags[0]' --output json \
             | jq -r '.[]' > "$RUNNER_TEMP/tags.txt"
           if ! grep -qx "$CURRENT" "$RUNNER_TEMP/tags.txt"; then
             echo "::error title=Rollback::current tag $CURRENT is not in ECR"
             exit 1
           fi
-          PREVIOUS=$(grep -B1 -x "$CURRENT" "$RUNNER_TEMP/tags.txt" | head -n1)
-          if [ "$PREVIOUS" = "$CURRENT" ] || [ -z "$PREVIOUS" ]; then
-            echo "::error title=Rollback::no image older than $CURRENT in ECR; there is nothing to roll back to"
+          # The newest older image built from a different commit
+          # (backend/oncall/rollback_target.py): a rebuild of the same
+          # commit would redeploy the same code.
+          if ! PREVIOUS=$(cd "$GITHUB_WORKSPACE/backend" \
+              && python -m oncall.rollback_target --current "$CURRENT" < "$RUNNER_TEMP/tags.txt"); then
+            echo "::error title=Rollback::no image older than $CURRENT built from another commit; there is nothing to roll back to"
             exit 1
           fi
           if ! echo "$PREVIOUS" | grep -Eq "$TAG_RE"; then
@@ -186,10 +200,20 @@ jobs:
           echo "::error title=Rollback::health check never returned 200"
           exit 1
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        if: ${{ always() && inputs.issue_number != '' }}
-        with:
-          python-version: "3.12"
+      # /api/health passes even while POST /projects answers 500, so prove
+      # the journey works: create (and delete) a probe project as dev's
+      # demo account (backend/oncall/fault_probe.py). A 5xx fails the job,
+      # and a failed job doesn't count as a rollback.
+      - name: Prove project creation works
+        working-directory: infra/hub
+        env:
+          DEMO_PASSWORDS: ${{ secrets.DEMO_PASSWORDS }}
+          PROBE_ENVIRONMENT: dev
+        run: |
+          PROBE_API_URL="$(tofu output -raw site_url)/api"
+          export PROBE_API_URL
+          cd "$GITHUB_WORKSPACE/backend"
+          python -m oncall.fault_probe
 
       # Every attempt is recorded, but only a success carries the marker the
       # handler counts (backend/oncall/rollback_record.py): a failed attempt
