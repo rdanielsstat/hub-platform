@@ -19,6 +19,8 @@ Configuration, all from environment variables:
     ONCALL_RUNS_PER_MONTH      expected runs per month
     ALERT_SUMMARY              the alert to diagnose
     GITHUB_STEP_SUMMARY        set by Actions; the result is appended
+    ONCALL_DIAGNOSIS_FILE      optional; the diagnostic is also written
+                               here, for the tracking issue comment
 """
 
 import json
@@ -171,6 +173,10 @@ def main(
     spent = f"Actual cost: ${actual_cost(usage, pricing):.6f} ({usage.get('prompt_tokens', '?')} in / {usage.get('completion_tokens', '?')} out tokens)"
     print(f"\nDiagnostic:\n{diagnostic}\n\n{spent}")
     _append_summary(env, f"### Diagnostic\n\n{diagnostic}\n\n{spent}")
+    path = env.get("ONCALL_DIAGNOSIS_FILE")
+    if path:
+        with open(path, "w") as f:
+            f.write(diagnostic + "\n")
     return 0
 
 

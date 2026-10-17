@@ -7,10 +7,18 @@ variable "cloudflare_zone_id" {
   type = string
 }
 
+# Required, with no default: CI passes the tag it built (ci.yml), the tag
+# dev runs (promote.yml) or the previous dev tag (rollback-dev.yml). A
+# run without one fails instead of planning a switch to some other image.
 variable "lambda_image_tag" {
-  description = "ECR image tag to deploy (set by CI, or 'latest' locally)."
+  description = "ECR image tag to deploy, e.g. 20261013-211021-8df32f0. Set by CI."
   type        = string
-  default     = "latest"
+  nullable    = false
+
+  validation {
+    condition     = can(regex("^[0-9]{8}-[0-9]{6}-[0-9a-f]{7,40}$", var.lambda_image_tag))
+    error_message = "lambda_image_tag must be a CI build tag (<yyyymmdd>-<hhmmss>-<sha>), not latest or a hand-picked name."
+  }
 }
 
 # Neon connection strings, one entry per workspace. Copied from the Neon
@@ -52,10 +60,11 @@ variable "demo_passwords" {
 # dev and prod Lambdas. CI derives it from git tags (.github/scripts/service-version.sh):
 # 1.2.0 on a release tag, 1.2.0+2.g<sha> after it, 0.0.0+<sha> before any.
 # Separate from lambda_image_tag, which must stay unique per build.
+# Required, with no default, for the same reason as lambda_image_tag.
 variable "service_version" {
-  description = "SemVer for SERVICE_VERSION, e.g. 1.2.0 or 1.2.0+3.gabc1234."
+  description = "SemVer for SERVICE_VERSION, e.g. 1.2.0 or 1.2.0+3.gabc1234. Set by CI."
   type        = string
-  default     = "0.0.0+local"
+  nullable    = false
 
   validation {
     condition     = can(regex("^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$", var.service_version))
@@ -104,12 +113,27 @@ variable "otel_headers_prod" {
 # CIDR ranges. Cloudflare proxies the site, so set this to Cloudflare's
 # published ranges (ops/DEPLOYMENT.md); CI passes it as
 # TF_VAR_trusted_proxy_ips from the GitHub environment variable
-# TRUSTED_PROXY_IPS. Empty (the default) trusts no proxy, which is the
-# behaviour before this setting existed.
+# TRUSTED_PROXY_IPS (on the dev and prod environments). Required, with no
+# default, and guard_trusted_proxies below refuses an empty value: an
+# empty list would quietly make the login and sign-up limits per
+# Cloudflare edge instead of per user (security/RATE_LIMITING.md).
 variable "trusted_proxy_ips" {
-  description = "Comma-separated proxy IPs/CIDRs trusted for X-Forwarded-For (Cloudflare's ranges)."
+  description = "Comma-separated proxy IPs/CIDRs trusted for X-Forwarded-For (Cloudflare's ranges). Set by CI."
   type        = string
-  default     = ""
+  nullable    = false
+}
+
+# Drill only (security/OPERATIONAL_DIAGNOSIS.md): true makes the dev
+# Lambda's POST /projects answer 500 (FAULT_INJECT_5XX), so the project
+# creation alert fires and the on-call agent rolls dev back. ci.yml's
+# deploy-dev passes the dev GitHub environment variable FAULT_INJECT_5XX;
+# nothing else passes it, so rollback-dev.yml always deploys it off.
+# guard_fault_inject refuses it anywhere but dev.
+variable "fault_inject_5xx" {
+  description = "Dev only: force POST /projects to answer 500, for the on-call drill."
+  type        = bool
+  default     = false
+  nullable    = false
 }
 
 variable "cloudflare_api_token" {
@@ -158,6 +182,11 @@ locals {
       SERVICE_VERSION = var.service_version
     }
   }, local.environment, {})
+
+  # Set on the dev Lambda only, and only while a drill is running.
+  fault_env = local.environment == "dev" && var.fault_inject_5xx ? {
+    FAULT_INJECT_5XX = "true"
+  } : {}
 }
 
 resource "terraform_data" "guard_env" {
@@ -191,6 +220,27 @@ resource "terraform_data" "guard_otel_dev" {
     precondition {
       condition     = var.otel_endpoint_dev != "" && var.otel_headers_dev != ""
       error_message = "otel_endpoint_dev and otel_headers_dev must be set for dev. Add them to terraform.tfvars (or TF_VAR_otel_endpoint_dev / TF_VAR_otel_headers_dev in CI)."
+    }
+  }
+}
+
+# Cloudflare proxies both environments, so an empty list is always a
+# mistake (the GitHub environment variable missing), never a choice.
+resource "terraform_data" "guard_trusted_proxies" {
+  lifecycle {
+    precondition {
+      condition     = trimspace(var.trusted_proxy_ips) != ""
+      error_message = "trusted_proxy_ips is empty. CI passes it from the TRUSTED_PROXY_IPS variable on the dev and prod GitHub environments (ops/DEPLOYMENT.md)."
+    }
+  }
+}
+
+# The drill's fault flag never reaches prod.
+resource "terraform_data" "guard_fault_inject" {
+  lifecycle {
+    precondition {
+      condition     = !var.fault_inject_5xx || local.environment == "dev"
+      error_message = "fault_inject_5xx is for the dev drill only and must stay false outside the dev workspace."
     }
   }
 }

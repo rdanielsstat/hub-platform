@@ -34,8 +34,17 @@ jobs:
       TF_VAR_otel_endpoint_prod: ${{ secrets.TF_VAR_OTEL_EXPORTER_OTLP_ENDPOINT_PROD }}
       TF_VAR_otel_headers_prod: ${{ secrets.TF_VAR_OTEL_EXPORTER_OTLP_HEADERS_PROD }}
       # Cloudflare's IP ranges, comma-separated: a variable (not a secret) on
-      # this GitHub environment. Unset means trust no proxy. ops/DEPLOYMENT.md.
+      # this GitHub environment. Required: OpenTofu refuses an empty value
+      # (guard_trusted_proxies). ops/DEPLOYMENT.md.
       TF_VAR_trusted_proxy_ips: ${{ vars.TRUSTED_PROXY_IPS }}
+      # Required by infra/hub (grafana.tf). The prod workspace manages no
+      # Grafana resources (the dev workspace owns the shared stack's
+      # alerting), but the variables and the provider still need values.
+      TF_VAR_grafana_url: ${{ vars.GRAFANA_URL }}
+      GRAFANA_AUTH: ${{ secrets.GRAFANA_AUTH }}
+      TF_VAR_github_dispatch_token: ${{ secrets.GH_DISPATCH_TOKEN }}
+      # FAULT_INJECT_5XX is deliberately never passed here: it stays false
+      # in prod, and guard_fault_inject would refuse it anyway.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -58,8 +67,8 @@ jobs:
           tofu init -input=false
           tofu workspace select dev
           TAG=$(tofu output -raw deployed_image_tag)
-          if [ "$TAG" = "latest" ]; then
-            echo "dev is on 'latest'; run CI first so a real tag is deployed."
+          if ! echo "$TAG" | grep -Eq '^[0-9]{8}-[0-9]{6}-[0-9a-f]{7,40}$'; then
+            echo "dev's tag '$TAG' is not a CI build tag; run CI first so a real tag is deployed."
             exit 1
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
@@ -88,7 +97,10 @@ jobs:
         run: |
           DEV_REPO=$(tofu output -raw ecr_repository_url)
           tofu workspace select prod || tofu workspace new prod
-          tofu apply -input=false -auto-approve -target=aws_ecr_repository.backend
+          # Required variables, so even this targeted apply passes them.
+          tofu apply -input=false -auto-approve -target=aws_ecr_repository.backend \
+            -var="lambda_image_tag=${{ steps.tag.outputs.tag }}" \
+            -var="service_version=${{ steps.version.outputs.version }}"
           PROD_REPO=$(tofu output -raw ecr_repository_url)
           # Tags are immutable (infra/hub/ecr.tf): when prod already has
           # this tag (promoting the same build again), it's already the same

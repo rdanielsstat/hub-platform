@@ -1,5 +1,7 @@
 # Push to main: test everything, build one image, deploy it to dev.
-# Production is never touched here. See promote.yml.
+# Production is never touched here. See promote.yml. OpenTofu runs only
+# in CI (this deploy, promote.yml and rollback-dev.yml), never locally:
+# infra/BOOTSTRAP.md, "Where OpenTofu runs".
 
 name: CI
 
@@ -232,10 +234,36 @@ jobs:
         # --redact: findings print without the secret value.
         run: gitleaks git --redact --no-banner --verbose .
 
+  # OpenTofu checks on every PR and push, without cloud credentials:
+  # formatting and `tofu validate` (syntax, types, provider schemas) of
+  # infra/hub, including grafana.tf. Not a plan: a plan needs the state in
+  # S3, so the AWS role, which only trusts jobs in the dev or prod
+  # environment, and both environments only allow main (infra/bootstrap).
+  # The dev deploy's apply prints the plan it applies.
+  infra-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+
+      - name: Format check
+        run: tofu fmt -check -recursive infra
+
+      - name: Validate infra/hub
+        working-directory: infra/hub
+        run: |
+          tofu init -backend=false -input=false
+          tofu validate
+
   deploy-dev:
     # Every check gates the deploy: unit tests, the dependency scan, the
-    # secrets scan, the Postgres integration tests and the Playwright E2E suite.
-    needs: [test, dependency-scan, secrets-scan, integration, e2e]
+    # secrets scan, the Postgres integration tests, the Playwright E2E
+    # suite and the OpenTofu checks.
+    needs: [test, dependency-scan, secrets-scan, integration, e2e, infra-check]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: dev
@@ -254,8 +282,18 @@ jobs:
       TF_VAR_otel_endpoint_dev: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT_DEV }}
       TF_VAR_otel_headers_dev: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS_DEV }}
       # Cloudflare's IP ranges, comma-separated: a variable (not a secret) on
-      # this GitHub environment. Unset means trust no proxy. ops/DEPLOYMENT.md.
+      # this GitHub environment. Required: OpenTofu refuses an empty value
+      # (guard_trusted_proxies). ops/DEPLOYMENT.md.
       TF_VAR_trusted_proxy_ips: ${{ vars.TRUSTED_PROXY_IPS }}
+      # Grafana alerting as code (infra/hub/grafana.tf): the stack URL (repo
+      # variable), the token the grafana provider reads from GRAFANA_AUTH,
+      # and the GitHub token the alert's contact point dispatches with.
+      TF_VAR_grafana_url: ${{ vars.GRAFANA_URL }}
+      GRAFANA_AUTH: ${{ secrets.GRAFANA_AUTH }}
+      TF_VAR_github_dispatch_token: ${{ secrets.GH_DISPATCH_TOKEN }}
+      # The on-call drill's fault switch (security/OPERATIONAL_DIAGNOSIS.md):
+      # a variable on the dev environment only, unset (false) normally.
+      TF_VAR_fault_inject_5xx: ${{ vars.FAULT_INJECT_5XX || 'false' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -288,9 +326,15 @@ jobs:
       # Chicken and egg: a container-image Lambda cannot be created before its
       # image exists, and the image cannot be pushed before the repo exists.
       # So create the repo first, push, then apply everything.
+      # lambda_image_tag and service_version are required variables, so even
+      # this targeted apply passes them.
       - name: Ensure ECR repository
         working-directory: infra/hub
-        run: tofu apply -input=false -auto-approve -target=aws_ecr_repository.backend
+        run: >-
+          tofu apply -input=false -auto-approve
+          -target=aws_ecr_repository.backend
+          -var="lambda_image_tag=${{ steps.tag.outputs.tag }}"
+          -var="service_version=${{ steps.tag.outputs.version }}"
 
       - uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
         id: ecr

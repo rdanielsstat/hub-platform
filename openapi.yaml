@@ -630,11 +630,14 @@ components:
       required: [name]
       description: >
         Text fields are capped in characters (not bytes); longer values are a
-        422. The database enforces the same limits.
+        422. The database enforces the same limits. The name must contain at
+        least one non-whitespace character: empty or whitespace only is a 422.
       properties:
         name:
           type: string
           maxLength: 256
+          pattern: '\S'
+          description: Not empty or whitespace only; stored exactly as sent.
         pitch:
           type: string
           maxLength: 2000
@@ -678,11 +681,13 @@ components:
       description: >
         Partial update; every field optional. Excludes id, createdAt, and
         updatedAt, which are never client-settable. Same text limits as
-        CreateProjectInput.
+        CreateProjectInput, and the same rule for name: when sent, it must not
+        be empty or whitespace only.
       properties:
         name:
           type: string
           maxLength: 256
+          pattern: '\S'
         pitch:
           type: string
           maxLength: 2000
@@ -759,7 +764,10 @@ components:
         body:
           type: string
           maxLength: 10000
-          description: Capped in characters; longer is a 422.
+          pattern: '\S'
+          description: >
+            Capped in characters; longer is a 422. Empty or whitespace only is
+            a 422 too.
 
     AddNoteResponse:
       type: object

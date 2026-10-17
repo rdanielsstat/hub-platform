@@ -657,16 +657,20 @@ test.describe('projects', () => {
       await expect422(await post(request, { name: 42 }), ['body', 'name'])
     })
 
-    test('empty and whitespace names are accepted (only the UI requires one)', async ({
+    test('empty and whitespace names are rejected with 422 (issue #12)', async ({
       request,
     }) => {
-      // Current behavior: the API has no min length on name; the quick
-      // capture form is what enforces "name required" (product-spec.md).
-      for (const name of ['', '   ']) {
-        const res = await post(request, { name })
-        expect(res.status()).toBe(201)
-        expect((await res.json()).name).toBe(name)
+      for (const name of ['', '   ', '\t\n']) {
+        await expect422(await post(request, { name }), ['body', 'name'])
       }
+    })
+
+    test('a name with text is stored exactly, padding included', async ({
+      request,
+    }) => {
+      const res = await post(request, { name: '  padded  ' })
+      expect(res.status()).toBe(201)
+      expect((await res.json()).name).toBe('  padded  ')
     })
 
     test('long and unicode names are stored exactly', async ({ request }) => {
@@ -954,6 +958,21 @@ test.describe('projects', () => {
       )
     })
 
+    test('a blank name is rejected with 422 and the old one kept (issue #12)', async ({
+      request,
+    }) => {
+      for (const name of ['', '   ']) {
+        await expect422(await patch(request, project.id, { name }), [
+          'body',
+          'name',
+        ])
+      }
+      const res = await request.get(url(`/projects/${project.id}`), {
+        headers: bearer(user.token),
+      })
+      expect((await res.json()).name).toBe('Original')
+    })
+
     test('updates every editable field at once', async ({ request }) => {
       const changes = {
         name: 'Changed',
@@ -1197,14 +1216,16 @@ test.describe('notes', () => {
       expect(await listNotesViaApi(request, user, project.id)).toEqual([])
     })
 
-    test('empty and whitespace bodies are accepted (only the UI blocks them)', async ({
+    test('empty and whitespace bodies are rejected with 422 (issue #12)', async ({
       request,
     }) => {
-      for (const text of ['', '   ']) {
-        const res = await addNote(request, project.id, { body: text })
-        expect(res.status()).toBe(201)
-        expect((await res.json()).note.body).toBe(text)
+      for (const text of ['', '   ', '\n']) {
+        await expect422(await addNote(request, project.id, { body: text }), [
+          'body',
+          'body',
+        ])
       }
+      expect(await listNotesViaApi(request, user, project.id)).toEqual([])
     })
 
     test('422 for null, missing, or non-string body', async ({ request }) => {

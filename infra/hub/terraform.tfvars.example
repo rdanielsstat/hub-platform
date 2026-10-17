@@ -29,7 +29,11 @@ demo_passwords = {
 
 # Optional overrides (defaults shown):
 # aws_region       = "us-east-1"
-# lambda_image_tag = "latest"
+#
+# Not here: lambda_image_tag, service_version, trusted_proxy_ips,
+# grafana_url and github_dispatch_token are required and come from CI
+# only, because OpenTofu runs in CI only (infra/BOOTSTRAP.md, "Where
+# OpenTofu runs"). fault_inject_5xx is the dev drill's switch, also CI only.
 
 # OTEL endpoint and auth header for prod Lambda telemetry export to Grafana.
 # Get these from Grafana Cloud account settings (Observability > OTLP Ingestion).
