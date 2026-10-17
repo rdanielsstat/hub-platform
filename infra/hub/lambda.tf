@@ -111,6 +111,6 @@ resource "aws_lambda_function" "backend" {
       # When it's in these ranges the app reads the user's address from
       # X-Forwarded-For instead (security/RATE_LIMITING.md). Empty: off.
       TRUSTED_PROXY_IPS = var.trusted_proxy_ips
-    }, local.otel_env)
+    }, local.otel_env, local.fault_env)
   }
 }

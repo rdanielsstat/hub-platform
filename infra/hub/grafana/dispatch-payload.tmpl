@@ -1,0 +1,22 @@
+{{- /*
+  Body of the GitHub repository_dispatch call the on-call contact point
+  makes (infra/hub/grafana.tf). GitHub's API wants event_type (at most
+  100 characters) and an optional client_payload object with at most 10
+  top-level properties; observability-alert-handler.yml receives
+  client_payload as github.event.client_payload and backend/oncall/alert.py
+  reads these keys. Only labels and counts: no query values, no user data.
+*/ -}}
+{{ coll.Dict
+  "event_type" "grafana-alert"
+  "client_payload" (coll.Dict
+    "status" .Status
+    "alertname" .CommonLabels.alertname
+    "hub_environment" .CommonLabels.hub_environment
+    "hub_oncall" .CommonLabels.hub_oncall
+    "summary" .CommonAnnotations.summary
+    "firing" (len .Alerts.Firing)
+    "resolved" (len .Alerts.Resolved)
+    "group_key" .GroupKey
+    "external_url" .ExternalURL
+  )
+  | data.ToJSON }}

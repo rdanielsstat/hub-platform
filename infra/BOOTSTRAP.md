@@ -92,27 +92,65 @@ For `prod`, also add yourself as a required reviewer and a wait timer
 (the PUT replaces the environment's settings, so include them in the same
 call; `ops/DEPLOYMENT.md`, "Prod: promote.yml").
 
-## Local `tofu` runs
+The rest of the repository configuration the workflows read, by name
+(values never go in the repo):
 
-`infra/.env` (gitignored) holds the Cloudflare token:
+| Name | Kind | Where | Used by |
+|---|---|---|---|
+| `AWS_ROLE_ARN` | variable | repo | every job that assumes the AWS role |
+| `CLOUDFLARE_ZONE_ID`, `CLOUDFLARE_API_TOKEN`, `NEON_URLS`, `DEMO_PASSWORDS` | secrets | repo | OpenTofu (`ci.yml`, `promote.yml`, `rollback-dev.yml`) |
+| `OTEL_EXPORTER_OTLP_ENDPOINT_DEV`, `OTEL_EXPORTER_OTLP_HEADERS_DEV` | secrets | `dev` environment | dev Lambda telemetry |
+| `TF_VAR_OTEL_EXPORTER_OTLP_ENDPOINT_PROD`, `TF_VAR_OTEL_EXPORTER_OTLP_HEADERS_PROD` | secrets | `prod` environment | prod Lambda telemetry |
+| `TRUSTED_PROXY_IPS` | variable | `dev` and `prod` environments | Cloudflare's ranges (`ops/DEPLOYMENT.md`); required, OpenTofu refuses an empty value |
+| `GRAFANA_URL` | variable | repo | the Grafana provider (`infra/hub/grafana.tf`) |
+| `GRAFANA_AUTH` | secret | repo | the Grafana provider's service account token |
+| `GH_DISPATCH_TOKEN` | secret | repo | the alert contact point's call to GitHub's `repository_dispatch` API: a fine-grained token for this repository only, Contents read and write |
+| `OPENAI_API_KEY` | secret | repo | the on-call agent's diagnosis |
+| `FAULT_INJECT_5XX` | variable | `dev` environment only, unset normally | the on-call drill (`security/OPERATIONAL_DIAGNOSIS.md`) |
 
-```bash
-source infra/.env
-cd infra/hub
-tofu workspace select dev
-tofu plan
-```
+## Where OpenTofu runs: CI only
+
+`infra/hub` is planned and applied only by GitHub Actions: `ci.yml`
+(every push to `main`: dev), `promote.yml` (manual, approved: prod) and
+`rollback-dev.yml` (the on-call agent, or by hand: dev). Don't run
+`tofu plan` or `tofu apply` against the `dev` or `prod` workspace from a
+laptop. A local run doesn't have the values CI passes, and with the
+values missing, a plan describes a downgrade rather than the live
+system.
+
+What CI passes, and why:
+
+- `lambda_image_tag`: the image tag CI just built and pushed (ci.yml),
+  the tag dev runs (promote.yml) or the dev tag before it
+  (rollback-dev.yml). Required, no default, and it must look like a CI
+  build tag (`<yyyymmdd>-<hhmmss>-<sha>`): a run without it fails instead
+  of pointing the Lambdas at an image nobody tested.
+- `service_version`: SemVer from the nearest `vX.Y.Z` tag for the
+  image's commit (`.github/scripts/service-version.sh`), reported on
+  every trace and metric. Required, no default.
+- `trusted_proxy_ips`: Cloudflare's IP ranges, from the
+  `TRUSTED_PROXY_IPS` variable on the `dev` and `prod` GitHub
+  environments. Required, and an empty value is refused: without it the
+  login and sign-up limits would count per Cloudflare edge, not per user
+  (`security/RATE_LIMITING.md`).
+- `grafana_url` and `github_dispatch_token` (plus `GRAFANA_AUTH` for the
+  provider): the alerting as code in `infra/hub/grafana.tf`.
+- `fault_inject_5xx`: dev only, for the drill; false unless the dev
+  environment's `FAULT_INJECT_5XX` variable says otherwise, and refused
+  outside dev.
+- The secrets and per-environment settings in the table above.
+
+To see what a change will do: `tofu fmt` and `tofu validate` run on
+every pull request (the `infra-check` job), and the dev deploy's apply
+prints the plan it applies, in the run log. Changing infrastructure
+means a pull request, like any other change.
 
 ## First deploy
 
-```bash
-cd infra/hub
-tofu init -upgrade
-tofu workspace select dev || tofu workspace new dev
-tofu plan
-```
-
-Read the plan, then apply. After the first dev apply succeeds, every push to
-`main` deploys dev itself (once every CI check passes), and production is
-the `promote.yml` workflow in the Actions tab: a typed confirmation plus
-a reviewer's approval in the `prod` environment (`ops/DEPLOYMENT.md`).
+Also CI. Once the steps above are done and the table's secrets and
+variables are set, push to `main`: `deploy-dev` creates the dev ECR
+repository first (a targeted apply), pushes the image into it, then
+applies everything else, so a brand-new environment needs no local
+apply. Production is created the same way by its first run of
+`promote.yml` in the Actions tab: a typed confirmation plus a reviewer's
+approval in the `prod` environment (`ops/DEPLOYMENT.md`).

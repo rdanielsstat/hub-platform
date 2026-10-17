@@ -36,7 +36,10 @@ output "api_endpoint" {
   value       = aws_apigatewayv2_api.backend.api_endpoint
 }
 
+# The deployment record: read from the API Lambda itself, not from the
+# variable, so a targeted apply (rollback-dev.yml) updates it too.
+# promote.yml reads it from dev; rollback-dev.yml rolls back from it.
 output "deployed_image_tag" {
-  description = "The image tag currently deployed. The promote workflow reads this from dev."
-  value       = var.lambda_image_tag
+  description = "The image tag the API Lambda runs. promote.yml promotes it; rollback-dev.yml rolls back from it."
+  value       = element(split(":", aws_lambda_function.backend.image_uri), 1)
 }

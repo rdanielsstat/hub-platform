@@ -23,6 +23,9 @@ infra/
     ├── dns.tf
     ├── ecr.tf
     ├── frontend.tf
+    ├── grafana.tf
+    ├── grafana/
+    │   └── dispatch-payload.tmpl
     ├── lambda.tf
     ├── main.tf
     ├── outputs.tf
@@ -58,7 +61,9 @@ Nothing here is per-environment. Never run `tofu workspace` in this folder.
 | `dns.tf` | one Cloudflare record only |
 | `ecr.tf` | `IMMUTABLE` tags, scan on push, two lifecycle rules |
 | `frontend.tf` | two CloudFront origins, `aws_cloudfront_function`, the `/api/*` origin request policy, the security response headers policy (CSP, HSTS), S3 encryption |
-| `lambda.tf` | no `vpc_config`, has `aws_cloudwatch_log_group`, sets `TRUSTED_PROXY_IPS` |
+| `grafana.tf` | the Grafana alert rule group, webhook contact point and notification policy, created in the dev workspace only (`count`) |
+| `grafana/dispatch-payload.tmpl` | the contact point's body for GitHub's `repository_dispatch` API |
+| `lambda.tf` | no `vpc_config`, has `aws_cloudwatch_log_group`, sets `TRUSTED_PROXY_IPS` (and `FAULT_INJECT_5XX` on dev during a drill) |
 | `outputs.tf` | outputs `site_url`, `cloudfront_distribution_id`, `deployed_image_tag` |
 | `terraform.tfvars.example` | has the `neon_urls` block |
 
@@ -67,7 +72,7 @@ Nothing here is per-environment. Never run `tofu workspace` in this folder.
 | Name | infra/bootstrap/ | infra/hub/ |
 |---|---|---|
 | `main.tf` | OIDC provider + CI role | variables + workspace locals |
-| `providers.tf` | short, aws only | long, has cloudflare |
+| `providers.tf` | short, aws only | long, has cloudflare and grafana |
 | `backend.tf` | `key = "bootstrap/..."` | `key = "hub/..."` |
 
 The one that is not a pair: `infra/bootstrap/` is a DIRECTORY holding the
@@ -78,6 +83,8 @@ Lambda that applies the database migrations. They share no purpose.
 
 ```
 .github/workflows/
-├── ci.yml        push to main: test, build, push, deploy dev
-└── promote.yml   manual: promote the dev image tag to prod
+├── ci.yml                            PRs and pushes: test, infra-check; push to main: build, push, deploy dev
+├── promote.yml                       manual: promote the dev image tag to prod
+├── observability-alert-handler.yml   the on-call agent, started by the Grafana alert
+└── rollback-dev.yml                  roll dev back to the previous image (the agent, or by hand)
 ```
