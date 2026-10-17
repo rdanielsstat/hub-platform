@@ -7,7 +7,9 @@ skills in `.claude/skills/`, for example); this is the index.
 
 Every capability works inside the boundaries in `AGENTS.md`: agents never
 commit, deploy, read secrets or delete data, and a human reviews
-everything. `agent-hooks/guard.py` enforces the first three.
+everything. `agent-hooks/guard.py` enforces the first three. The one
+exception is the on-call agent's dev rollback (last row). How the roles
+work together as a team: `AGENT_TEAM.md`.
 
 ## Capabilities
 
@@ -22,7 +24,7 @@ everything. `agent-hooks/guard.py` enforces the first three.
 | Hub MCP server | MCP server (5 tools) | `mcp-server/`, registered in `.mcp.json` | An MCP client (Claude Code, Claude Desktop) the user connects | List, read, create and update the user's project ideas (updates are destructive: Claude Code asks; no blanking without `allow_clear`; `confirm_bulk` for mass status changes); add notes | Delete anything; act as anyone but the configured user; reach other endpoints (ids must be UUIDs); see the password (keychain wrapper) |
 | Guard hook | Hook (guardrail) | `agent-hooks/guard.py`, registered in `.claude/settings.json` | Claude Code, before every shell command and file access | Deny secret access (files, environment, AWS), commits, deploys and publishing; ask before pushes and data loss; fail closed | (it only restricts) |
 | Secret scan | Hook (guardrail) | `.pre-commit-config.yaml` (gitleaks) | git, before every commit, where installed; CI scans the full history regardless | Block a commit containing a secret | |
-| On-call diagnostic | Custom agent | `custom-agent/on-call-diagnostic/README.md`, code in `backend/oncall/` | A human, after a Grafana alert, with a reviewer's approval (`observability-alert-handler.yml`) | One OpenAI call on the pasted alert text; write a diagnosis to the run log | Change anything; see user data |
+| On-call agent | Custom agent | `custom-agent/on-call-diagnostic/README.md`, code in `backend/oncall/`, `observability-alert-handler.yml`, `rollback-dev.yml` | A Grafana alert, through `repository_dispatch` (no human); or a human, for a diagnosis only, with a reviewer's approval | Triage the alert; open and comment on a tracking issue; one OpenAI call for a diagnosis; on dev, roll back to the previous image and check health, once per incident | Touch prod; roll back across a migration; act on an alert not labeled `hub_oncall="true"`; see user data |
 
 ## More
 

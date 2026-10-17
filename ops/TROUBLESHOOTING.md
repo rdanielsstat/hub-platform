@@ -246,8 +246,10 @@ limit (`security/RATE_LIMITING.md`). Wait for `Retry-After` seconds.
 Behind Cloudflare the limit is per user because `TRUSTED_PROXY_IPS`
 holds Cloudflare's ranges (verified from two networks, 2026-10-04). If
 unrelated users start sharing a limit, check that the variable is still
-set on the GitHub environment and that Cloudflare hasn't changed its
-ranges (`ops/DEPLOYMENT.md`, "Trusted proxies").
+set on the `dev` or `prod` GitHub environment (`gh variable list --env
+dev`; it's not a repo variable) and that Cloudflare hasn't changed its
+ranges (`ops/DEPLOYMENT.md`, "Trusted proxies"). A deploy without it now
+fails at plan time (`guard_trusted_proxies`) instead of emptying it.
 
 From every route at once: the API Gateway stage throttle (50 rps,
 burst 100).
@@ -283,3 +285,37 @@ image to force it.
   `execute-api` URL.
 - A message about a limit (`Project limit reached`, `Sign-ups are
   closed`): a usage cap (`backend/README.md`, "Usage caps").
+
+## A deploy fails: "No value for required variable" or a guard error
+
+`lambda_image_tag`, `service_version`, `trusted_proxy_ips`, `grafana_url`
+and `github_dispatch_token` have no defaults, so a workflow step that runs
+OpenTofu without them fails at once, before changing anything. In CI, check
+the step passes `-var=lambda_image_tag=...` and `-var=service_version=...`,
+and that the job's environment has `TRUSTED_PROXY_IPS`, and the repo has
+`GRAFANA_URL`, `GRAFANA_AUTH` and `GH_DISPATCH_TOKEN`. Never work around it
+by running OpenTofu from a laptop (`infra/BOOTSTRAP.md`, "Where OpenTofu
+runs"). `guard_fault_inject` failing means `fault_inject_5xx` reached a
+workspace other than dev.
+
+## The alert fired but no on-call run started
+
+- In Grafana, the contact point `hub-oncall-github-dispatch` shows the last
+  delivery error: `401` or `403` is `GH_DISPATCH_TOKEN` (expired, or missing
+  Contents read and write on this repository); `422` is the body (the
+  custom payload template, `infra/hub/grafana/dispatch-payload.tmpl`).
+- The notification policy only routes `hub_oncall="true"`; a rule without
+  the label goes to the same contact point, but the agent ignores it.
+- A run that ended at `triage` with `action=ignore` says why in its
+  summary (not firing, wrong label, unknown environment).
+
+## The on-call rollback failed
+
+The tracking issue has the reason and the run link. The usual ones:
+"no image older than ..." (nothing to roll back to), "the migrations
+changed between ..." (it won't run old code on a newer schema; fix
+forward), or a failed health check after the apply (the previous image is
+unhealthy too). The agent rolls back once per incident and then hands
+over: roll back by hand (Actions > "Roll back dev") or fix forward on
+`main`.
+

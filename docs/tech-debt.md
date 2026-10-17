@@ -60,7 +60,7 @@
 - GitHub Actions pinned to commit SHAs: done (2026-10-03), in every workflow.
 - Decide what to do about the writable demo account. Retiring it means
   removing that environment's entry from `demo_passwords` and re-applying.
-- Observability: done. Metrics, traces and an alert in dev and prod.
+- Observability: done. Metrics, traces, logs and alerting in dev and prod.
   Frontend error reporting: done (2026-10-02, `POST /client-errors`), and
   exported to Grafana Cloud (Loki) as OTLP logs since 2026-10-03.
 - Neon point-in-time restore test: done (2026-10-04, pass;
@@ -70,7 +70,13 @@
   the deploy on HIGH and CRITICAL).
 - Protect `main` against force-pushes and deletion: done (2026-10-04,
   ruleset `protect-main`; found in the PR audit).
-- Still open, not blockers: alerts beyond the registration error rate;
+- Alerting on user impact, as code, with an on-call agent that wakes on it
+  and rolls dev back: done (2026-10-17, `infra/hub/grafana.tf`,
+  `observability-alert-handler.yml`, `rollback-dev.yml`). The hand-made
+  registration error rate rule it replaces is to be deleted in Grafana.
+- Still open, not blockers: alerts beyond project creation (all-endpoint
+  5xx, latency, client error reports); a real `tofu plan` on pull requests
+  (needs a plan-only environment the AWS role trusts for PR branches);
   self-service account deletion and export (not in the product spec); a
   privacy notice and data-request contact (`security/DATA_POLICY.md`).
 
@@ -105,6 +111,9 @@
   `test` job, gating the dev deploy like the rest. `pnpm lint` now passes
   `--max-warnings 0`, since plain `eslint .` exits 0 on warnings and the
   "0 warnings" rule wasn't enforced by the command.
+- One test command: done (2026-10-17, `make test-all`: unit, integration,
+  the MCP live test and both Playwright projects, on a Compose stack it
+  starts and stops).
 - Deprecation warnings in the test run (httpx, anyio, Mangum): done
   (2026-10-02). `httpx2`, Starlette 1.7.0; Mangum's one warning filtered with
   the reason, since 0.22.0 is the latest release.
@@ -113,6 +122,12 @@
 
 - Prod SERVICE_VERSION SemVer versioning: done. `promote.yml` runs
   `service-version.sh` against the promoted image's commit.
+- Key journey instrumented: done (2026-10-17). Project creation has a
+  trace, metrics with `hub_environment` and a latency exemplar, and one
+  structured `app.projects` log line, all sharing the `trace_id`.
+- Alerting as code and the automatic on-call agent: done (2026-10-17).
+  The end-to-end drill on dev is the human's to run
+  (`security/OPERATIONAL_DIAGNOSIS.md`, "Drill runbook").
 
 ## Deferred features
 
@@ -194,6 +209,29 @@
   README said the `security-scanning` skill runs trivy and the IaC scans,
   but it didn't (its own limitations said so), so it now has that step,
   plus pip-audit and bandit for the MCP server and the hook.
+
+**2026-10-17, rubric completion: alerting, on-call agent, tracker**
+
+- The on-call agent wakes on a Grafana alert (`repository_dispatch`,
+  `grafana-alert`), triages it, diagnoses it with OpenAI on a tracking
+  issue, and on dev rolls back to the previous image (`rollback-dev.yml`)
+  with a health check. Prod is diagnosis only.
+- The alert is code (`infra/hub/grafana.tf`): project creation 5xx rate
+  above 2% over 5 minutes, at least 10 requests, dev and prod; webhook
+  contact point and notification policy. CI passes `GRAFANA_URL`,
+  `GRAFANA_AUTH` and `GH_DISPATCH_TOKEN`.
+- `lambda_image_tag`, `service_version` and `trusted_proxy_ips` are
+  required with no default (an empty proxy list is refused), so a run
+  without CI's values fails instead of planning a downgrade. OpenTofu
+  runs in CI only (`infra/BOOTSTRAP.md`); PRs get `tofu fmt` and
+  `tofu validate`.
+- Project creation logs one structured line with its `trace_id`;
+  `FAULT_INJECT_5XX` for the drill (dev only).
+- `make test-all`; GitHub Issues as the tracker (six backfilled, #6 to
+  #11, two built issue first, #12 and #13); `AGENT_TEAM.md`.
+- Issue #12 closed the known mismatch in `product-spec.md`: the API now
+  refuses blank project names and note bodies. Issue #13 added the
+  dashboard's project count.
 
 **2026-10-13, security sweep remediation**
 

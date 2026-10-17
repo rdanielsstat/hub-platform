@@ -156,47 +156,51 @@ Commands inside `bash -c`/`sh -c`/`eval` and wrappers (`env`, `sudo`, `xargs`, `
 
 ## Custom Agents (custom-agent/)
 
-Custom agents are run by people in response to external events, with a human approving each run.
+Custom agents respond to external events. The on-call agent is started by a Grafana alert, with no human in the loop on its automatic path; what it may do is scoped below.
 
-### On-call diagnostic agent
+### On-call agent
 
-**Role**: Give a quick first diagnosis of a Grafana alert in the dev environment.
+**Role**: Respond first to an alert on real user impact: diagnose it, and on dev, fix it by rolling back to the previous image.
 
-**Trigger**: The Grafana Cloud alert rule "Registration Error Rate > 10%" fires when more than 10% of dev registration requests return an error (4xx or 5xx) for 5 minutes. Its webhook notifies the on-call person, who starts `.github/workflows/observability-alert-handler.yml` by hand with the alert summary. The run waits for reviewer approval in the `observability-oncall` environment before it starts.
+**Trigger**: The Grafana Cloud rules "Project creation 5xx rate above 2% (dev)" and "(prod)" (`infra/hub/grafana.tf`) fire when more than 2% of `POST /projects` requests answer 5xx over 5 minutes, with at least 10 requests in the window. The contact point calls GitHub's `repository_dispatch` API (event type `grafana-alert`), which starts `.github/workflows/observability-alert-handler.yml` on `main`. No human starts or approves the automatic path. A manual path (`workflow_dispatch`, diagnosis only) still waits for reviewer approval in the `observability-oncall` environment.
 
 **CAN do**:
-- Read the workflow inputs: `alert_summary` (alert text) and `runs_per_month` (for the cost estimate)
-- Make one OpenAI GPT-4o-mini API call for a 2-3 sentence diagnosis
-- Write the diagnosis and cost estimate to the GitHub Actions run log and job summary
-- Recommend what to check or fix first
+- Read the alert payload (labels, summary, counts) and decide to act or ignore it (`backend/oncall/alert.py`)
+- Open, comment on and find a GitHub issue for the incident (`issues: write`, the workflow's own token)
+- Make one OpenAI GPT-4o-mini API call for a 2-3 sentence diagnosis and post it on the issue
+- **On dev only:** run `rollback-dev.yml`, which points the two dev Lambdas at the previous image in ECR (targeted OpenTofu apply in the dev workspace), checks `/api/health`, and comments the outcome. Once per incident.
 
 **CANNOT do**:
-- Run without a reviewer's approval
-- Access any database, logs, metrics, or user data
-- Modify configuration or environment variables
-- Restart services or trigger deployments
-- Make any changes to dev or production state
-- Open issues, commit, or push code
+- Touch prod in any way: the rollback workflow never selects the prod workspace or the prod environment (`backend/tests/test_workflow_permissions.py`)
+- Roll back across a database migration, or more than once per incident
+- Act on an alert without `hub_oncall="true"`, or on a test or malformed payload
+- Access any database, logs, metrics or user data
+- Change secrets, variables or GitHub settings
+- Commit, push or merge code
 
 **Data access**:
-- Only the alert text passed in as `alert_summary`
-- No AWS credentials; the job has OpenAI access only (`OPENAI_API_KEY`)
+- The alert payload's labels and summary; nothing from users
+- AWS: only inside `rollback-dev.yml`, through the dev environment's OIDC trust
+- OpenAI: `OPENAI_API_KEY`, for the diagnosis only
 
 **Cost controls**:
-- Reviewer approval before every run, and so before any OpenAI spend
-- Spend guard: the script estimates the monthly cost (one call x `runs_per_month`) and skips the call, with a warning, if it exceeds $5/month
+- Spend guard: the script estimates the monthly cost (one call x 30 runs) and skips the call, with a warning, if it exceeds $5/month
+- The notification policy repeats a firing alert at most every 4 hours
 
 **Decision authority**:
-- Agent recommends actions; human reads diagnosis and decides
-- Human executes any remediation (via deploy pipeline or manual action)
+- Dev: the agent decides and acts (rollback), then hands over on the issue
+- Prod: the agent recommends; a human decides and promotes the fix
+
+**Why this is the only agent that deploys**: interactive agents (Claude Code) never deploy and the guard hook blocks them. The on-call agent is a workflow whose one deploy path is narrow, tested and dev only, and it exists so users on dev aren't left with a broken journey while nobody is watching.
 
 ## Integration with CI/CD
 
 ### GitHub Actions
 
-**Manual workflows**:
-- `observability-alert-handler.yml`: On-call agent, started by hand by the on-call person (workflow_dispatch)
-- `ci.yml`: Unit tests, dependency scan, gitleaks, integration and E2E tests run automatically on PR/push (no agent involved)
+**Workflows**:
+- `observability-alert-handler.yml`: On-call agent, started by Grafana's alert (`repository_dispatch`), or by hand for a diagnosis only (`workflow_dispatch`, reviewer approval)
+- `rollback-dev.yml`: Dev rollback to the previous image, called by the on-call agent or started by hand
+- `ci.yml`: Unit tests, dependency scan, gitleaks, integration and E2E tests and the OpenTofu checks run automatically on PR/push (no agent involved)
 - `promote.yml`: Human-triggered promotion to prod
 
 **Agent permissions in CI**:
@@ -242,7 +246,7 @@ Custom agents are run by people in response to external events, with a human app
 
 **Agent outputs are:**
 - Shown in the agent session for the human to review
-- Logged to GitHub Actions, for the on-call diagnostic (searchable, auditable)
+- Logged to GitHub Actions and the tracking issue, for the on-call agent (searchable, auditable)
 - Committed to the repo only when a human chooses to
 
 **Agents should NOT output:**
@@ -260,7 +264,7 @@ Custom agents are run by people in response to external events, with a human app
 ### Logging
 
 Where agent activity is recorded:
-- GitHub Actions logs, for workflow runs including the on-call diagnostic (timestamped, accessible)
+- GitHub Actions logs and tracking issues, for workflow runs including the on-call agent (timestamped, accessible)
 - Git history, for any changes a human commits
 - The agent session, for guard hook decisions (each deny or ask shows its reason) and MCP tool calls
 - The Hub API's own logs and traces, for MCP tool calls (they are ordinary API requests)
@@ -313,10 +317,10 @@ To audit what an agent did:
 ### Production (via GitHub Actions)
 
 **On-call agent:**
-- Started by hand by the on-call person after a Grafana alert on the dev environment
-- Waits for reviewer approval (`observability-oncall` environment)
-- Makes one OpenAI API call and writes the diagnosis to the run log
-- No deployment or state-change permissions
+- Started automatically by a Grafana alert on dev or prod (`repository_dispatch`)
+- Makes one OpenAI API call and posts the diagnosis on a tracking issue
+- On dev only, rolls back to the previous image (`rollback-dev.yml`) and checks health
+- No permission to deploy or change anything in prod
 
 **CI/CD workflows:**
 - `ci.yml`: Runs tests, builds images, deploys to dev (automatic)
@@ -344,4 +348,4 @@ To audit what an agent did:
 - **Webhook-triggered on-call**: Grafana alerts trigger on-call agent automatically (currently manual dispatch)
 - **Automated remediation**: On-call agent can perform known-safe fixes (requires approval first, high risk)
 - **Feedback loop**: On-call engineer rates diagnoses (correct/incorrect); feedback used to improve future diagnoses
-- **Cost controls**: partly done. The on-call diagnostic estimates monthly spend and skips the call above $5; no billing alert yet.
+- **Cost controls**: partly done. The on-call agent estimates monthly spend and skips the call above $5; no billing alert yet.

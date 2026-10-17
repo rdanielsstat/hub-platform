@@ -29,8 +29,13 @@ keeps the list in sync with the spec):
 
 - `<name>_total`: requests
 - `<name>_errors_total`: responses with status >= 400, labeled
-  `http.status_code`
-- `<name>_latency_ms`: duration histogram
+  `http.status_code` (`http_status_code` in Prometheus)
+- `<name>_latency_ms`: duration histogram, with trace exemplars (each
+  point can carry the `trace_id` of a request it counted)
+
+All three carry `hub.environment` (`hub_environment`: `dev` or `prod`),
+since both environments send to one Grafana stack and the alert rules
+filter on it.
 
 | Operation | `<name>` |
 |---|---|
@@ -57,6 +62,10 @@ Plus counters: `authentication_login_total`,
 Useful queries (Grafana Explore, Prometheus data source):
 
 ```
+# Project creation 5xx share on dev: what the alert measures
+sum(increase(projects_create_errors_total{hub_environment="dev", http_status_code=~"5.."}[5m]))
+  / sum(increase(projects_create_total{hub_environment="dev"}[5m]))
+
 # Error ratio for one endpoint
 rate(projects_create_errors_total[5m]) / rate(projects_create_total[5m])
 
@@ -84,12 +93,25 @@ service name `hub-platform`. Useful for:
 
 ## Alerts
 
-One alert today, in the Grafana Cloud stack:
+Alerting is code (`infra/hub/grafana.tf`), applied by CI with the dev
+workspace: the dev and prod environments share one Grafana stack, which
+has one notification policy, so the dev workspace owns all of it.
 
-- **Registration Error Rate > 10%** (dev): registration errors over 10%
-  of requests for 5 minutes. Its contact point notifies the on-call
-  person, who can run the on-call diagnostic
-  (`custom-agent/on-call-diagnostic/README.md`).
+- **Project creation 5xx rate above 2% (dev)** and **(prod)**: more than
+  2% of `POST /projects` requests answered 5xx over 5 minutes, with at
+  least 10 requests in the window. User impact on the key journey, not
+  resource use: a 409 or 422 is the user's input and doesn't count.
+  Labels `hub_oncall="true"`, `hub_environment`, `severity="page"`.
+- The notification policy routes `hub_oncall="true"` to the contact
+  point `hub-oncall-github-dispatch`, a webhook to GitHub's
+  `repository_dispatch` API (event type `grafana-alert`), which starts
+  the on-call agent (`.github/workflows/observability-alert-handler.yml`,
+  `custom-agent/on-call-diagnostic/README.md`). On dev it rolls back to the
+  previous image; on prod it diagnoses and opens an issue for a human.
+
+The hand-made "Registration Error Rate > 10%" rule this replaced counted
+409 and 422 answers as errors; delete it from the Grafana UI (the drill
+runbook's step 2, `security/OPERATIONAL_DIAGNOSIS.md`).
 
 Worth adding: a 5xx-rate alert across all endpoints, a p95 latency
 alert on `auth_me_get`, and a rate alert on `client_errors_post_total`.
@@ -103,7 +125,9 @@ CloudWatch log groups, 14-day retention (`infra/hub/lambda.tf`,
   API: request errors, origin
   verification rejections (`app.security` logger,
   `origin_verify_rejected ...`), frontend error reports
-  (`app.client_errors` logger, `client_error {...json...}`).
+  (`app.client_errors` logger, `client_error {...json...}`), and one line
+  per project creation (`app.projects` logger,
+  `project_create {...json...}`).
 - `/aws/lambda/hub-<env>-bootstrap`: migration and seed output per
   deploy.
 
@@ -116,6 +140,31 @@ fields @timestamp, @message
 | sort @timestamp desc
 | limit 50
 ```
+
+## The project creation journey
+
+Every `POST /projects` request logs one JSON line on the `app.projects`
+logger (`backend/app/journey_log.py`):
+
+```
+project_create {"event": "project_create", "outcome": "success", "status": 201, "duration_ms": 41.7, "trace_id": "4bf9...", "span_id": "00f0..."}
+```
+
+`outcome` is `success`, `client_error` (4xx) or `server_error` (5xx,
+logged at WARNING). Nothing from the request goes in: no body, no email,
+no token, no user id (`backend/tests/test_journey_log.py` checks). The
+same `trace_id` is the request's trace in Tempo and the exemplar on its
+`projects_create_latency_ms` point, so one request can be followed across
+all three signals:
+
+```
+# Loki: failed creations on dev, with their trace ids
+{service_name="hub-platform", deployment_environment="dev"} |= "project_create" | json | outcome="server_error"
+```
+
+Then open the `trace_id` in Tempo, or click the exemplar on the
+`projects_create_latency_ms` panel. The logger is exported from INFO up
+(`EXPORTED_INFO_LOGGERS`), unlike the warning-only loggers below.
 
 ## Frontend errors in Grafana
 

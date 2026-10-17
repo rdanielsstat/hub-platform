@@ -18,7 +18,9 @@ A personal idea management system for capturing, triaging, and tracking ideas fr
 
 **Documentation:**
 - [product-spec.md](product-spec.md) - Product spec and data model (the source of truth)
+- [Task tracker: GitHub Issues](https://github.com/rdanielsstat/hub-platform/issues) - Every feature as an issue with acceptance criteria, closed by its PR; the agents comment their progress there, and the on-call agent opens its incidents there
 - [AGENTS.md](AGENTS.md) - Project instructions for AI agents and developers
+- [AGENT_TEAM.md](AGENT_TEAM.md) - The agent team: each role, what it owns, and how work passes between them
 - [openapi.yaml](openapi.yaml) - API contract (hand-written; a backend test checks the app matches it)
 - [ops/](ops/) - Runbooks: [deployment](ops/DEPLOYMENT.md), [health checks](ops/HEALTH_CHECKS.md), [monitoring](ops/MONITORING.md), [troubleshooting](ops/TROUBLESHOOTING.md)
 - [security/](security/) - [Security checklist](security/SECURITY_CHECKLIST.md), [rate limiting](security/RATE_LIMITING.md), [scan results](security/IAC_SCANS.md), [dependencies](security/DEPENDENCIES.md), [data policy](security/DATA_POLICY.md), [PR audit](security/PR_AUDIT.md), and more
@@ -51,7 +53,8 @@ Hub-Platform is a personal hub for capturing ideas, scoring them, and tracking t
 - **Dashboard filtering**: Filter by status or tag, search by text, and sort by recently updated, scores, target date, or name
 - **Notes and links**: Add notes to ideas and link to external resources
 - **Personal workspace**: Individual signup and login; your ideas, your rules
-- **Deployed**: Runs on AWS, with separate dev and prod environments, both live, OpenTelemetry traces, metrics and logs in Grafana Cloud for dev and prod, and a manual AI-assisted alert diagnostic
+- **Deployed**: Runs on AWS, with separate dev and prod environments, both live, and OpenTelemetry traces, metrics and logs in Grafana Cloud for dev and prod
+- **Self-healing dev**: an alert on real user impact (project creation failing) wakes an on-call agent that diagnoses it and rolls dev back to the previous image, with no human in the loop
 - **Hardened**: Security headers (strict CSP, HSTS), per-IP rate limits, usage caps and length limits, origin verification, scanned images and dependencies (see [security/SECURITY_CHECKLIST.md](security/SECURITY_CHECKLIST.md))
 - **Resilient sign-in**: A slow or unreachable backend shows a retry screen instead of signing you out
 - **Frontend error reporting**: Browser errors and failed API calls are reported to the backend and land in Grafana Cloud
@@ -361,7 +364,7 @@ The `Makefile` at the repo root wraps the common commands; `make help` lists eve
 
 ```bash
 make install           # uv sync (backend, mcp-server) and pnpm install (frontend)
-make check             # every local gate: lint, format check, unit tests and frontend build
+make check             # fast gate: lint, format check, unit tests and frontend build (no services)
 make lint              # lint-backend + lint-frontend + lint-mcp + lint-hooks
 make lint-backend      # Ruff lint and format check
 make lint-frontend     # ESLint (fails on any warning) and Prettier check
@@ -376,7 +379,13 @@ make docker-logs       # follow the Compose logs
 
 ### Running Tests Locally
 
-From the repo root. The test layers:
+From the repo root. **The single test command is `make test-all`**: it runs the unit tests, starts the Docker Compose stack, runs the integration tests, the MCP server's live test and both Playwright projects against it, then stops the stack, and exits non-zero if any layer failed. Only Docker, uv, Node 22 and pnpm are needed.
+
+```bash
+make test-all          # everything below, on a Compose stack it starts and stops itself
+```
+
+The layers on their own:
 
 ```bash
 make test-unit         # backend, frontend, MCP server and agent hook unit tests; no services
@@ -388,7 +397,7 @@ make test-integration  # backend tests against the Docker Compose Postgres (star
 make test-mcp-live     # the MCP server's tools against a real backend on :8000
 make test-e2e          # Playwright browser + API tests; needs a backend on :8000
 make test-e2e-docker   # Playwright against the full Compose stack, incl. the nginx frontend and Postgres outages
-make check             # lint, format, unit tests and build: the pre-commit gate
+make check             # lint, format, unit tests and build: the fast gate, not the full suite (see test-all)
 ```
 
 Or by hand:
@@ -471,14 +480,17 @@ flowchart LR
     push --> integ["integration<br/>backend on Postgres"]
     push --> e2e["e2e<br/>Playwright and MCP on Compose"]
     push --> secrets["secrets-scan<br/>gitleaks, full history"]
+    push --> infra["infra-check<br/>tofu fmt, tofu validate"]
     test --> deps["dependency-scan<br/>pip-audit, pnpm audit"]
-    test & integ & e2e & secrets & deps --> deploy["deploy-dev<br/>main only"]
+    test & integ & e2e & secrets & deps & infra --> deploy["deploy-dev<br/>main only"]
     deploy --> dev["Dev<br/>hub-dev.dnls.dev"]
     dev -.->|"manual: typed confirm,<br/>reviewer approval"| promote["promote.yml"]
     promote --> prod["Prod<br/>hub.dnls.dev"]
+    dev -.->|"alert: on-call agent"| rollback["rollback-dev.yml<br/>previous image"]
+    rollback --> dev
 ```
 
-A developer pushes code to main. GitHub Actions runs five checks: unit tests (backend, frontend, MCP server and agent hook) with the backend, frontend and MCP lint, format and build checks, a dependency scan (pip-audit and pnpm audit over the backend, MCP server and frontend locks; HIGH and CRITICAL fail it) after the unit tests, a gitleaks history scan, backend integration tests against Postgres, and the Playwright E2E tests and the MCP server's live test against the Docker Compose stack (pull requests run only these checks). All five gate the deploy. If they pass, CI builds a Docker image, tags it with a timestamp and short SHA (e.g., 20261001-163457-83242da), and pushes it to the dev ECR repository (tags are immutable). It then points the bootstrap Lambda at the new image and runs it, which applies any database migrations; only then does it apply the rest of the dev infrastructure with OpenTofu, which switches the API Lambda to the new code. Finally it builds the frontend, uploads it to S3, and smoke-tests `/api/health`. After testing in dev, a release owner manually runs the promote workflow (typed confirmation plus a reviewer's approval), which copies the same image from dev ECR to prod ECR (no rebuild), runs the prod migrations the same way, deploys the image to the production Lambda, and builds and uploads the frontend. Every action is pinned to a commit SHA. Details: `ops/DEPLOYMENT.md`.
+A developer pushes code to main. GitHub Actions runs six checks: the OpenTofu checks (`tofu fmt` and `tofu validate` of `infra/`, which also run on every pull request), plus unit tests (backend, frontend, MCP server and agent hook) with the backend, frontend and MCP lint, format and build checks, a dependency scan (pip-audit and pnpm audit over the backend, MCP server and frontend locks; HIGH and CRITICAL fail it) after the unit tests, a gitleaks history scan, backend integration tests against Postgres, and the Playwright E2E tests and the MCP server's live test against the Docker Compose stack (pull requests run only these checks). All six gate the deploy. If they pass, CI builds a Docker image, tags it with a timestamp and short SHA (e.g., 20261001-163457-83242da), and pushes it to the dev ECR repository (tags are immutable). It then points the bootstrap Lambda at the new image and runs it, which applies any database migrations; only then does it apply the rest of the dev infrastructure with OpenTofu, which switches the API Lambda to the new code. Finally it builds the frontend, uploads it to S3, and smoke-tests `/api/health`. After testing in dev, a release owner manually runs the promote workflow (typed confirmation plus a reviewer's approval), which copies the same image from dev ECR to prod ECR (no rebuild), runs the prod migrations the same way, deploys the image to the production Lambda, and builds and uploads the frontend. Every action is pinned to a commit SHA. Details: `ops/DEPLOYMENT.md`.
 
 ### Environments
 
@@ -486,6 +498,9 @@ A developer pushes code to main. GitHub Actions runs five checks: unit tests (ba
 - Automatic deployment on every push to main
 - Latest code always running
 - Internal testing and validation
+- Automatic rollback to the previous image when its project creation alert fires (`rollback-dev.yml`, run by the on-call agent; `ops/DEPLOYMENT.md`, "Rolling back")
+
+**Rollback path:** dev rolls back on its own, or by hand from Actions > "Roll back dev"; prod rolls back by rolling dev back and promoting again (same confirmation and approval). OpenTofu runs only in these workflows, never from a laptop (`infra/BOOTSTRAP.md`).
 
 **Production**
 - Manual promotion from development
@@ -537,9 +552,11 @@ The backend is instrumented with OpenTelemetry (`backend/observability/`):
 - **Traces** for every API request (FastAPI) and database query (SQLAlchemy)
 - **Per-endpoint metrics**: request count, error count, and latency for each API route (for example `projects_create_total`, `projects_create_errors_total`, `projects_create_latency_ms`)
 - **Account and activity counters**: logins and signups (with their errors), accounts created, projects created, notes created
-- **Logs**: frontend error reports (`POST /client-errors`: uncaught browser errors, render crashes, failed API calls), database outages, and rejected direct API calls, each linked to its trace
+- **Logs**: one structured line per project creation (the key journey: outcome, status, duration and `trace_id`, nothing from the request), frontend error reports (`POST /client-errors`: uncaught browser errors, render crashes, failed API calls), database outages, and rejected direct API calls, each linked to its trace
 
-Every metric, trace and log is tagged with the deployed version (`SERVICE_VERSION`, from git tags). Queries and alerts: `ops/MONITORING.md`.
+**The key journey, project creation, end to end:** a `POST /projects` request has one trace in Tempo, counts in `projects_create_total`, `projects_create_errors_total` and `projects_create_latency_ms` (whose exemplar carries the request's `trace_id`), and logs one `project_create` JSON line in Loki with the same `trace_id`. `backend/tests/test_journey_log.py` checks the three ids match and that the line holds no email, credentials or request body. No customer data or credentials go to telemetry (`security/DATA_POLICY.md`).
+
+Every metric, trace and log is tagged with the deployed version (`SERVICE_VERSION`, from git tags), and every endpoint metric with its environment (`hub_environment`). Queries and alerts: `ops/MONITORING.md`.
 
 ### Where telemetry goes
 
@@ -572,17 +589,44 @@ There are no prebuilt dashboards: use Grafana's **Explore** view to query metric
 
 ---
 
-## On-Call Diagnostic
+## Alerting and the On-Call Agent
 
-A Grafana Cloud alert rule, "Registration Error Rate > 10%", fires when more than 10% of registration requests in the dev environment return an error (4xx or 5xx) for 5 minutes. That includes 409 (email already registered) and 422 (invalid input), not only server errors. Its webhook notifies the on-call person, who then runs the diagnostic workflow, `.github/workflows/observability-alert-handler.yml`:
+### The alert: real user impact on the key journey
 
-1. The on-call person starts the workflow by hand in GitHub Actions, pasting in the alert summary.
-2. The job waits for a reviewer's approval (the `observability-oncall` environment).
-3. `backend/oncall/diagnose.py` estimates the monthly cost and skips the call, with a warning, if it would exceed $5/month.
-4. Otherwise it makes one OpenAI API call (GPT-4o-mini by default) for a short diagnosis of the alert text.
-5. The diagnosis is written to the run log and the job summary.
+"Project creation 5xx rate above 2%", one rule for dev and one for prod, fires when more than 2% of `POST /projects` requests answer 5xx over a 5 minute window, once there were at least 10 requests in it. It measures users failing to save their ideas, not CPU or memory, and a 409 or 422 (the user's input) doesn't count. It's code, in `infra/hub/grafana.tf` (the rule group, the webhook contact point and the notification policy), applied by CI.
 
-A recorded drill run, with the output and a human review of it: [security/OPERATIONAL_DIAGNOSIS.md](security/OPERATIONAL_DIAGNOSIS.md).
+### The agent: wakes on the alert, fixes dev
+
+```mermaid
+flowchart LR
+    rule["Grafana rule fires"] --> cp["Contact point:<br/>POST api.github.com/.../dispatches<br/>event_type grafana-alert"]
+    cp --> handler["observability-alert-handler.yml<br/>(no human starts it)"]
+    handler --> triage["triage<br/>oncall/alert.py"]
+    triage -->|"not a firing hub_oncall alert"| stop["exit, touch nothing"]
+    triage --> issue["tracking issue"]
+    issue --> diag["OpenAI diagnosis<br/>posted on the issue"]
+    diag -->|"dev"| rb["rollback-dev.yml:<br/>previous image, health 200,<br/>comment on the issue"]
+    diag -->|"prod"| human["human decides,<br/>promote.yml"]
+```
+
+1. The alert fires and Grafana's contact point calls GitHub's `repository_dispatch` API (`event_type: "grafana-alert"`, token `GH_DISPATCH_TOKEN`), which starts `.github/workflows/observability-alert-handler.yml`. No one starts or approves it.
+2. `backend/oncall/alert.py` triages the payload. Anything but a firing (or resolved) alert from a rule labeled `hub_oncall="true"` ends the run without touching anything.
+3. It opens (or reuses) a GitHub issue for the incident and posts an OpenAI diagnosis (`backend/oncall/diagnose.py`, the `OPENAI_API_KEY` secret, a $5/month spend guard).
+4. **On dev** it runs `.github/workflows/rollback-dev.yml`: the previous dev image from ECR, a targeted apply of the two dev Lambdas, GET `/api/health` must return 200, and the outcome goes on the issue. Once per incident, never across a migration.
+5. **On prod** it stops after the diagnosis: a human decides and promotes the fix.
+6. When the alert resolves, the resolution goes on the issue.
+
+Details: [custom-agent/on-call-diagnostic/README.md](custom-agent/on-call-diagnostic/README.md). The manual diagnosis path (`workflow_dispatch`, with reviewer approval) is still there.
+
+### The one exception to "agents never deploy"
+
+Interactive agents (Claude Code) never deploy: `AGENTS.md` says so and the guard hook (`agent-hooks/guard.py`) blocks every deploy command, workflow start and `tofu apply`. That's unchanged. The on-call agent is a GitHub Actions workflow, not Claude Code, and its only deploy path is `rollback-dev.yml`: dev only, the previous image only, two Lambdas only, once per incident. `backend/tests/test_workflow_permissions.py` checks that scope. Prod still needs a human, a typed confirmation and a reviewer's approval.
+
+### Drill
+
+The runbook (turn on `FAULT_INJECT_5XX` on dev, send project creations until the alert fires, watch the agent roll back, confirm health and resolution, turn it off) and the record of each drill, with run URLs and timestamps, are in [security/OPERATIONAL_DIAGNOSIS.md](security/OPERATIONAL_DIAGNOSIS.md). `FAULT_INJECT_5XX` is off by default, set only through the dev GitHub environment, ignored by the app in prod and refused by OpenTofu outside dev.
+
+Latest drill: *not yet run with the automatic path; record it here (run URLs, timestamps) when it is.*
 
 ---
 
@@ -668,7 +712,7 @@ curl http://localhost:8000/projects \
 - **Notes:** up to 10000 characters each.
 - **Tags:** up to 50 per project, each up to 64 characters.
 - **Links:** up to 50 per project; URLs must start with `http://` or `https://` and be at most 2048 characters; labels up to 200.
-- Over any limit: `422`. The database enforces the same limits (CHECK constraints), except per-tag and per-link lengths, which only the API checks. The API accepts empty or whitespace-only project names and notes; the UI is what stops you from saving those.
+- Over any limit: `422`. The database enforces the same limits (CHECK constraints), except per-tag and per-link lengths, which only the API checks. An empty or whitespace-only project name or note body is a `422` too (issue #12); text that isn't blank is stored exactly as sent.
 - **Scores** (`excitement`, `effort`, `potential`): whole numbers from 1 to 5.
 - **Usage caps:** 500 projects per user, 500 notes per project, and (deployed) 1000 accounts in total; over a cap, `403`.
 - **Rate limiting (deployed only):** per client IP, 5 login attempts, 3 sign-ups and 30 error reports per minute; over that, `429` with a `Retry-After` header. API Gateway also caps the whole API at 50 requests/second (bursts to 100). Off for local runs.
@@ -744,7 +788,7 @@ agent-hooks/
   tests/test_guard.py         Every deny/ask/allow rule, and the hook's JSON contract
 ```
 
-Backend unit tests each get their own in-memory SQLite database, so they don't need a running server. The integration tests need the Compose Postgres, and the Playwright tests need a backend (see below). As of October 2026: 459 backend unit and 38 integration tests, 202 frontend unit tests, 204 Playwright tests, 74 MCP server unit tests plus 1 live test, and 36 agent hook tests. CI runs all of them on every push and pull request, along with the lint, format and build checks.
+Backend unit tests each get their own in-memory SQLite database, so they don't need a running server. The integration tests need the Compose Postgres, and the Playwright tests need a backend (see below). As of October 2026: 555 backend unit and 38 integration tests, 206 frontend unit tests, 207 Playwright tests, 74 MCP server unit tests plus 1 live test, and 36 agent hook tests. `make test-all` runs every one of them in one command (Compose stack included); CI runs all of them on every push and pull request, along with the lint, format, build and OpenTofu checks.
 
 ### Running tests
 
@@ -820,7 +864,7 @@ Hub-Platform was built with AI tools doing most of the writing and a human revie
 | Claude (chat) | Brainstormed the problem, users, features and data model into `product-spec.md` |
 | [v0](https://v0.app) | Scaffolded the first React frontend, with an in-memory mock of a single API layer, from one prompt (the "v0.app front-end specification" in `docs/prompts.md`) |
 | Claude Code | Everything since: the real API layer, the OpenAPI contract, the FastAPI backend, the database and migrations, every test suite, Docker, OpenTofu, CI/CD, observability, the security hardening, and the agent extension pack |
-| OpenAI GPT-4o-mini | Only the on-call diagnostic, at run time ([On-Call Diagnostic](#on-call-diagnostic)) |
+| OpenAI GPT-4o-mini | Only the on-call agent's diagnosis, at run time ([Alerting and the On-Call Agent](#alerting-and-the-on-call-agent)) |
 
 ### How it was built
 
@@ -831,7 +875,7 @@ Hub-Platform was built with AI tools doing most of the writing and a human revie
 5. **Database**: SQLAlchemy and Alembic, SQLite locally, Postgres in Compose and on Neon
 6. **Tests**: backend unit and integration, frontend unit and component, Playwright end to end
 7. **Delivery**: Docker, OpenTofu on AWS, CI/CD that deploys only when every check passes
-8. **Observability**: OpenTelemetry to Grafana Cloud, and the on-call diagnostic
+8. **Observability**: OpenTelemetry to Grafana Cloud, alerting as code, and the on-call agent
 9. **Hardening and audits**: rate limits, quotas, headers, scans, and the reviews in `security/`
 10. **Agent extension pack**: skills, a subagent, an MCP server, a guard hook, permissions
 
@@ -839,7 +883,7 @@ Hub-Platform was built with AI tools doing most of the writing and a human revie
 
 - **The prompt log.** `docs/prompts.md` has the v0 prompt and the 34 numbered Claude Code prompts, verbatim; `docs/results.md` has the agent's final report for each, also verbatim, so every prompt can be read next to what came back. Later sessions are recorded in `docs/tech-debt.md` ("Completed work, by session") and `CHANGELOG.md`.
 - **How tasks are written.** Each prompt scopes one task, says what to read first, sets rules (for example "Do NOT change app code to make it testable... STOP and tell me what and why"), defines done (tests, lint and build clean, with counts reported), and ends with "Don't commit, I'll review." Prompt 34, the React Testing Library pass, is a full example.
-- **What's delegated, and to what.** Repeatable workflows are skills (release, E2E testing, security scanning, design review); independent review goes to the QA subagent in a fresh context, so it doesn't share the implementer's assumptions; alert triage goes to the on-call diagnostic; and an agent working with the app's data uses the MCP server.
+- **What's delegated, and to what.** Repeatable workflows are skills (release, E2E testing, security scanning, design review); independent review goes to the QA subagent in a fresh context, so it doesn't share the implementer's assumptions; alert response goes to the on-call agent, which can roll dev back; and an agent working with the app's data uses the MCP server.
 
 ### Context files
 
@@ -861,10 +905,10 @@ What the agents read before working, so instructions don't have to be repeated i
 Nothing an agent writes reaches `main` or a user without these:
 
 1. **A human reviews and commits every change.** Agents leave their work in the working tree with a summary and a suggested commit message; the human reads the diff and commits. `agent-hooks/guard.py` enforces it: `git commit` is denied, and a push asks first.
-2. **A definition of done the agent must meet and show.** Every test suite, lint (0 warnings), format and build clean, with the counts reported (`AGENTS.md`, "Testing"). `make check` re-runs all of it locally in one command.
+2. **A definition of done the agent must meet and show.** Every test suite, lint (0 warnings), format and build clean, with the counts reported (`AGENTS.md`, "Testing"). `make check` re-runs the fast gates locally, and `make test-all` every test layer, in one command each.
 3. **CI re-checks everything independently.** Unit, integration and E2E tests, the dependency scan and gitleaks gate the dev deploy, whatever the agent reported.
 4. **Independent review.** The QA subagent validates features in a fresh context; security reviews of AI-made changes are written up in `security/PR_AUDIT.md`.
-5. **Verification in the real environment.** The human checks dev after each deploy before promoting, including on real devices (the iOS zoom-after-login fix was confirmed on a phone, 2026-10-08), and reviews the on-call diagnostic's output before acting on it (`security/OPERATIONAL_DIAGNOSIS.md`).
+5. **Verification in the real environment.** The human checks dev after each deploy before promoting, including on real devices (the iOS zoom-after-login fix was confirmed on a phone, 2026-10-08), and reviews the on-call agent's issue (its diagnosis and any dev rollback) before acting on prod (`security/OPERATIONAL_DIAGNOSIS.md`).
 6. **Reports are checked, not trusted.** When an agent's report was wrong, the correction was recorded: report 9 in `docs/results.md` opens with one, for a lint warning the previous report miscounted.
 
 ### Agent extension pack
@@ -876,7 +920,9 @@ Nothing an agent writes reaches `main` or a user without these:
 | Subagent | `.claude/agents/qa-engineer.md` | Independent QA in a fresh context |
 | MCP server | `mcp-server/`, registered in `.mcp.json` | Five tools over the Hub API (list, get, create, update, add note; no deletes) |
 | Hook / guardrail | `agent-hooks/`, registered in `.claude/settings.json` | Denies commits, deploys, publishing and secret access (files, environment, AWS); asks before pushes and data loss; fails closed. Plus the gitleaks pre-commit hook (`.pre-commit-config.yaml`) |
-| Custom agent | `custom-agent/on-call-diagnostic/` | The on-call diagnostic for Grafana alerts |
+| Custom agent | `custom-agent/on-call-diagnostic/` | The on-call agent: wakes on a Grafana alert, diagnoses it, rolls dev back |
+| Agent team | `AGENT_TEAM.md` | Every role, what it owns, and how work passes between them |
+| Task tracker | [GitHub Issues](https://github.com/rdanielsstat/hub-platform/issues) | Issues with acceptance criteria; agents comment progress, PRs close them |
 | Capability index | `agent-capabilities/README.md` | Every capability above, in one list |
 | Permissions | `docs/permissions.md`, `security/AGENT_SECURITY.md` | What each part may do, and the risks behind the rules |
 
@@ -921,11 +967,11 @@ Subagents are AI agents in fresh contexts with specific roles:
 
 ### Custom Agent
 
-**On-Call Diagnostic** (.github/workflows/observability-alert-handler.yml)
-- Run by hand, with reviewer approval, for a given alert summary
-- Makes one OpenAI call (GPT-4o-mini) for a short diagnosis
-- Writes the result to the GitHub Actions run log; changes nothing
-- See [On-Call Diagnostic](#on-call-diagnostic)
+**On-Call Agent** (.github/workflows/observability-alert-handler.yml, rollback-dev.yml)
+- Started by Grafana's alert through `repository_dispatch`, no human in the loop
+- Triages the payload, opens a tracking issue, posts one OpenAI (GPT-4o-mini) diagnosis
+- On dev, rolls back to the previous image and checks `/api/health`; on prod, diagnoses only
+- See [Alerting and the On-Call Agent](#alerting-and-the-on-call-agent)
 
 ### MCP Server
 
@@ -954,13 +1000,13 @@ Commands inside `bash -c`, `eval`, `env`, `sudo` and similar wrappers are checke
 
 **Developing a feature:**
 
-1. Write a feature spec with acceptance criteria
-2. Request QA subagent to review the spec
-3. Develop the feature with Claude Code (the guard hook keeps it from committing, deploying or touching secrets)
-4. Review the diff and the agent's report; run `make check`
+1. Open a GitHub issue with an "Acceptance criteria" checklist (issues #12 and #13 are examples)
+2. Request QA subagent to review the criteria
+3. Develop the feature with Claude Code, which comments its progress on the issue (the guard hook keeps it from committing, deploying or touching secrets)
+4. Review the diff and the agent's report; run `make check` and `make test-all`
 5. Request QA subagent to validate independently
 6. If QA says FAIL, fix and retest
-7. When QA says PASS, the human commits and pushes
+7. When QA says PASS, the human commits and opens the PR with "Closes #N"
 8. Request security-scanning skill before release
 
 **Releasing to production:**
@@ -972,6 +1018,7 @@ Commands inside `bash -c`, `eval`, `env`, `sudo` and similar wrappers are checke
 
 For more details, see:
 - `AGENTS.md` - Project instructions for AI agents
+- `AGENT_TEAM.md` - The agent team and how work passes between roles
 - `agent-capabilities/README.md` - Every agent capability, in one list
 - `docs/agent-extension-pack.md` - Skills, subagent, MCP server, hook and how they fit together
 - `docs/permissions.md` - Agent security boundaries
@@ -993,9 +1040,9 @@ Hub-Platform uses an AI-native development workflow with reusable skills and spe
 
 **Before implementing:**
 
-1. Create a GitHub issue or discussion with acceptance criteria
+1. Create a [GitHub issue](https://github.com/rdanielsstat/hub-platform/issues) with an "Acceptance criteria" checklist
 2. Clarify requirements and acceptance criteria before starting
-3. Commit to the issue what needs to be done
+3. Comment progress on the issue as the work goes, and close it from the PR ("Closes #N")
 
 **During implementation:**
 
@@ -1003,7 +1050,7 @@ The project owner pushes directly to `main` (protected against force-push and de
 
 1. Create a feature branch
 2. Implement the changes
-3. Run the local gates: `make check` (lint, format, unit tests, build), plus `make test-integration` for database changes
+3. Run the local gates: `make check` (lint, format, unit tests, build), then `make test-all` (every test layer, on the Compose stack)
 4. Commit with conventional message format: `feat:`, `fix:`, `refactor:`, etc.
 5. Push to your branch
 
@@ -1029,7 +1076,7 @@ Both are configured and required; CI fails on any finding.
 - Run `eslint` for linting (`pnpm lint`; any warning fails it)
 - TypeScript strict mode required
 
-`make lint` checks both; `make fmt` formats both; `make check` runs every local gate (lint, format, unit tests, build).
+`make lint` checks both; `make fmt` formats both; `make check` runs the fast local gates (lint, format, unit tests, build); `make test-all` runs every test layer.
 
 ---
 

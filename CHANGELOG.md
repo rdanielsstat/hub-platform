@@ -7,6 +7,21 @@ comes from the git tag (`.github/scripts/service-version.sh`).
 ## [Unreleased]
 
 ### Added
+- On-call agent wakes on its own: a Grafana alert reaches
+  `observability-alert-handler.yml` through `repository_dispatch`
+  (`grafana-alert`); it triages the payload, opens a tracking issue, posts
+  an OpenAI diagnosis, and on dev rolls back to the previous image
+  (`rollback-dev.yml`) with a health check
+- Alerting as code (`infra/hub/grafana.tf`): project creation 5xx rate above
+  2% over 5 minutes (at least 10 requests), dev and prod, with the webhook
+  contact point and notification policy
+- Project creation journey log (`app.projects`): one JSON line per
+  `POST /projects` with outcome, status, duration and `trace_id`; endpoint
+  metrics carry `hub_environment`
+- `FAULT_INJECT_5XX`, the drill's switch (dev only)
+- `make test-all`, the single test command
+- Dashboard shows how many projects match the filters (#13)
+- `AGENT_TEAM.md`; GitHub Issues as the task tracker
 - MCP server (`mcp-server/`): five tools over the Hub API for AI agents
   (list, get, create, update, add note; no deletes), registered for
   Claude Code in `.mcp.json`
@@ -26,6 +41,12 @@ comes from the git tag (`.github/scripts/service-version.sh`).
   "Label (optional)" placeholder
 
 ### Changed
+- The API refuses blank (empty or whitespace-only) project names and note
+  bodies with 422 (#12)
+- `lambda_image_tag`, `service_version` and `trusted_proxy_ips` are
+  required OpenTofu variables with no default; an empty proxy list is
+  refused; OpenTofu runs in CI only, with `tofu fmt` and `tofu validate`
+  on every pull request
 - CI runs the frontend's lint, format check and build in the `test` job
 - CI also lints and tests the MCP server and the guard hook, runs the MCP
   server against the Compose stack, and audits `mcp-server/uv.lock`
