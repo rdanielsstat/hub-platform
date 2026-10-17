@@ -345,7 +345,7 @@ To audit what an agent did:
 
 - **Automated testing gates**: done. Unit, integration and E2E tests run in CI and gate the dev deploy.
 - **Automated security gates**: partly done. The dependency scan blocks on HIGH/CRITICAL and gitleaks blocks on any secret; bandit, trivy and the IaC scans still run by hand.
-- **Webhook-triggered on-call**: Grafana alerts trigger on-call agent automatically (currently manual dispatch)
-- **Automated remediation**: On-call agent can perform known-safe fixes (requires approval first, high risk)
+- **Webhook-triggered on-call**: done (2026-10-17). Grafana alerts start the on-call agent through `repository_dispatch`.
+- **Automated remediation**: done for dev only (2026-10-17): the on-call agent rolls dev back to an image from a different commit, with no approval; prod stays diagnosis only.
 - **Feedback loop**: On-call engineer rates diagnoses (correct/incorrect); feedback used to improve future diagnoses
 - **Cost controls**: partly done. The on-call agent estimates monthly spend and skips the call above $5; no billing alert yet.

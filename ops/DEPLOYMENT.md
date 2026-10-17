@@ -25,7 +25,7 @@ format and build), `dependency-scan`, `secrets-scan` (gitleaks over the
 full history), `integration`, `e2e` and `infra-check` (`tofu fmt` and
 `tofu validate`):
 
-Pull requests get the format and validate checks only. The OpenTofu
+Pull requests get the format and validate checks and actionlint only. The OpenTofu
 plan runs in the dev deploy, after merge, as part of its apply. A plan on
 pull requests would need a change to the AWS trust policy and a
 plan-only GitHub environment; that is planned later as a separate
@@ -68,8 +68,8 @@ trusts any job running in them (`infra/bootstrap/main.tf`). Once
 approved it:
 
 1. Reads the image tag currently deployed in dev
-   (`tofu output deployed_image_tag` in the dev workspace). Refuses if
-   dev is on `latest`.
+   (`tofu output deployed_image_tag` in the dev workspace). Refuses
+   anything that isn't a CI build tag (`<yyyymmdd>-<hhmmss>-<sha>`).
 2. Derives `SERVICE_VERSION` from the commit that image was built from
    (the sha at the end of the tag), not from `main`'s current HEAD.
 3. Copies that exact image from the dev ECR repository to the prod one.

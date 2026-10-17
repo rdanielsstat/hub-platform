@@ -99,7 +99,7 @@ Dependencies (`backend/uv.lock`): alembic 1.20.0, argon2-cffi 25.1.0, boto3 1.43
 
 | Suite | Runner | Count | Command |
 |---|---|---|---|
-| Backend unit | pytest 9.1.1 | 555 tests, 34 files | `cd backend && uv run pytest` |
+| Backend unit | pytest 9.1.1 | 600 tests, 37 files | `cd backend && uv run pytest` |
 | Backend integration | pytest, real Postgres 17 | 38 tests, 4 files | `make test-integration` |
 | Frontend unit | Vitest 5.0.1 + RTL 16 + jsdom | 206 tests, 22 files | `cd frontend && pnpm test` |
 | E2E | Playwright 1.63.0 (Chromium) | 207 tests: `api.spec.ts` 106, `app.spec.ts` 91, `integration.spec.ts` 10 | `make test-e2e`, `make test-e2e-docker` |
@@ -123,7 +123,7 @@ Dependencies (`backend/uv.lock`): alembic 1.20.0, argon2-cffi 25.1.0, boto3 1.43
 - Per environment: API and bootstrap Lambdas (container image), ECR (immutable tags, scan on push, lifecycle policy), API Gateway HTTP API (50 rps, burst 100), S3 with OAC and explicit SSE-S3, CloudFront (SPA router function, `/api/*` origin request policy, response headers policy with CSP and HSTS, `X-Origin-Verify` custom header), ACM, Cloudflare DNS (proxied), SSM SecureStrings.
 - Environments: dev `https://hub-dev.dnls.dev`, prod `https://hub.dnls.dev`, both live.
 - Workflows (every action pinned to a commit SHA):
-  - `ci.yml`: `test`, `dependency-scan` (after `test`), `secrets-scan`, `integration`, `e2e`, `infra-check` (`tofu fmt`, `tofu validate`); on push to main, `deploy-dev` after all six (bootstrap function updated and run before the full apply).
+  - `ci.yml`: `test`, `dependency-scan` (after `test`), `secrets-scan`, `integration`, `e2e`, `infra-check` (`tofu fmt`, `tofu validate`, actionlint); on push to main, `deploy-dev` after all six (bootstrap function updated and run before the full apply).
   - `promote.yml`: manual, typed confirmation plus reviewer approval; copies the dev image (skipped if prod has the tag), migrates, applies prod, deploys the frontend, smoke-tests.
   - `observability-alert-handler.yml`: the on-call agent, started by the Grafana alert (`repository_dispatch`): triage, tracking issue, OpenAI diagnosis, dev rollback. Manual diagnosis path with reviewer approval.
   - `rollback-dev.yml`: rolls dev back to the previous image, health check, issue comment; dev only.

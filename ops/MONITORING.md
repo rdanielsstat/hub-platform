@@ -110,8 +110,12 @@ has one notification policy, so the dev workspace owns all of it.
   previous image; on prod it diagnoses and opens an issue for a human.
 
 The hand-made "Registration Error Rate > 10%" rule this replaced counted
-409 and 422 answers as errors; delete it from the Grafana UI (the drill
-runbook's step 2, `security/OPERATIONAL_DIAGNOSIS.md`).
+409 and 422 answers as errors; if it still exists in the Grafana UI,
+delete it.
+
+Prod alerts route only to the dispatch contact point: the on-call agent
+diagnoses them and opens an issue. No email routing is configured for
+prod; that is an open decision (`docs/tech-debt.md`).
 
 Worth adding: a 5xx-rate alert across all endpoints, a p95 latency
 alert on `auth_me_get`, and a rate alert on `client_errors_post_total`.

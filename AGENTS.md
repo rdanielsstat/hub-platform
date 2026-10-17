@@ -12,6 +12,11 @@ here and don't let this file drift from it.
 - Task tracker: [GitHub Issues](https://github.com/rdanielsstat/hub-platform/issues).
   Work starts from an issue with an "Acceptance criteria" checklist;
   comment your progress on the issue, and the PR closes it ("Closes #N").
+  Issues [#12](https://github.com/rdanielsstat/hub-platform/issues/12) and
+  [#13](https://github.com/rdanielsstat/hub-platform/issues/13) were built
+  issue first: each was opened with its acceptance criteria before the
+  work, has the agent's progress comments, and was closed by its PR
+  (#18, #19).
 - Agent team: [AGENT_TEAM.md](AGENT_TEAM.md): every role (implementer, QA
   subagent, security-scanning and design-review skills, on-call agent,
   human reviewer), what each owns, and how work passes between them.
@@ -175,8 +180,8 @@ October 2026.
   queries to a landmark rather than the whole document to avoid matching hidden content.
 
 Backend: pytest 9.1, two layers told apart by the `integration` marker.
-`uv run pytest` (from inside `backend/`) runs the unit tests only: 555 tests in
-34 files as of October 2026, each with its own in-memory SQLite database.
+`uv run pytest` (from inside `backend/`) runs the unit tests only: 600 tests in
+37 files as of October 2026, each with its own in-memory SQLite database.
 `uv run pytest -m integration` runs `tests/integration/` (38 tests in 4 files)
 against the Docker Compose Postgres (`docker compose up -d --wait postgres`, or
 `make test-integration`), in a throwaway database built by the real
@@ -219,13 +224,14 @@ Note: CI runs the unit tests, a dependency scan (pip-audit and pnpm audit,
 failing on HIGH and CRITICAL), a gitleaks secret scan of the full git
 history, the backend integration tests, and the Playwright suite and the
 MCP server's live test (against the Compose stack) on every PR and push;
-all five jobs must pass before the dev deploy runs. Actions in `.github/workflows/` are pinned to commit SHAs
+all of them, and `infra-check`, must pass before the dev deploy runs. Actions in `.github/workflows/` are pinned to commit SHAs
 (version in a trailing comment); keep it that way when adding or bumping one.
 CI also runs Ruff (lint and format) over the backend, the MCP server and
 the guard hook, the MCP server's and the hook's unit tests, and the
 frontend's lint, format check and build (all in the `test` job), the
 same gates as `make check`, plus `tofu fmt` and `tofu validate` of
-`infra/` (the `infra-check` job, which gates the dev deploy too); the dependency scan covers
+`infra/` and actionlint v1.7.12 over every workflow (the `infra-check`
+job, which gates the dev deploy too); the dependency scan covers
 `mcp-server/uv.lock` too. Reviewed gitleaks false positives go in `.gitleaksignore` (by
 fingerprint); never add a real secret there.
 
@@ -251,7 +257,7 @@ fingerprint); never add a real secret there.
 
 - **Never commit code.** Make the changes you're asked to make, write a summary of what changed, provide a suggested commit message (use conventional commit format: `feat:`, `fix:`, `refactor:`, etc.; no capital first letter; use semicolons to separate clauses, not periods). The human reviews and commits.
 - **Never deploy.** All deployment is manual or via CI/CD gates. Agents can verify that deployment would work, but cannot trigger it. The single exception is the on-call agent, a GitHub Actions workflow (not an interactive agent): `rollback-dev.yml` may roll dev, and only dev, back to its previous image when the dev alert fires (`custom-agent/on-call-diagnostic/README.md`). Interactive agents, Claude Code included, never deploy and never run Terraform; the guard hook still blocks it.
-- **Never run OpenTofu outside CI.** `tofu plan` and `tofu apply` against the `dev` or `prod` workspace run only in `ci.yml`, `promote.yml` and `rollback-dev.yml` (`infra/BOOTSTRAP.md`, "Where OpenTofu runs").
+- **Never run OpenTofu outside CI.** `tofu plan` and `tofu apply` against the `dev` or `prod` workspace run only in `ci.yml`, `promote.yml` and `rollback-dev.yml` (`infra/BOOTSTRAP.md`, "Where OpenTofu runs"). The one root applied by hand is `infra/bootstrap` (the OIDC provider and the CI role), by a person, never an agent. The CI role `hub-github-actions` trusts only jobs in the `dev` and `prod` GitHub environments (subjects `environment:dev` and `environment:prod`, in the immutable and name-based forms, `infra/bootstrap/main.tf`); no other environment, `observability-oncall` included, can assume it.
 - **Never modify real `.env` files or any secrets.** Files named `.env` (no `.example` suffix, e.g. `backend/.env`, `frontend/.env`) hold local configuration and possibly secrets: never read them into output, edit them, or commit them (they are gitignored). The tracked templates `backend/.env.example` and `frontend/.env.example` are different: they hold no secrets, and you CAN and SHOULD update them whenever a task adds, removes, or changes a setting, documenting what it does and its default. If a task needs a real value set somewhere, flag it and document what's needed.
 - **Never make destructive changes to data.** Do not delete user data, reset the database, or modify production state without explicit approval.
 - **Never restructure or refactor working code** unless explicitly asked. Stick to the task scope.
@@ -320,7 +326,8 @@ compatible; a new rule needs a test in `agent-hooks/tests/test_guard.py`.
 ## Deployment Architecture
 
 **Infrastructure**: OpenTofu 1.12 (`infra/`), two roots: bootstrap (GitHub OIDC trust,
-run once by hand) and hub (dev/prod workspaces). Region: us-east-1.
+applied by hand) and hub (dev/prod workspaces, CI only). Region: us-east-1.
+Providers are pinned exactly in `infra/hub/providers.tf`.
 
 **Backend**: Lambda container image (ECR), Python 3.12. API Gateway HTTP API v2.
 Requests routed via Mangum, which strips `/api` prefix. A separate bootstrap Lambda
@@ -353,7 +360,8 @@ in `ci.yml`, `TF_VAR_otel_headers_prod` in `promote.yml`); they are not stored i
 - `ci.yml`: on PR, run unit tests (backend, frontend, MCP server, guard hook)
   with lint, format and build, the dependency scan, integration tests,
   Playwright E2E and the MCP server's live test against Docker Compose,
-  the gitleaks history scan and `infra-check` (`tofu fmt`, `tofu validate`);
+  the gitleaks history scan and `infra-check` (`tofu fmt`, `tofu validate`,
+  actionlint);
   on push to main, run them,
   then (only if all of them pass) deploy to dev (build
   image, update and run the bootstrap Lambda (migrations), apply infra, build
@@ -418,7 +426,8 @@ minutes), a webhook contact point to GitHub's `repository_dispatch` API
   the dependency scan and gitleaks
 - A real `tofu plan` on pull requests: the AWS role only trusts jobs in
   the `dev` or `prod` environment, which only allow `main`, so PRs get
-  `tofu fmt` and `tofu validate` only
+  `tofu fmt`, `tofu validate` and actionlint only; the plan runs in the
+  dev deploy after merge. A PR plan job is a separate future project
 - Version sync: `pyproject.toml` and `package.json` are hardcoded (1.0.0, bumped by hand for v1.0.0); should sync with git tags
 - Package registry publishing (PyPI, npm) is not set up
 - Full backlog: `docs/tech-debt.md`

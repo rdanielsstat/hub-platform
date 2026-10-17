@@ -480,7 +480,7 @@ flowchart LR
     push --> integ["integration<br/>backend on Postgres"]
     push --> e2e["e2e<br/>Playwright and MCP on Compose"]
     push --> secrets["secrets-scan<br/>gitleaks, full history"]
-    push --> infra["infra-check<br/>tofu fmt, tofu validate"]
+    push --> infra["infra-check<br/>tofu fmt, tofu validate, actionlint"]
     test --> deps["dependency-scan<br/>pip-audit, pnpm audit"]
     test & integ & e2e & secrets & deps & infra --> deploy["deploy-dev<br/>main only"]
     deploy --> dev["Dev<br/>hub-dev.dnls.dev"]
@@ -490,7 +490,7 @@ flowchart LR
     rollback --> dev
 ```
 
-A developer pushes code to main. GitHub Actions runs six checks: the OpenTofu checks (`tofu fmt` and `tofu validate` of `infra/`, which also run on every pull request), plus unit tests (backend, frontend, MCP server and agent hook) with the backend, frontend and MCP lint, format and build checks, a dependency scan (pip-audit and pnpm audit over the backend, MCP server and frontend locks; HIGH and CRITICAL fail it) after the unit tests, a gitleaks history scan, backend integration tests against Postgres, and the Playwright E2E tests and the MCP server's live test against the Docker Compose stack (pull requests run only these checks). All six gate the deploy. If they pass, CI builds a Docker image, tags it with a timestamp and short SHA (e.g., 20261001-163457-83242da), and pushes it to the dev ECR repository (tags are immutable). It then points the bootstrap Lambda at the new image and runs it, which applies any database migrations; only then does it apply the rest of the dev infrastructure with OpenTofu, which switches the API Lambda to the new code. Finally it builds the frontend, uploads it to S3, and smoke-tests `/api/health`. After testing in dev, a release owner manually runs the promote workflow (typed confirmation plus a reviewer's approval), which copies the same image from dev ECR to prod ECR (no rebuild), runs the prod migrations the same way, deploys the image to the production Lambda, and builds and uploads the frontend. Every action is pinned to a commit SHA. Details: `ops/DEPLOYMENT.md`.
+A developer pushes code to main. GitHub Actions runs six checks: the OpenTofu and workflow checks (`tofu fmt` and `tofu validate` of `infra/`, and actionlint over every workflow, which also run on every pull request), plus unit tests (backend, frontend, MCP server and agent hook) with the backend, frontend and MCP lint, format and build checks, a dependency scan (pip-audit and pnpm audit over the backend, MCP server and frontend locks; HIGH and CRITICAL fail it) after the unit tests, a gitleaks history scan, backend integration tests against Postgres, and the Playwright E2E tests and the MCP server's live test against the Docker Compose stack (pull requests run only these checks). All six gate the deploy. If they pass, CI builds a Docker image, tags it with a timestamp and short SHA (e.g., 20261001-163457-83242da), and pushes it to the dev ECR repository (tags are immutable). It then points the bootstrap Lambda at the new image and runs it, which applies any database migrations; only then does it apply the rest of the dev infrastructure with OpenTofu, which switches the API Lambda to the new code. Finally it builds the frontend, uploads it to S3, and smoke-tests `/api/health`. After testing in dev, a release owner manually runs the promote workflow (typed confirmation plus a reviewer's approval), which copies the same image from dev ECR to prod ECR (no rebuild), runs the prod migrations the same way, deploys the image to the production Lambda, and builds and uploads the frontend. Every action is pinned to a commit SHA. Details: `ops/DEPLOYMENT.md`.
 
 ### Environments
 
@@ -500,7 +500,7 @@ A developer pushes code to main. GitHub Actions runs six checks: the OpenTofu ch
 - Internal testing and validation
 - Automatic rollback to the previous image when its project creation alert fires (`rollback-dev.yml`, run by the on-call agent; `ops/DEPLOYMENT.md`, "Rolling back")
 
-**Rollback path:** dev rolls back on its own, or by hand from Actions > "Roll back dev"; prod rolls back by rolling dev back and promoting again (same confirmation and approval). OpenTofu runs only in these workflows, never from a laptop (`infra/BOOTSTRAP.md`).
+**Rollback path:** dev rolls back on its own, or by hand from Actions > "Roll back dev"; prod rolls back by rolling dev back and promoting again (same confirmation and approval). OpenTofu runs only in these workflows for dev and prod, never from a laptop (`infra/BOOTSTRAP.md`); the one exception is `infra/bootstrap` (the OIDC provider and the CI role), which a person applies by hand. The CI role `hub-github-actions` trusts only jobs in the `dev` and `prod` GitHub environments (subjects `environment:dev` and `environment:prod`, in the immutable and name-based forms, `infra/bootstrap/main.tf`); no other environment, `observability-oncall` included, can assume it.
 
 **Production**
 - Manual promotion from development
@@ -788,7 +788,7 @@ agent-hooks/
   tests/test_guard.py         Every deny/ask/allow rule, and the hook's JSON contract
 ```
 
-Backend unit tests each get their own in-memory SQLite database, so they don't need a running server. The integration tests need the Compose Postgres, and the Playwright tests need a backend (see below). As of October 2026: 555 backend unit and 38 integration tests, 206 frontend unit tests, 207 Playwright tests, 74 MCP server unit tests plus 1 live test, and 36 agent hook tests. `make test-all` runs every one of them in one command (Compose stack included); CI runs all of them on every push and pull request, along with the lint, format, build and OpenTofu checks.
+Backend unit tests each get their own in-memory SQLite database, so they don't need a running server. The integration tests need the Compose Postgres, and the Playwright tests need a backend (see below). As of October 2026: 600 backend unit and 38 integration tests, 206 frontend unit tests, 207 Playwright tests, 74 MCP server unit tests plus 1 live test, and 36 agent hook tests. `make test-all` runs every one of them in one command (Compose stack included); CI runs all of them on every push and pull request, along with the lint, format, build and OpenTofu checks.
 
 ### Running tests
 

@@ -6,52 +6,49 @@ Since 2026-10-17 the agent wakes on its own: a Grafana alert reaches
 `repository_dispatch` API, `backend/oncall/alert.py` triages it,
 `backend/oncall/diagnose.py` asks OpenAI for a diagnosis, and on dev
 `.github/workflows/rollback-dev.yml` rolls back to the previous image. Add
-a new section per run, newest first, below the runbook.
+a new section per run, newest first, below the runbook. The run sections
+are a log and stay as written.
 
 ## Drill runbook: from alert to rollback, no human in the loop
 
-Proves the whole path on dev: the project creation alert fires, the
-dispatch starts the agent, the agent rolls dev back, the health check
-returns 200 and the alert resolves. Dev only. Prod is never part of it:
-`FAULT_INJECT_5XX` is ignored in prod by the app, refused outside dev by
-OpenTofu (`guard_fault_inject`) and never passed by `promote.yml`.
+A reusable check of the whole path on dev: the project creation alert
+fires, the dispatch starts the agent, the agent rolls dev back to an
+image from a different commit, the create-project probe passes and the
+alert resolves. Dev only. Prod is never part of it: `FAULT_INJECT_5XX`
+is ignored in prod by the app, refused outside dev by OpenTofu
+(`guard_fault_inject`) and never passed by `promote.yml`.
 
-### Before the drill (once)
+The last drill passed on 2026-10-17: see
+["2026-10-17: drill closed, automatic rollback proven on dev"](#2026-10-17-drill-closed-automatic-rollback-proven-on-dev).
 
-1. Merge the change that adds the alerting as code and wait for the
-   `deploy-dev` job of CI to pass. It creates, in the Grafana stack: the
-   folder "Hub alerts", the rule group "Project creation" (one rule for
-   dev, one for prod), the contact point `hub-oncall-github-dispatch` and
-   the notification policy.
-2. In Grafana (Alerting > Alert rules), delete the old hand-made rule
-   "Registration Error Rate > 10%" (rule ID `cfzugswaau0hsf`). It counted
-   409 and 422 answers as errors, and the new policy would now send it to
-   the dispatch contact point. The agent would ignore it (no
-   `hub_oncall` label), but each firing would still start a run.
-3. Test the dispatch with no fault: Alerting > Contact points >
-   `hub-oncall-github-dispatch` > Test. GitHub should start an
-   "Observability alert handler" run (event `repository_dispatch`) whose
-   triage says `action=ignore` (a test alert has no `hub_oncall` label) and
-   which touches nothing. That proves the URL, the token and the payload
-   format. If no run appears, check the contact point's last delivery error
-   in Grafana: a `401` is the token, a `422` is the payload.
-4. Note the tag dev runs now (the good image): the last `deploy-dev` run's
-   "Compute image tag and version" step prints it.
+### Prerequisites
 
-### The drill
+- The alerting is in place (`infra/hub/grafana.tf`, applied by CI): the
+  folder "Hub alerts", the rule groups "Project creation (dev)" and
+  "Project creation (prod)", the contact point `hub-oncall-github-dispatch`
+  and the notification policy.
+- Dev has run at least two builds from different commits, so ECR holds an
+  older image for the rollback to go back to (`rollback-dev.yml` picks the
+  newest older image built from a different commit).
+- Optional dispatch check with no fault: Alerting > Contact points >
+  `hub-oncall-github-dispatch` > Test. GitHub should start an
+  "Observability alert handler" run (event `repository_dispatch`) whose
+  triage says `action=ignore` and which touches nothing. If no run
+  appears, the contact point's last delivery error in Grafana says why: a
+  `401` is the token, a `422` is the payload.
 
-5. Turn the fault on for dev only:
+### Run it
+
+1. Turn the fault on for dev only:
 
    ```bash
    gh variable set FAULT_INJECT_5XX --env dev --body true
    ```
 
-6. Deploy dev with it. Re-run the `deploy-dev` job of the last successful
-   CI run on `main` (Actions > CI > the run > Re-run jobs > `deploy-dev`).
-   That builds a new image from the same commit, so dev now runs a new
-   tag with `FAULT_INJECT_5XX=true`, and the good image is the one just
-   before it in ECR.
-7. Send project creation requests until the alert fires. With an account
+2. Deploy dev with it: `gh workflow run ci.yml --ref main` (or re-run the
+   `deploy-dev` job of the last CI run on `main`). Dev then runs a new tag
+   with `FAULT_INJECT_5XX=true`.
+3. Send project creation requests until the alert fires. With an account
    of your own on dev (not the shared demo account), from a shell:
 
    ```bash
@@ -72,53 +69,53 @@ OpenTofu (`guard_fault_inject`) and never passed by `promote.yml`.
 
    Every request should print `500`. The rule needs at least 10 requests
    in 5 minutes, and metrics reach Grafana about a minute after the
-   requests, so expect the alert to fire 2 to 4 minutes in (Alerting >
-   Alert rules > "Project creation 5xx rate above 2% (dev)" turns Firing).
-8. Watch, without touching anything:
+   requests, so expect the alert to fire 2 to 4 minutes in.
+4. Watch, without touching anything:
    - GitHub Actions starts "Observability alert handler" from
      `repository_dispatch`.
-   - `triage` says `action=rollback`; `record` opens the issue "On-call:
-     Project creation 5xx rate above 2% (dev)"; `diagnose` comments the
-     OpenAI diagnosis on it.
-   - `rollback` runs "Roll back dev": it finds the previous tag (the good
-     image from step 4), points the dev Lambdas at it, and GET
-     `/api/health` returns 200. It comments the outcome on the issue.
-   - The loop above starts printing `201`: the previous image runs, and the
-     rollback deployed without `FAULT_INJECT_5XX`.
-   - About 5 minutes later the 5xx share drops below 2%, Grafana sends a
-     resolved notification, and a second run comments "Resolved" on the
-     issue.
+   - `triage` says `action=rollback`; `record` opens or reuses the issue
+     "On-call: Project creation 5xx rate above 2% (dev)"; `diagnose`
+     comments the OpenAI diagnosis on it.
+   - `rollback` runs "Roll back dev": it picks the newest older image from
+     a different commit, points the dev Lambdas at it, checks GET
+     `/api/health`, and runs the create-project probe (sign-in as the demo
+     account, create, delete). It comments the outcome on the issue; only
+     a success counts toward the one rollback per incident.
+   - The loop starts printing `201`: the rollback deployed without
+     `FAULT_INJECT_5XX`.
+   - About 5 minutes later Grafana sends a resolved notification, and a
+     second run comments it on the issue with the `oncall:resolved`
+     marker, which ends the incident.
 
 ### After the drill
 
-9. Turn the fault off, so the next deploy doesn't bring it back:
+5. Turn the fault off, so the next deploy doesn't bring it back:
 
    ```bash
    gh variable delete FAULT_INJECT_5XX --env dev
    gh variable list --env dev
    ```
 
-   The list must show only `TRUSTED_PROXY_IPS`. The dev Lambda is already
-   free of it (the rollback deployed without it); the next push to `main`
-   deploys normally.
-10. Confirm a project can be created on dev (the app, or one `201` from
-    the loop), close the tracking issue, and delete the drill projects.
-11. Record the run below: copy the table, fill in every row, and add the
-    issue link and screenshots of the firing alert and the issue thread.
+   The list must show only `TRUSTED_PROXY_IPS`.
+6. Close the tracking issue, and delete the drill projects from your
+   account.
+7. Record the run below, newest first: copy the table and fill in every
+   row. Grafana's own firing time isn't in any GitHub log; write "not
+   recorded" unless you took a screenshot.
 
 ### Record template
 
 | Step | Time (UTC) | Evidence |
 |---|---|---|
-| Fault deployed to dev (`deploy-dev` re-run) | | run URL, new tag |
+| Fault deployed to dev | | run URL, new tag |
 | First `500` from POST /projects | | loop output |
-| Alert firing in Grafana | | screenshot |
+| Alert firing in Grafana | not recorded | screenshot, if taken |
 | Handler run started by `repository_dispatch` | | run URL |
-| Tracking issue opened, diagnosis posted | | issue URL |
-| Rollback run: previous tag deployed | | run URL, tag |
-| GET /api/health returned 200 | | rollback run log |
+| Tracking issue opened or reused, diagnosis posted | | issue URL |
+| Rollback run: target tag (different commit) | | run URL, tags |
+| Health 200 and probe passed | | rollback run log |
 | First `201` after the rollback | | loop output |
-| Alert resolved, "Resolved" comment | | run URL, screenshot |
+| Alert resolved, `oncall:resolved` comment | | run URL |
 | `FAULT_INJECT_5XX` removed from dev | | `gh variable list --env dev` |
 
 ## 2026-10-17: drill closed, automatic rollback proven on dev

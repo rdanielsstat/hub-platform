@@ -92,6 +92,30 @@ comes from the git tag (`.github/scripts/service-version.sh`).
   to the AI client they connect
 
 ### Documentation
+- Rubric scorecard (`docs/rubric-scorecard.md`): each of the 12 criteria
+  scored from evidence, with what a reviewer could still dock
+- Drill runbook in `security/OPERATIONAL_DIAGNOSIS.md` rewritten as a
+  reusable procedure; the one-time setup steps that are done are gone,
+  and the run log entries are unchanged
+- `product-spec.md`: acceptance criteria for each shipped feature, dated
+  2026-10-18 and labeled as written after the work, linked to issues and
+  PRs where they exist
+- `AGENTS.md`: issues #12 and #13 named as the issue-first evidence; the
+  CI role's trust (`environment:dev` and `environment:prod` only), the
+  hand-applied `infra/bootstrap` root, actionlint in `infra-check`, and the
+  backend unit count (600 tests, 37 files)
+- `README.md`, `AGENT_TEAM.md`, `infra/BOOTSTRAP.md`, `ops/DEPLOYMENT.md`:
+  the same CI role trust, OpenTofu in CI only for dev and prod with
+  `infra/bootstrap` applied by hand, and actionlint on pull requests;
+  `promote.yml` refuses any tag that isn't a CI build tag
+- `security/SECURITY_CHECKLIST.md`: the drill marked passed (run
+  39069607931), the jobs that hold `id-token: write`, and the narrowed
+  trust (PR #34)
+- `ops/MONITORING.md` and `docs/tech-debt.md`: prod alert email routing
+  recorded as an open decision; the old registration rule's cleanup no
+  longer points at a removed runbook step
+- `docs/permissions.md`: the webhook-triggered on-call agent and the dev
+  rollback marked done; `docs/repo-inventory.md` test counts and checks
 - README lists every `make` target (new "Make Targets" section)
 - README's AI workflow section documents the tools and their roles, the
   prompt log, context files, and manual review and verification; Mermaid

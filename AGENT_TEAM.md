@@ -79,14 +79,18 @@ flowchart TD
   human decides the fix.
 - **Can:** deploy, but only `rollback-dev.yml`, only to dev, only to the
   previous image, once per incident. That's the one exception to "agents
-  never deploy" (README.md, "On-Call Agent").
+  never deploy" (README.md, "Alerting and the On-Call Agent").
 
 ### 6. Human reviewer and committer
 
 - **Owns:** every decision that leaves the working tree: reviewing the diff,
   committing, opening and merging PRs, tagging releases, promoting to prod
   (`promote.yml` with a typed confirmation and a reviewer's approval),
-  rotating secrets, and closing on-call issues.
+  rotating secrets (`ops/DEPLOYMENT.md`, "Credential rotation"), applying
+  `infra/bootstrap` by hand (the OIDC provider and the CI role, which
+  trusts only the `dev` and `prod` environments), and closing on-call
+  issues. OpenTofu for dev and prod runs in CI only; no role applies it
+  from a laptop.
 - **Receives:** the implementer's diff and report, QA's verdict, the
   security results and the on-call agent's issues.
 - **Hands off:** a merged change, which CI tests and deploys to dev; a
