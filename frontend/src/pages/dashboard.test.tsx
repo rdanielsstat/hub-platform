@@ -260,3 +260,68 @@ describe('DashboardPage populated', () => {
     expect(headings[headings.length - 1]).toHaveTextContent('Stale idea')
   })
 })
+
+describe('DashboardPage project count (issue #13)', () => {
+  it('shows the total with no filters, and N of M while searching', async () => {
+    const user = userEvent.setup()
+    mockApi.listProjects.mockResolvedValueOnce([
+      project({ id: 'a', name: 'Garden planner' }),
+      project({ id: 'b', name: 'Chess app' }),
+      project({ id: 'c', name: 'Garden sensors' }),
+    ])
+    renderDashboard()
+
+    const count = await screen.findByTestId('project-count')
+    expect(count).toHaveTextContent('3 projects')
+    expect(count).toHaveAttribute('aria-live', 'polite')
+
+    await user.type(screen.getByPlaceholderText(/search ideas/i), 'garden')
+    expect(count).toHaveTextContent('Showing 2 of 3 projects')
+
+    await user.type(screen.getByPlaceholderText(/search ideas/i), '-nothing')
+    expect(screen.getByTestId('project-count')).toHaveTextContent(
+      'Showing 0 of 3 projects',
+    )
+  })
+
+  it('counts a status filter as filtering', async () => {
+    const user = userEvent.setup()
+    mockApi.listProjects.mockResolvedValueOnce([
+      project({ id: 'a', name: 'One', status: 'Inbox' }),
+      project({ id: 'b', name: 'Two', status: 'Active' }),
+    ])
+    renderDashboard()
+    await screen.findByText('One')
+
+    await user.click(screen.getByRole('button', { name: /^inbox/i }))
+    expect(screen.getByTestId('project-count')).toHaveTextContent(
+      'Showing 1 of 2 projects',
+    )
+  })
+
+  it('uses the singular for one project', async () => {
+    mockApi.listProjects.mockResolvedValueOnce([project({ name: 'Only' })])
+    renderDashboard()
+    expect(await screen.findByTestId('project-count')).toHaveTextContent(
+      /^1 project$/,
+    )
+  })
+
+  it('is hidden while loading, on error and with no projects', async () => {
+    mockApi.listProjects.mockReturnValueOnce(new Promise(() => {}))
+    const { unmount } = renderDashboard()
+    expect(screen.queryByTestId('project-count')).not.toBeInTheDocument()
+    unmount()
+
+    mockApi.listProjects.mockRejectedValueOnce(new Error('down'))
+    const second = renderDashboard()
+    await screen.findByText(/couldn't load your ideas/i)
+    expect(screen.queryByTestId('project-count')).not.toBeInTheDocument()
+    second.unmount()
+
+    mockApi.listProjects.mockResolvedValueOnce([])
+    renderDashboard()
+    await screen.findByText(/nothing captured yet/i)
+    expect(screen.queryByTestId('project-count')).not.toBeInTheDocument()
+  })
+})

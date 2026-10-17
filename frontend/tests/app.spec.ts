@@ -994,6 +994,28 @@ test.describe('filter projects', () => {
 
   // Filtering is client-side only (no API call), so these assert UI state.
 
+  test('the count line follows the filters (issue #13)', async ({ page }) => {
+    const count = page.getByTestId('project-count')
+    await expect(count).toHaveText('3 projects')
+    await expect(count).toHaveAttribute('aria-live', 'polite')
+
+    await statusPill(page, 'Active').click()
+    await expect(count).toHaveText('Showing 2 of 3 projects')
+
+    await page.getByRole('button', { name: '#x', exact: true }).click()
+    await expect(count).toHaveText('Showing 1 of 3 projects')
+
+    await page.getByRole('button', { name: '#x', exact: true }).click()
+    await statusPill(page, 'All').click()
+    await expect(count).toHaveText('3 projects')
+
+    await page.getByPlaceholder('Search ideas, pitches, tags…').fill('nomatch')
+    await expect(count).toHaveText('Showing 0 of 3 projects')
+
+    await page.getByPlaceholder('Search ideas, pitches, tags…').fill('')
+    await expect(count).toHaveText('3 projects')
+  })
+
   test('by status', async ({ page }) => {
     await statusPill(page, 'Active').click()
     await expect(statusPill(page, 'Active')).toHaveAttribute(
