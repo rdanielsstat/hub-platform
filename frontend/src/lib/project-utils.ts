@@ -88,3 +88,14 @@ export function isStale(p: Project, now: Date = new Date()): boolean {
 export function isSafeLinkUrl(url: string): boolean {
   return /^https?:\/\//i.test(url)
 }
+
+/** "3 projects", or "Showing 2 of 3 projects" while a filter or search
+ * narrows the list. */
+export function projectCountText(
+  shown: number,
+  total: number,
+  filtering: boolean,
+): string {
+  const noun = total === 1 ? 'project' : 'projects'
+  return filtering ? `Showing ${shown} of ${total} ${noun}` : `${total} ${noun}`
+}

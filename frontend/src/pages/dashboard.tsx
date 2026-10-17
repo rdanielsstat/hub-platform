@@ -8,7 +8,11 @@ import { DashboardToolbar } from '@/components/dashboard/dashboard-toolbar'
 import type { SortKey } from '@/components/dashboard/sort-options'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
-import { daysUntil, opportunityScore } from '@/lib/project-utils'
+import {
+  daysUntil,
+  opportunityScore,
+  projectCountText,
+} from '@/lib/project-utils'
 
 export function DashboardPage({ onCapture }: { onCapture: () => void }) {
   const { projects, loading, error, refresh } = useStore()
@@ -64,6 +68,9 @@ export function DashboardPage({ onCapture }: { onCapture: () => void }) {
     return sorted
   }, [projects, status, tag, query, sort])
 
+  const filtering = status !== 'all' || tag !== null || query.trim() !== ''
+  const showCount = !loading && !error && projects.length > 0
+
   return (
     <div>
       <div className="mb-6 flex flex-col gap-1">
@@ -91,6 +98,16 @@ export function DashboardPage({ onCapture }: { onCapture: () => void }) {
           />
         </div>
       )}
+
+      {showCount ? (
+        <p
+          className="mb-3 text-sm text-muted-foreground"
+          aria-live="polite"
+          data-testid="project-count"
+        >
+          {projectCountText(visible.length, projects.length, filtering)}
+        </p>
+      ) : null}
 
       {loading ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
