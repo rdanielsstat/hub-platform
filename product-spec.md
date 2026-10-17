@@ -94,3 +94,30 @@ The app shows a loading state while it asks the backend whether the session cook
 - Backend integration tests against real Postgres 17 (Docker Compose).
 - Playwright E2E: a comprehensive suite in `frontend/tests/` covering all workflows in the browser and every API endpoint, run against a real backend (local, or the Docker Compose stack with Postgres), including backend and database outages.
 - CI runs all of them, plus dependency and secret scans, on every push; all must pass before a deploy.
+
+## Acceptance criteria for shipped features (written 2026-10-18)
+
+Written on 2026-10-18 from the current behavior and the tests that check
+it, so a reviewer can trace each feature to a check. These are a record
+written after the work, not criteria the agents wrote before it. Features
+built issue first have their original criteria on the issue itself
+([#12](https://github.com/rdanielsstat/hub-platform/issues/12),
+[#13](https://github.com/rdanielsstat/hub-platform/issues/13)); six earlier
+features were backfilled as closed issues on 2026-10-17
+([#6](https://github.com/rdanielsstat/hub-platform/issues/6) to
+[#11](https://github.com/rdanielsstat/hub-platform/issues/11)). The core
+screens were built before the tracker and pushed to `main`, so they have
+no issue or PR; the Playwright suite (`frontend/tests/`) is their check.
+
+| Feature | Accepted when | Issue or PR | Checked by |
+|---|---|---|---|
+| Sign up | A new email and a valid password create an account and sign in; a duplicate email is `409`; an invalid email or a password outside 8 to 256 characters is `422` | none (pre-tracker) | `frontend/tests/api.spec.ts`, `frontend/tests/app.spec.ts`, `backend/tests/test_auth.py` |
+| Log in and session | The OAuth2 password form sets the `hub_token` httpOnly cookie; only a `401` signs the user out; an unreachable backend shows "Can't reach the server" | none (pre-tracker) | `frontend/tests/app.spec.ts`, `frontend/src/auth.test.tsx` |
+| Dashboard | Shows only the user's projects; filters by status and tag, searches, sorts; has loading, error, empty and no-matches states; stale and quick-win badges follow the rules in "Screens" | none (pre-tracker) | `frontend/tests/app.spec.ts`, `frontend/src/pages/dashboard.test.tsx` |
+| Project count on the dashboard | `N projects` with no filter, `Showing N of M projects` with one, hidden while loading, on error and with no projects, announced with `aria-live="polite"` | [#13](https://github.com/rdanielsstat/hub-platform/issues/13), [PR #19](https://github.com/rdanielsstat/hub-platform/pull/19) | `frontend/src/pages/dashboard.test.tsx`, `frontend/tests/app.spec.ts` |
+| Project detail and notes | Every field is editable; notes can be added and deleted; another user's project is `404` | none (pre-tracker) | `frontend/tests/app.spec.ts`, `backend/tests/test_projects.py`, `backend/tests/test_notes.py` |
+| Quick capture | Name required, pitch optional, more details behind "More details"; the new card appears without a reload | none (pre-tracker) | `frontend/tests/app.spec.ts`, `frontend/src/components/quick-capture-dialog.test.tsx` |
+| Blank names and notes refused | An empty or whitespace-only project name or note body is `422`; real text is stored as sent | [#12](https://github.com/rdanielsstat/hub-platform/issues/12), [PR #18](https://github.com/rdanielsstat/hub-platform/pull/18) | `backend/tests/test_blank_text.py`, `frontend/tests/api.spec.ts` |
+| Limits and caps | Every length and count limit is `422` when exceeded; over a cap is `403` | none (pre-tracker) | `backend/tests/test_text_limits.py`, `backend/tests/test_quotas.py` |
+| Project creation journey log | One `project_create` JSON line per `POST /projects` with outcome, status, duration and `trace_id`, matching the trace and the latency exemplar, with no email, credentials or body | [PR #14](https://github.com/rdanielsstat/hub-platform/pull/14) | `backend/tests/test_journey_log.py` |
+| On-call agent and dev rollback | A firing dev alert starts the handler with no human, opens the issue, rolls dev back to an image from a different commit, proves `POST /projects` works and records the outcome; prod is diagnosed only | [#6](https://github.com/rdanielsstat/hub-platform/issues/6), PRs [#17](https://github.com/rdanielsstat/hub-platform/pull/17), [#26](https://github.com/rdanielsstat/hub-platform/pull/26), [#28](https://github.com/rdanielsstat/hub-platform/pull/28) | `backend/tests/test_oncall*.py`, `backend/tests/test_workflow_permissions.py`, the 2026-10-17 drill (`security/OPERATIONAL_DIAGNOSIS.md`) |

@@ -86,9 +86,9 @@ Legend: **Done** (implemented, and tested or configured in code),
 | Dependency scans in CI | Verified | `dependency-scan` job, gates the deploy on HIGH and CRITICAL; gate tested against known HIGH, MODERATE-only and unknown-severity cases (`security/DEPENDENCIES.md`) |
 | PR audit | Done | `security/PR_AUDIT.md` (PR #5, ec830d6, f34d327) |
 | Agent guardrail: no commits, deploys or secret access by a coding agent | Done | `agent-hooks/guard.py` (Claude Code `PreToolUse`, `.claude/settings.json`); `agent-hooks/tests/test_guard.py`; confirmed live 2026-10-13 (a `git commit --dry-run` was denied) |
-| Operational diagnosis run | Done | `security/OPERATIONAL_DIAGNOSIS.md` (drill, run 37164038288) |
+| Operational diagnosis run | Done | `security/OPERATIONAL_DIAGNOSIS.md` (drills: run 37164038288; the automatic rollback, run 39069607931, 2026-10-17) |
 | Branch protection on `main` (no force-push or deletion) | Verified | Repository ruleset `protect-main` (id 24435773), active since 2026-10-04; GitHub reports `deletion` and `non_fast_forward` applying to `main`; direct pushes still allowed |
-| Deploy environments limited to `main`; OIDC only for deploy jobs | Verified | `dev` and `prod` GitHub environments accept deployments from `main` only (set and read back via the GitHub API, 2026-10-13; `prod` keeps its reviewer and wait timer); `id-token: write` only on `deploy-dev` in `ci.yml` (`backend/tests/test_workflow_permissions.py`); the role trusts only jobs in those environments (`infra/bootstrap/main.tf`). `security/REMEDIATION_LOG.md` L2, L3, N4 |
+| Deploy environments limited to `main`; OIDC only for deploy jobs | Verified | `dev` and `prod` GitHub environments accept deployments from `main` only (set and read back via the GitHub API, 2026-10-13; `prod` keeps its reviewer and wait timer); `id-token: write` only on the jobs that assume the AWS role (`deploy-dev` in `ci.yml`, `promote.yml`, `rollback-dev.yml`, `probe-dev.yml`, and the handler's call to `rollback-dev.yml`; `backend/tests/test_workflow_permissions.py`); the role trusts only the exact subjects `environment:dev` and `environment:prod` (`infra/bootstrap/main.tf`, PR #34). `security/REMEDIATION_LOG.md` L2, L3, N4 |
 
 ## Monitoring and response
 
@@ -97,7 +97,7 @@ Legend: **Done** (implemented, and tested or configured in code),
 | Traces and metrics in Grafana Cloud for dev and prod | Done | `ops/MONITORING.md` |
 | Frontend errors reported | Verified | `POST /client-errors`; a report to dev returned 204 and was logged (2026-10-03) |
 | Frontend errors visible in Grafana | Verified | Exported as OTLP logs; the dev report was found in Grafana Cloud Loki with its labels and trace id (2026-10-03); `ops/MONITORING.md` |
-| Alerting on user impact, as code | Done | Project creation 5xx rate, dev and prod (`infra/hub/grafana.tf`); end-to-end drill pending (`security/OPERATIONAL_DIAGNOSIS.md`) |
+| Alerting on user impact, as code | Done | Project creation 5xx rate, dev and prod (`infra/hub/grafana.tf`); end-to-end drill passed 2026-10-17 (run 39069607931, `security/OPERATIONAL_DIAGNOSIS.md`) |
 | On-call agent's deploy scope (dev rollback only) | Done | `rollback-dev.yml`; scope checked by `backend/tests/test_workflow_permissions.py` |
 | Alerts beyond project creation (all-endpoint 5xx, latency, client errors) | **Open** | Suggestions in `ops/MONITORING.md` |
 | Deploy and rollback runbook | Done | `ops/DEPLOYMENT.md`, "Rolling back" (automatic for dev) |
@@ -113,8 +113,9 @@ Legend: **Done** (implemented, and tested or configured in code),
 
 ## Highest-priority open items
 
-1. Alerts beyond project creation (`ops/MONITORING.md`), and the
-   end-to-end drill of the automatic on-call path on dev.
+1. Alerts beyond project creation (`ops/MONITORING.md`), and a decision
+   on email routing for prod alerts (today they go only to the dispatch
+   contact point).
 2. Self-service account deletion and data export.
 3. Optionally, require the CI checks before merging into `main` (would
    mean moving to pull requests for every change).

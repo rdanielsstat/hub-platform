@@ -60,7 +60,11 @@ tofu apply          # prints ci_role_arn
 
 Creates the GitHub OIDC provider and a role that jobs of this repository
 running in the `dev` or `prod` deployment environment can assume (forks
-and pull requests from forks get no OIDC token). No AWS access keys are
+and pull requests from forks get no OIDC token). The trust lists the
+exact subjects `environment:dev` and `environment:prod`, in the immutable
+and name-based forms; no other environment can assume the role. This
+root is applied by hand, by a person: `tofu plan`, read it, then `tofu
+apply` from `infra/bootstrap`. No AWS access keys are
 ever stored in GitHub. Limiting the environments to `main` (below) is
 what keeps other branches from deploying.
 
@@ -145,7 +149,7 @@ file changes are not committed: the tracked `infra/hub/.terraform.lock.hcl`
 predates the grafana provider, and CI's `tofu init` adds that entry in
 the runner only.
 
-To see what a change will do: `tofu fmt` and `tofu validate` run on
+To see what a change will do: `tofu fmt`, `tofu validate` and actionlint run on
 every pull request (the `infra-check` job), and the dev deploy's apply
 prints the plan it applies, in the run log. Changing infrastructure
 means a pull request, like any other change.

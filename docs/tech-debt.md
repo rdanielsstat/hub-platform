@@ -126,8 +126,12 @@
   trace, metrics with `hub_environment` and a latency exemplar, and one
   structured `app.projects` log line, all sharing the `trace_id`.
 - Alerting as code and the automatic on-call agent: done (2026-10-17).
-  The end-to-end drill on dev is the human's to run
-  (`security/OPERATIONAL_DIAGNOSIS.md`, "Drill runbook").
+  The end-to-end drill on dev passed on 2026-10-17
+  (`security/OPERATIONAL_DIAGNOSIS.md`, "2026-10-17: drill closed,
+  automatic rollback proven on dev").
+- Prod alert email routing: open decision. Prod alerts route only to the
+  dispatch contact point (the on-call agent diagnoses them and opens an
+  issue); no email routing is configured for prod.
 
 ## Deferred features
 
