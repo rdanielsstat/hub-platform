@@ -322,7 +322,6 @@ before each prod promotion that includes a migration.
 
 ## Rolling back
 
-<<<<<<< HEAD
 ### Dev: `rollback-dev.yml`
 
 The on-call agent runs it when the dev alert fires; anyone can run it
@@ -355,9 +354,6 @@ has proved the fault is gone:
 Options, fastest first:
 ||||||| 98370fc
 There's no rollback workflow. Options, fastest first:
-=======
-### Dev: `rollback-dev.yml` (automatic, or by hand)
->>>>>>> origin/main
 
 The on-call agent runs it when the dev project creation alert fires
 (`custom-agent/on-call-diagnostic/README.md`); anyone with access can run
