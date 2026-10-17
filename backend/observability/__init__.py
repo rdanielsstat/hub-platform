@@ -3,8 +3,10 @@ over OTLP/HTTP to Grafana Cloud, or to a local collector when Grafana isn't
 configured (see config.py).
 
 Logs: only the loggers in EXPORTED_LOGGERS (frontend error reports,
-database outages, origin-verification rejections) are exported, as OTLP
-log records that Grafana Cloud stores in Loki. They still go to stdout
+database outages, origin-verification rejections; WARNING and above) and
+EXPORTED_INFO_LOGGERS (the project creation journey, app/journey_log.py;
+INFO and above) are exported, as OTLP log records that Grafana Cloud
+stores in Loki. They still go to stdout
 (CloudWatch) exactly as before; the OTLP handler is added alongside.
 
 Call initialize_observability(app, enabled=...) once, right after
@@ -44,7 +46,7 @@ from opentelemetry.sdk.trace.export import (
 from observability.config import ObservabilityConfig, load_config
 from observability.metrics import HttpMetrics, MetricsMiddleware
 
-__all__ = ["EXPORTED_LOGGERS", "initialize_observability"]
+__all__ = ["EXPORTED_INFO_LOGGERS", "EXPORTED_LOGGERS", "initialize_observability"]
 
 METRIC_EXPORT_INTERVAL_MS = 60_000
 
@@ -53,6 +55,9 @@ METRIC_EXPORT_INTERVAL_MS = 60_000
 # (app/main.py) and origin-verification rejections (app/auth/origin_verify.py).
 # Deliberately a short list: each record is exported synchronously.
 EXPORTED_LOGGERS = ("app.client_errors", "app.db", "app.security")
+# Exported from INFO: one line per project creation (app/journey_log.py),
+# the key journey the alert and the on-call agent watch.
+EXPORTED_INFO_LOGGERS = ("app.projects",)
 # SimpleSpanProcessor exports inside the request, so a slow or dead
 # collector would otherwise add its full timeout to every request.
 _SPAN_EXPORT_TIMEOUT_S = 2
@@ -85,6 +90,7 @@ class Observability:
     span_exporter_endpoint: str | None
     metric_exporter_endpoint: str | None
     log_exporter_endpoint: str | None = None
+    info_log_handler: LoggingHandler | None = None
     exported_loggers: tuple[str, ...] = field(default=EXPORTED_LOGGERS)
 
     def flush(self) -> None:
@@ -102,6 +108,9 @@ class Observability:
         FastAPIInstrumentor.uninstrument_app(self.app)
         for name in self.exported_loggers:
             logging.getLogger(name).removeHandler(self.log_handler)
+        if self.info_log_handler is not None:
+            for name in EXPORTED_INFO_LOGGERS:
+                logging.getLogger(name).removeHandler(self.info_log_handler)
         self.tracer_provider.shutdown()
         self.meter_provider.shutdown()
         self.logger_provider.shutdown()
@@ -279,6 +288,11 @@ def _setup(
     )
     for name in EXPORTED_LOGGERS:
         logging.getLogger(name).addHandler(log_handler)
+    info_log_handler = _ExportOnEmitLoggingHandler(
+        level=logging.INFO, logger_provider=logger_provider
+    )
+    for name in EXPORTED_INFO_LOGGERS:
+        logging.getLogger(name).addHandler(info_log_handler)
 
     FastAPIInstrumentor.instrument_app(
         app,
@@ -293,7 +307,9 @@ def _setup(
     )
     app.add_middleware(
         MetricsMiddleware,
-        metrics=HttpMetrics(meter_provider.get_meter("observability")),
+        metrics=HttpMetrics(
+            meter_provider.get_meter("observability"), environment=config.environment
+        ),
     )
 
     handle = Observability(
@@ -308,6 +324,7 @@ def _setup(
         logger_provider=logger_provider,
         log_handler=log_handler,
         log_exporter_endpoint=log_endpoint,
+        info_log_handler=info_log_handler,
     )
     # Runs at the end of every Lambda invocation (Mangum drives the
     # lifespan per event) and on uvicorn shutdown, so metrics recorded

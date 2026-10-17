@@ -15,6 +15,7 @@ from app.core.config import (
     require_safe_jwt_secret,
     require_safe_seed_setting,
 )
+from app.journey_log import JourneyLogMiddleware
 from app.routers import auth, errors, health, notes, projects
 from observability import initialize_observability
 
@@ -52,6 +53,9 @@ app = FastAPI(
 # OTEL_ENABLED on. Never raises: a broken telemetry setup is logged and
 # the app runs without it.
 initialize_observability(app, enabled=OTEL_ENABLED)
+
+# One structured log line per project creation, with its trace_id.
+app.add_middleware(JourneyLogMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

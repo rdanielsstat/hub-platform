@@ -46,8 +46,11 @@ sources. Use **Explore** to query them:
 - Logs: Loki, `{service_name="hub-platform"}`. Only the loggers in
   `EXPORTED_LOGGERS` (`__init__.py`) are exported: frontend error reports
   (`app.client_errors`), database outages (`app.db`) and
-  origin-verification rejections (`app.security`), WARNING and above.
-  Send one with `curl -X POST localhost:8000/client-errors -H
+  origin-verification rejections (`app.security`), WARNING and above;
+  plus `EXPORTED_INFO_LOGGERS`, the project creation journey
+  (`app.projects`, one `project_create` line per `POST /projects` with
+  its `trace_id`), INFO and above. Endpoint metrics carry
+  `hub_environment` (from `ENVIRONMENT`, default `dev`). Send one with `curl -X POST localhost:8000/client-errors -H
   'Content-Type: application/json' -d '{"kind":"error","message":"test"}'`.
 
 Metrics are exported every 60 seconds (and on backend shutdown), then
