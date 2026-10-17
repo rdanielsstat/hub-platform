@@ -44,12 +44,30 @@ variable "github_repo" {
   default     = "rdanielsstat/hub-platform"
 }
 
-# Grafana Cloud's Prometheus (Mimir) data source, named
-# grafanacloud-<stack>-prom by Grafana Cloud.
-variable "grafana_prometheus_data_source" {
-  description = "Name of the Grafana Cloud Prometheus data source the alert queries."
+# The stack's existing contact point that gets every alert the on-call
+# route below doesn't take (the policy tree's default). It isn't managed
+# here, and the Grafana provider has no data source for contact points, so
+# its name comes in from CI: the GRAFANA_DEFAULT_CONTACT_POINT repo
+# variable. Required, with no default, so the name never lives in the
+# code; Grafana refuses the policy at apply if no contact point has it.
+variable "grafana_default_contact_point" {
+  description = "Name of the existing Grafana contact point the notification policy defaults to. Set by CI."
   type        = string
-  default     = "grafanacloud-blackpoplar56-prom"
+  nullable    = false
+
+  validation {
+    condition     = trimspace(var.grafana_default_contact_point) != ""
+    error_message = "grafana_default_contact_point must name an existing Grafana contact point (the GRAFANA_DEFAULT_CONTACT_POINT repo variable)."
+  }
+}
+
+# UID of Grafana Cloud's Prometheus (Mimir) data source, which the alert
+# queries. Grafana Cloud gives it the UID grafanacloud-prom (its display
+# name is grafanacloud-<stack>-prom).
+variable "grafana_prometheus_data_source_uid" {
+  description = "UID of the Grafana Cloud Prometheus data source the alert queries."
+  type        = string
+  default     = "grafanacloud-prom"
 }
 
 locals {
@@ -62,11 +80,6 @@ locals {
   alert_ratio        = 0.02
   alert_min_traffic  = 10
   alert_environments = toset(["dev", "prod"])
-}
-
-data "grafana_data_source" "prometheus" {
-  count = local.manage_grafana ? 1 : 0
-  name  = var.grafana_prometheus_data_source
 }
 
 resource "grafana_folder" "hub" {
@@ -98,13 +111,13 @@ resource "grafana_contact_point" "oncall_dispatch" {
   }
 }
 
-# The stack's whole policy tree. Everything goes to the dispatch contact
-# point; the agent ignores any alert without hub_oncall="true"
-# (backend/oncall/alert.py), so an alert made by hand in the UI can't
-# make it act.
+# The stack's whole policy tree. Alerts labeled hub_oncall="true" go to
+# the dispatch contact point and wake the on-call agent; everything else
+# (alerts made by hand in the UI, say) goes to the existing default
+# contact point, so it reaches a person and never starts the agent.
 resource "grafana_notification_policy" "hub" {
   count         = local.manage_grafana ? 1 : 0
-  contact_point = grafana_contact_point.oncall_dispatch[0].name
+  contact_point = var.grafana_default_contact_point
   group_by      = ["alertname", "hub_environment"]
 
   policy {
@@ -153,7 +166,7 @@ resource "grafana_rule_group" "project_creation" {
       # A: 5xx responses in the window (0 when there were none).
       data {
         ref_id         = "A"
-        datasource_uid = data.grafana_data_source.prometheus[0].uid
+        datasource_uid = var.grafana_prometheus_data_source_uid
         relative_time_range {
           from = 300
           to   = 0
@@ -169,7 +182,7 @@ resource "grafana_rule_group" "project_creation" {
       # B: all requests in the window.
       data {
         ref_id         = "B"
-        datasource_uid = data.grafana_data_source.prometheus[0].uid
+        datasource_uid = var.grafana_prometheus_data_source_uid
         relative_time_range {
           from = 300
           to   = 0
