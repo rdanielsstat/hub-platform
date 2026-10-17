@@ -291,6 +291,8 @@ jobs:
       TF_VAR_grafana_url: ${{ vars.GRAFANA_URL }}
       GRAFANA_AUTH: ${{ secrets.GRAFANA_AUTH }}
       TF_VAR_github_dispatch_token: ${{ secrets.GH_DISPATCH_TOKEN }}
+      # The existing contact point the notification policy defaults to.
+      TF_VAR_grafana_default_contact_point: ${{ vars.GRAFANA_DEFAULT_CONTACT_POINT }}
       # The on-call drill's fault switch (security/OPERATIONAL_DIAGNOSIS.md):
       # a variable on the dev environment only, unset (false) normally.
       TF_VAR_fault_inject_5xx: ${{ vars.FAULT_INJECT_5XX || 'false' }}
