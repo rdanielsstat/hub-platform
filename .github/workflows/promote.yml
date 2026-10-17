@@ -23,7 +23,7 @@ env:
 jobs:
   promote:
     if: inputs.confirm == 'promote'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: prod
     env:
       TF_VAR_cloudflare_zone_id: ${{ secrets.CLOUDFLARE_ZONE_ID }}

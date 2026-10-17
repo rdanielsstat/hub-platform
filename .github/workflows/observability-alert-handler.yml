@@ -70,7 +70,7 @@ env:
 jobs:
   diagnose-manual:
     if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: observability-oncall
     timeout-minutes: 5
     steps:
@@ -93,7 +93,7 @@ jobs:
 
   triage:
     if: github.event_name == 'repository_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       action: ${{ steps.decide.outputs.action }}
@@ -119,7 +119,7 @@ jobs:
   record:
     needs: triage
     if: needs.triage.outputs.action != 'ignore'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -181,7 +181,7 @@ jobs:
   diagnose:
     needs: [triage, record]
     if: needs.triage.outputs.action == 'rollback' || needs.triage.outputs.action == 'diagnose'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -246,7 +246,7 @@ jobs:
   already-rolled-back:
     needs: [triage, record]
     if: needs.triage.outputs.action == 'rollback' && needs.record.outputs.rolled_back == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -264,7 +264,7 @@ jobs:
   resolved:
     needs: [triage, record]
     if: needs.triage.outputs.action == 'resolved' && needs.record.outputs.issue != ''
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
