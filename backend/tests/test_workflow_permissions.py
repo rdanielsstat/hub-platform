@@ -122,7 +122,11 @@ def test_only_the_rollback_and_ci_deploy_use_the_dev_environment() -> None:
         for name, job in workflow["jobs"].items():
             if job.get("environment") == "dev":
                 users.add(f"{path.name}:{name}")
-    assert users == {"ci.yml:deploy-dev", "rollback-dev.yml:rollback"}
+    assert users == {
+        "ci.yml:deploy-dev",
+        "rollback-dev.yml:rollback",
+        "probe-dev.yml:probe",
+    }
 
 
 def test_rollback_scripts_take_no_interpolated_expressions(rollback: dict) -> None:
