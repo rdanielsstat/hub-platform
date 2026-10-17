@@ -24,7 +24,7 @@ backend/                95 files
         auth/ core/ db/ models/ routers/
   alembic/        env.py, versions/0001..0003 (migrations); alembic.ini
   observability/  OTel setup (traces, metrics, logs), metrics registry, local stack
-  oncall/         diagnose.py (on-call diagnostic agent)
+  oncall/         alert.py, diagnose.py (on-call agent: triage, diagnosis)
   tests/          27 unit test files, integration/ (4 files, real Postgres)
   Dockerfile pyproject.toml uv.lock .python-version .env.example README.md
 frontend/               97 files
@@ -68,7 +68,7 @@ Modules:
 - `routers/`: `health`, `auth`, `projects`, `notes`, `errors` (`POST /client-errors`).
 - `bootstrap_db.py`: deploy-time migrations and demo seeding; local role/database creation.
 - `observability/`: OpenTelemetry traces and metrics, plus OTLP log export of `app.client_errors`, `app.db` and `app.security`.
-- `oncall/diagnose.py`: on-call diagnostic agent (OpenAI).
+- `oncall/alert.py`, `oncall/diagnose.py`: the on-call agent's triage and OpenAI diagnosis (`observability-alert-handler.yml`, `rollback-dev.yml`).
 
 Config: `backend/.env.example` documents every setting, including `TRUSTED_PROXY_IPS`, `CLIENT_ERROR_RATE_LIMIT_PER_MINUTE`, `MAX_ACCOUNTS`, `MAX_PROJECTS_PER_USER` and `MAX_NOTES_PER_PROJECT`.
 
@@ -99,12 +99,13 @@ Dependencies (`backend/uv.lock`): alembic 1.20.0, argon2-cffi 25.1.0, boto3 1.43
 
 | Suite | Runner | Count | Command |
 |---|---|---|---|
-| Backend unit | pytest 9.1.1 | 459 tests, 30 files | `cd backend && uv run pytest` |
+| Backend unit | pytest 9.1.1 | 555 tests, 34 files | `cd backend && uv run pytest` |
 | Backend integration | pytest, real Postgres 17 | 38 tests, 4 files | `make test-integration` |
-| Frontend unit | Vitest 5.0.1 + RTL 16 + jsdom | 202 tests, 22 files | `cd frontend && pnpm test` |
-| E2E | Playwright 1.63.0 (Chromium) | 204 tests: `api.spec.ts` 104, `app.spec.ts` 90, `integration.spec.ts` 10 | `make test-e2e`, `make test-e2e-docker` |
+| Frontend unit | Vitest 5.0.1 + RTL 16 + jsdom | 206 tests, 22 files | `cd frontend && pnpm test` |
+| E2E | Playwright 1.63.0 (Chromium) | 207 tests: `api.spec.ts` 106, `app.spec.ts` 91, `integration.spec.ts` 10 | `make test-e2e`, `make test-e2e-docker` |
 | MCP server | pytest, fake Hub API | 74 tests, 7 files; plus 1 live test (`integration` marker) | `make test-mcp`, `make test-mcp-live` |
 | Agent hook | unittest (standard library) | 36 tests, 1 file | `make test-hooks` |
+| All of the above | | | `make test-all` (starts and stops the Compose stack) |
 
 - CI (`ci.yml`) runs every suite (the MCP live test against the Compose stack in the `e2e` job), Ruff over the backend, MCP server and hook, the frontend's lint, format check and build, the dependency scan (backend, MCP server, frontend) and gitleaks, on every PR and push; all gate the dev deploy.
 - The backend unit run is warning-free (Mangum's one known warning is filtered, with the reason, in `pyproject.toml`).
@@ -122,11 +123,12 @@ Dependencies (`backend/uv.lock`): alembic 1.20.0, argon2-cffi 25.1.0, boto3 1.43
 - Per environment: API and bootstrap Lambdas (container image), ECR (immutable tags, scan on push, lifecycle policy), API Gateway HTTP API (50 rps, burst 100), S3 with OAC and explicit SSE-S3, CloudFront (SPA router function, `/api/*` origin request policy, response headers policy with CSP and HSTS, `X-Origin-Verify` custom header), ACM, Cloudflare DNS (proxied), SSM SecureStrings.
 - Environments: dev `https://hub-dev.dnls.dev`, prod `https://hub.dnls.dev`, both live.
 - Workflows (every action pinned to a commit SHA):
-  - `ci.yml`: `test`, `dependency-scan` (after `test`), `secrets-scan`, `integration`, `e2e`; on push to main, `deploy-dev` after all five (bootstrap function updated and run before the full apply).
+  - `ci.yml`: `test`, `dependency-scan` (after `test`), `secrets-scan`, `integration`, `e2e`, `infra-check` (`tofu fmt`, `tofu validate`); on push to main, `deploy-dev` after all six (bootstrap function updated and run before the full apply).
   - `promote.yml`: manual, typed confirmation plus reviewer approval; copies the dev image (skipped if prod has the tag), migrates, applies prod, deploys the frontend, smoke-tests.
-  - `observability-alert-handler.yml`: manual on-call diagnostic, reviewer approval.
+  - `observability-alert-handler.yml`: the on-call agent, started by the Grafana alert (`repository_dispatch`): triage, tracking issue, OpenAI diagnosis, dev rollback. Manual diagnosis path with reviewer approval.
+  - `rollback-dev.yml`: rolls dev back to the previous image, health check, issue comment; dev only.
 - Repository: public; ruleset `protect-main` blocks force-pushes and deletion of `main`.
-- Observability: dev and prod export traces, metrics and logs to Grafana Cloud.
+- Observability: dev and prod export traces, metrics and logs to Grafana Cloud. Alerting as code in `infra/hub/grafana.tf` (project creation 5xx rate, dev and prod).
 
 ## 9. Docs and project meta
 

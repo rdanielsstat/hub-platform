@@ -3,7 +3,7 @@
 Security notes for the AI agents and automation that touch this repo:
 coding agents working in a checkout, the Claude Code skills and subagent
 in `.claude/`, the MCP server in `mcp-server/`, the guard hook in
-`agent-hooks/`, and the on-call diagnostic in CI. The permission model
+`agent-hooks/`, and the on-call agent in CI. The permission model
 itself (what agents may and may not do) is defined in `AGENTS.md` and
 `docs/permissions.md`; this file is about the risks behind those rules
 and how each is contained.
@@ -15,7 +15,7 @@ and how each is contained.
 | Coding agents (Claude Code and others) | A developer's checkout | The developer's user account | Local files, local servers, whatever the shell can reach |
 | Skills: `release`, `e2e-testing`, `security-scanning`, `design-review` | `.claude/skills/` | Same as above, when a human invokes them | Same; `release` pushes to `main` |
 | QA engineer subagent | `.claude/agents/qa-engineer.md` | Same, in a fresh context | Same; instructed not to implement fixes |
-| On-call diagnostic | `backend/oncall/diagnose.py`, `.github/workflows/observability-alert-handler.yml` | GitHub Actions runner | OpenAI API only, with `OPENAI_API_KEY` |
+| On-call agent | `backend/oncall/`, `.github/workflows/observability-alert-handler.yml`, `.github/workflows/rollback-dev.yml` | GitHub Actions runner | OpenAI API (`OPENAI_API_KEY`); issues on this repository; AWS in the dev environment only, for the rollback |
 | Hub MCP server | `mcp-server/`, registered in `.mcp.json` | The developer's user account, started by their MCP client | The Hub API at `HUB_API_URL`, as the one account in `HUB_EMAIL`, with the password from the macOS keychain via `run-with-keychain.sh` |
 | Guard hook | `agent-hooks/guard.py`, registered in `.claude/settings.json` | The developer's user account, inside Claude Code | Nothing: reads the pending tool call, answers allow, ask or deny |
 
@@ -90,21 +90,35 @@ automatically, and the developer's agent permission prompts show each
 command before it runs. Pinning tool versions in the skill files would
 tighten this further (not done yet).
 
-### On-call diagnostic
+### On-call agent
 
-- Started by hand (`workflow_dispatch`) and waits for a reviewer's
-  approval in the `observability-oncall` environment before it runs, so
-  before any OpenAI spend.
-- The alert text is passed to the script through an environment
-  variable, not interpolated into the shell command, so a crafted alert
-  summary can't inject shell commands into the runner.
-- It's read-only: one outbound HTTPS call, output written to the job
-  log and summary. It has `contents: read` and no cloud credentials, so
-  a manipulated diagnosis can mislead a reader but can't change anything.
-- A $5/month spend estimate gates the API call (an estimate, not a
+- Started by the Grafana alert (`repository_dispatch`, `grafana-alert`)
+  with no human approval, or by hand (`workflow_dispatch`, diagnosis
+  only) after a reviewer's approval in `observability-oncall`.
+- **Who can start it:** anyone holding a token that can create
+  `repository_dispatch` events on this repository. Grafana holds one
+  (`GH_DISPATCH_TOKEN`: fine-grained, this repository only, Contents read
+  and write). A forged dispatch can at worst roll dev back by one image
+  and spend one OpenAI call; it can't reach prod, and a second rollback
+  for the same open issue is refused.
+- **Untrusted input:** the payload reaches `backend/oncall/alert.py`
+  through an environment variable, never interpolated into a shell
+  command (`backend/tests/test_oncall.py` checks every step). Fields that
+  end up in issue titles and outputs are cut to one line of plain
+  characters. Anything that isn't a firing or resolved alert labeled
+  `hub_oncall="true"` for dev or prod is ignored.
+- **Deploy scope:** only `rollback-dev.yml`, in the `dev` environment, the
+  dev workspace, a targeted apply of the two dev Lambdas, to the image
+  pushed just before the current one, never across a migration
+  (`backend/tests/test_workflow_permissions.py`). The interactive guard
+  hook still blocks every deploy by Claude Code; this exception is for the
+  workflow only.
+- **Permissions:** `contents: read` everywhere; `issues: write` for the
+  tracking issue; `id-token: write` only in the rollback job.
+- A $5/month spend estimate gates the OpenAI call (an estimate, not a
   billing query).
-- What goes to OpenAI: the alert text a human pasted, plus a fixed
-  description of the stack. No user data, logs or database content. See
+- What goes to OpenAI: the alert summary, plus a fixed description of the
+  stack. No user data, logs or database content. See
   `security/DATA_POLICY.md`.
 
 ### MCP servers and extensions

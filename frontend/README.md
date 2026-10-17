@@ -54,7 +54,8 @@ it. `nginx.conf` stands in for CloudFront:
 ## Checks
 
 All must pass before a change is done (`make check` from the repo root
-runs them, plus the backend unit tests). CI runs the same four in its
+runs them, plus the backend unit tests; `make test-all` runs every test
+layer, Playwright included, on a Compose stack it starts and stops). CI runs the same four in its
 `test` job:
 
 ```
