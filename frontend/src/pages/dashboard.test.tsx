@@ -47,6 +47,12 @@ function project(overrides: Partial<Project> = {}): Project {
   }
 }
 
+// Relative to now, so a card meant to be fresh never ages past the 30-day
+// stale threshold as the calendar moves on.
+function daysAgo(days: number): string {
+  return new Date(Date.now() - days * 86400000).toISOString()
+}
+
 function renderDashboard(onCapture = vi.fn()) {
   return render(
     <MemoryRouter>
@@ -125,7 +131,7 @@ describe('DashboardPage populated', () => {
       pitch: 'Track chess games',
       status: 'Active',
       tags: ['chess', 'stats'],
-      updatedAt: '2026-09-19T00:00:00Z',
+      updatedAt: daysAgo(1),
     }),
     project({
       id: 'p2',
@@ -133,7 +139,7 @@ describe('DashboardPage populated', () => {
       pitch: 'Plan the garden',
       status: 'Inbox',
       tags: ['garden'],
-      updatedAt: '2026-09-18T00:00:00Z',
+      updatedAt: daysAgo(2),
     }),
     project({
       id: 'p3',
@@ -143,7 +149,7 @@ describe('DashboardPage populated', () => {
       excitement: 5,
       effort: 1,
       tags: [],
-      updatedAt: '2026-09-17T00:00:00Z',
+      updatedAt: daysAgo(3),
     }),
     project({
       id: 'p4',
@@ -153,7 +159,7 @@ describe('DashboardPage populated', () => {
       excitement: 2,
       effort: 4,
       tags: [],
-      updatedAt: new Date(Date.now() - 90 * 86400000).toISOString(),
+      updatedAt: daysAgo(90),
     }),
   ]
 
